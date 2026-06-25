@@ -24,10 +24,6 @@ jobs:
         run: |
           swift package resolve
 
-      - name: List available Xcode schemes
-        run: |
-          xcodebuild -list -package-path .
-
       - name: Build app
         run: |
           xcodebuild -scheme FeatureTTSReader \
