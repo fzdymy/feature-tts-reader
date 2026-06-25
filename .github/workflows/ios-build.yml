@@ -31,7 +31,6 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -archivePath $PWD/build/FeatureTTSReader.xcarchive \
-            -package-path . \
             archive
 
       - name: Create export options
