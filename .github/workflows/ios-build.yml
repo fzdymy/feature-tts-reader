@@ -24,13 +24,19 @@ jobs:
         run: |
           swift package resolve
 
-      - name: Generate Xcode project
+      - name: List available Xcode schemes
         run: |
-          swift package generate-xcodeproj --output ./FeatureTTSReader.xcodeproj
+          xcodebuild -list -package-path .
 
       - name: Build app
         run: |
-          xcodebuild -project FeatureTTSReader.xcodeproj -scheme FeatureTTSReader -configuration Release -sdk iphoneos archive -archivePath $PWD/build/FeatureTTSReader.xcarchive
+          xcodebuild -scheme FeatureTTSReader \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath $PWD/build/FeatureTTSReader.xcarchive \
+            -package-path . \
+            archive
 
       - name: Create export options
         run: |
