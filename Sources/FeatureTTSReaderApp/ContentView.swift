@@ -25,9 +25,19 @@ struct ContentView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("多角色小说朗读")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    NavigationLink(destination: BookshelfView()) {
+                        Image(systemName: "books.vertical")
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { useWholeBook.toggle() }) {
-                        Text(useWholeBook ? "全书模式" : "章节模式")
+                    HStack(spacing: 12) {
+                        Button(action: { useWholeBook.toggle() }) {
+                            Text(useWholeBook ? "全书模式" : "章节模式")
+                        }
+                        NavigationLink(destination: SettingsView()) {
+                            Image(systemName: "gearshape")
+                        }
                     }
                 }
             }

@@ -18,6 +18,14 @@ final class ReaderStore: ObservableObject {
     @Published var apiKey: String = ""
     @Published var apiEndpoint: String = "http://127.0.0.1:8080"
     @Published var playProgress: Double = 0.0
+    @Published var books: [Book] = []
+    @Published var currentBookTitle: String = ""
+    @Published var currentBookID: String = UUID().uuidString
+    @Published var currentBookProgress: Double = 0.0
+    @Published var readerFontSize: Double = 18
+    @Published var readerLineSpacing: Double = 8
+    @Published var readerTheme: ReaderTheme = .light
+    @Published var bookmarks: [BookBookmark] = []
 
     private let audioController = AudioPlaybackController()
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
@@ -49,6 +57,14 @@ final class ReaderStore: ObservableObject {
         selectedChapterID = state.selectedChapterID
         apiEndpoint = state.apiEndpoint
         apiKey = state.apiKey
+        books = state.books
+        currentBookTitle = state.currentBookTitle
+        currentBookID = state.currentBookID
+        currentBookProgress = state.currentBookProgress
+        readerFontSize = state.readerFontSize
+        readerLineSpacing = state.readerLineSpacing
+        readerTheme = state.readerTheme
+        bookmarks = state.bookmarks
         updateRecommendations(from: bookText)
     }
 
@@ -60,10 +76,82 @@ final class ReaderStore: ObservableObject {
             scriptSegments: scriptSegments,
             selectedChapterID: selectedChapterID,
             apiEndpoint: apiEndpoint,
-            apiKey: apiKey
+            apiKey: apiKey,
+            books: books,
+            currentBookTitle: currentBookTitle,
+            currentBookID: currentBookID,
+            currentBookProgress: currentBookProgress,
+            readerFontSize: readerFontSize,
+            readerLineSpacing: readerLineSpacing,
+            readerTheme: readerTheme,
+            defaultVoice: characters.first?.voice ?? "zh-CN-XiaoxiaoNeural",
+            defaultRate: characters.first?.rate ?? 0,
+            defaultPitch: characters.first?.pitch ?? 0,
+            defaultStyle: characters.first?.style ?? "neutral",
+            bookmarks: bookmarks,
+            bookProgressByChapter: [:]
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateFileURL(), options: .atomic)
+    }
+
+    func testTTSConnection() async -> String {
+        guard let url = URL(string: apiEndpoint) else { return "无效的 TTS 服务地址。" }
+        do {
+            let client = TTSHttpClient(baseURL: url, apiKey: apiKey.isEmpty ? nil : apiKey)
+            let voices = try await client.fetchVoiceList()
+            return "连通成功，发现 \(voices.count) 个音色。"
+        } catch let urlError as URLError {
+            return "网络错误：\(urlError.localizedDescription)"
+        } catch let ns as NSError {
+            return "服务错误：\(ns.localizedDescription) (code: \(ns.code))"
+        } catch {
+            return "未知错误：\(error.localizedDescription)"
+        }
+    }
+
+    func addBookmark(note: String = "") {
+        guard let chapterID = selectedChapterID,
+              let chapter = chapters.first(where: { $0.id == chapterID }) else { return }
+        let entry = BookBookmark(id: UUID(), chapterID: chapterID, chapterTitle: chapter.title, percent: currentBookProgress, note: note, createdAt: Date())
+        bookmarks.append(entry)
+        statusMessage = "已保存书签：\(chapter.title) \(Int(currentBookProgress * 100))%"
+        saveState()
+    }
+
+    func removeBookmark(_ id: UUID) {
+        bookmarks.removeAll { $0.id == id }
+        saveState()
+    }
+
+    func clearLibrary() {
+        books.removeAll()
+        statusMessage = "已清空书架。"
+        saveState()
+    }
+
+    func importFile(at url: URL) async {
+        // attempt to read with various encodings: UTF-8, GBK, UTF-16
+        let possibleEncodings: [String.Encoding] = [.utf8, .utf16, .utf16LittleEndian, .utf16BigEndian, .unicode, .gb_18030_2000]
+        var content: String? = nil
+        for enc in possibleEncodings {
+            if let data = try? Data(contentsOf: url), let s = String(data: data, encoding: enc) {
+                content = s
+                break
+            }
+        }
+        guard let text = content else {
+            statusMessage = "导入失败：无法识别文件编码。"
+            return
+        }
+        let title = url.deletingPathExtension().lastPathComponent
+        let book = Book(id: UUID(), title: title, text: text, importedAt: Date())
+        books.append(book)
+        bookText = text
+        chapters = extractChapters(from: bookText)
+        selectedChapterID = chapters.first?.id
+        statusMessage = "已导入：\(title)，共 \(chapters.count) 章。"
+        saveState()
     }
 
     private func stateFileURL() -> URL {

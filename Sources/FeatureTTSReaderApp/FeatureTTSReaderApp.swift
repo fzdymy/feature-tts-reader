@@ -6,8 +6,15 @@ struct FeatureTTSReaderApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(store)
+            TabView {
+                BookshelfView()
+                    .environmentObject(store)
+                    .tabItem { Label("书架", systemImage: "books.vertical") }
+
+                ContentView()
+                    .environmentObject(store)
+                    .tabItem { Label("朗读", systemImage: "play.circle") }
+            }
         }
     }
 }
