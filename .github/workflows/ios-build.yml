@@ -1,0 +1,68 @@
+name: iOS IPA Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iOS IPA
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+
+      - name: Install dependencies
+        run: |
+          swift package resolve
+
+      - name: Generate Xcode project
+        run: |
+          swift package generate-xcodeproj --output ./FeatureTTSReader.xcodeproj
+
+      - name: Build app
+        run: |
+          xcodebuild -project FeatureTTSReader.xcodeproj -scheme FeatureTTSReaderApp -configuration Release -sdk iphoneos archive -archivePath $PWD/build/FeatureTTSReader.xcarchive
+
+      - name: Create export options
+        run: |
+          cat > exportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>ad-hoc</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>compileBitcode</key>
+            <false/>
+            <key>stripSwiftSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Create IPA
+        run: |
+          xcodebuild -exportArchive -archivePath $PWD/build/FeatureTTSReader.xcarchive -exportPath $PWD/build/FeatureTTSReader -exportOptionsPlist $PWD/exportOptions.plist
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FeatureTTSReader.ipa
+          path: build/FeatureTTSReader/FeatureTTSReader.ipa
