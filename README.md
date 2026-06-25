@@ -18,6 +18,13 @@
 5. 导入小说文本，点击“扫描章节”与“识别角色”。
 6. 选择章节，或切换为“全书模式”，然后点击播放。
 
+## GitHub Actions 打包
+
+- 已配置 `.github/workflows/ios-build.yml` 进行自动构建。
+- 该 workflow 使用 macOS 15 Runner 和 Xcode 26.3.0。
+- 若要导出 IPA，请在仓库 Secret 中设置 `APPLE_TEAM_ID`。
+- 源码会构建并生成 Xcode 项目，然后归档并导出 IPA。
+
 ## TTS 接口兼容
 
 本应用调用 `fzdymy/tts` 的 `api/v1/voices` 与 `api/v1/tts` 接口。示例：

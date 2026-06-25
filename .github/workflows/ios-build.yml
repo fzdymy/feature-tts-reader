@@ -18,7 +18,7 @@ jobs:
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.4'
+          xcode-version: '26.3.0'
 
       - name: Install dependencies
         run: |
@@ -30,7 +30,7 @@ jobs:
 
       - name: Build app
         run: |
-          xcodebuild -project FeatureTTSReader.xcodeproj -scheme FeatureTTSReaderApp -configuration Release -sdk iphoneos archive -archivePath $PWD/build/FeatureTTSReader.xcarchive
+          xcodebuild -project FeatureTTSReader.xcodeproj -scheme FeatureTTSReader -configuration Release -sdk iphoneos archive -archivePath $PWD/build/FeatureTTSReader.xcarchive
 
       - name: Create export options
         run: |
