@@ -41,11 +41,9 @@ jobs:
 <plist version="1.0">
 <dict>
   <key>method</key>
-  <string>ad-hoc</string>
+  <string>development</string>
   <key>signingStyle</key>
   <string>automatic</string>
-  <key>teamID</key>
-  <string>$TEAM_ID</string>
   <key>compileBitcode</key>
   <false/>
   <key>stripSwiftSymbols</key>
@@ -53,8 +51,6 @@ jobs:
 </dict>
 </plist>
 EOF
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Create IPA
         run: |
