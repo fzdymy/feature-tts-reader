@@ -132,7 +132,7 @@ final class ReaderStore: ObservableObject {
 
     func importFile(at url: URL) async {
         // attempt to read with various encodings: UTF-8, UTF-16, UTF-16 variants, GBK
-        let gb18030Encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(kCFStringEncodingGB_18030_2000)))
+        let gb18030Encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
         let possibleEncodings: [String.Encoding] = [
             .utf8,
             .utf16,
@@ -144,7 +144,7 @@ final class ReaderStore: ObservableObject {
         var content: String? = nil
         let data = try? Data(contentsOf: url)
         for enc in possibleEncodings {
-            guard let enc = enc, let data = data, let s = String(data: data, encoding: enc) else {
+            guard let data = data, let s = String(data: data, encoding: enc) else {
                 continue
             }
             content = s
