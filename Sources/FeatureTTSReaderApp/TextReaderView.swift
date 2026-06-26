@@ -26,10 +26,29 @@ struct TextReaderView: View {
                                 .lineSpacing(store.readerLineSpacing)
                                 .padding()
                                 .id("content")
+                                .background(GeometryReader { geo in
+                                    Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                                })
                             Spacer().frame(height: 100)
+                            Color.clear.frame(height: 1).background(GeometryReader { geo in
+                                Color.clear.preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scrollView")) .minY)
+                            })
                         }
                     }
+                    .coordinateSpace(name: "scrollView")
                     .onTapGesture { withAnimation { showControls.toggle() } }
+                    .onPreferenceChange(ContentHeightKey.self) { _ in }
+                    .onPreferenceChange(ScrollOffsetKey.self) { minY in
+                        // estimate progress by comparing minY to content height
+                        DispatchQueue.main.async {
+                            let contentH = (UIApplication.shared.windows.first?.bounds.height ?? 800)
+                            let offset = -minY
+                            let percent = max(0, min(1, Double(offset / max(200, contentH))))
+                            if let chapterID = store.selectedChapterID {
+                                store.setChapterProgress(chapterID, percent: percent)
+                            }
+                        }
+                    }
                 }
                 .background(store.readerTheme == .dark ? Color.black : Color.white)
             }
@@ -99,6 +118,16 @@ struct TextReaderView: View {
         .onDisappear {
             store.saveState()
         }
+    }
+
+    private struct ContentHeightKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+    }
+
+    private struct ScrollOffsetKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
     }
     
     private var bookmarksList: some View {
