@@ -4,6 +4,49 @@ struct BookshelfView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var showingImporter = false
 
+    private func readerDestination(for book: Book) -> some View {
+        let chapters = extractChapters(from: book.text)
+        if let firstChapter = chapters.first {
+            return AnyView(ReaderDetailView(book: book, chapter: firstChapter).environmentObject(store))
+        }
+        return AnyView(BookDetailView(book: book).environmentObject(store))
+    }
+
+    private func extractChapters(from text: String) -> [BookChapter] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let headingPattern = "(?m)^(第[零一二三四五六七八九十百千0-9]{1,8}[章节].*)"
+        let headings = trimmed.regexGroups(pattern: headingPattern)
+        if headings.count >= 2 {
+            var chapters: [BookChapter] = []
+            let lines = trimmed.components(separatedBy: .newlines)
+            var currentTitle: String?
+            var currentText = ""
+            for line in lines {
+                if let firstHead = line.firstMatch(regex: headingPattern)?.first {
+                    if let title = currentTitle, !currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        chapters.append(BookChapter(id: UUID(), title: title, text: currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    }
+                    currentTitle = firstHead
+                    currentText = line + "\n"
+                } else {
+                    currentText.append(line + "\n")
+                }
+            }
+            if let title = currentTitle, !currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                chapters.append(BookChapter(id: UUID(), title: title, text: currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+            return chapters
+        }
+        var parts = trimmed.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if parts.count < 3 {
+            parts = trimmed.chunked(into: 12000)
+        }
+        return parts.enumerated().map { index, piece in
+            BookChapter(id: UUID(), title: "章节 \(index + 1)", text: piece.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -12,14 +55,41 @@ struct BookshelfView: View {
                         Text("书架为空，点击导入本地 TXT 或分享文件到本应用。")
                             .foregroundColor(.secondary)
                     } else {
-                        ForEach(store.books) { book in
-                            NavigationLink(destination: BookDetailView(book: book)) {
-                                VStack(alignment: .leading) {
-                                    Text(book.title).font(.headline)
-                                    Text(book.preview).font(.caption).foregroundColor(.secondary)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 16) {
+                                ForEach(store.books) { book in
+                                    NavigationLink(destination: readerDestination(for: book)) {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            ZStack {
+                                                RoundedRectangle(cornerRadius: 16)
+                                                    .fill(Color.blue.opacity(0.15))
+                                                    .frame(width: 180, height: 120)
+                                                Image(systemName: "book.fill")
+                                                    .resizable()
+                                                    .scaledToFit()
+                                                    .frame(width: 50, height: 50)
+                                                    .foregroundColor(.blue)
+                                            }
+                                            Text(book.title)
+                                                .font(.headline)
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.leading)
+                                            Text(book.preview)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(2)
+                                        }
+                                        .frame(width: 180)
+                                        .padding(12)
+                                        .background(RoundedRectangle(cornerRadius: 18).fill(Color(UIColor.secondarySystemBackground)))
+                                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.secondary.opacity(0.2)))
+                                    }
                                 }
                             }
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, -16)
                         }
+                        .listRowInsets(EdgeInsets())
                     }
                 }
                 Section(header: Text("操作")) {
