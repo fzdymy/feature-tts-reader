@@ -107,6 +107,7 @@ struct BookshelfView: View {
             .navigationTitle("书架")
             .sheet(isPresented: $showingImporter) {
                 DocumentImporter { url in
+                    showingImporter = false
                     Task { await store.importFile(at: url) }
                 }
             }
@@ -267,6 +268,7 @@ struct ReaderDetailView: View {
         .navigationTitle(chapter.title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            store.selectedChapterID = chapter.id
             store.rememberLastReadChapter(bookID: bookID, chapterIndex: chapterIndex)
         }
     }

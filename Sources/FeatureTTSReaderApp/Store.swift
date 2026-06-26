@@ -23,6 +23,8 @@ final class ReaderStore: ObservableObject {
     @Published var currentBookTitle: String = ""
     @Published var currentBookID: String = UUID().uuidString
     @Published var currentBookProgress: Double = 0.0
+
+    private var lastScannedBookText: String = ""
     @Published var readerFontSize: Double = 18
     @Published var readerLineSpacing: Double = 8
     @Published var readerTheme: ReaderTheme = .light
@@ -73,11 +75,15 @@ final class ReaderStore: ObservableObject {
         lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
         selectedVoiceCatalog = state.selectedVoiceCatalog
         defaultSensitivity = state.defaultSensitivity
+        lastScannedBookText = state.lastScannedBookText
 
         if selectedVoiceCatalog != .remote {
             voices = loadLocalVoiceCatalog(selectedVoiceCatalog)
         }
 
+        if !bookText.isEmpty && lastScannedBookText.isEmpty {
+            lastScannedBookText = bookText
+        }
         updateRecommendations(from: bookText)
     }
 
@@ -105,7 +111,8 @@ final class ReaderStore: ObservableObject {
             bookmarks: bookmarks,
             bookProgressByChapter: bookProgressByChapter,
             lastReadChapterIndexByBook: lastReadChapterIndexByBook,
-            defaultSensitivity: defaultSensitivity
+            defaultSensitivity: defaultSensitivity,
+            lastScannedBookText: lastScannedBookText
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateFileURL(), options: .atomic)
@@ -170,6 +177,16 @@ final class ReaderStore: ObservableObject {
 
     func clearLibrary() {
         books.removeAll()
+        bookText = ""
+        chapters.removeAll()
+        characters.removeAll()
+        scriptSegments.removeAll()
+        recommendations.removeAll()
+        selectedChapterID = nil
+        currentBookTitle = ""
+        currentBookID = UUID().uuidString
+        currentBookProgress = 0
+        lastScannedBookText = ""
         statusMessage = "已清空书架。"
         saveState()
     }
@@ -200,8 +217,14 @@ final class ReaderStore: ObservableObject {
         let book = Book(id: UUID(), title: title, text: text, importedAt: Date())
         books.append(book)
         bookText = text
+        currentBookTitle = title
+        currentBookID = book.id.uuidString
         chapters = extractChapters(from: bookText)
         selectedChapterID = chapters.first?.id
+        characters = []
+        scriptSegments = []
+        recommendations = []
+        lastScannedBookText = ""
         statusMessage = "已导入：\(title)，共 \(chapters.count) 章。"
         saveState()
     }
@@ -213,10 +236,15 @@ final class ReaderStore: ObservableObject {
 
     func importText(_ text: String) {
         bookText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        currentBookTitle = "未命名文本"
+        currentBookID = UUID().uuidString
         chapters = extractChapters(from: bookText)
         selectedChapterID = chapters.first?.id
+        characters = []
+        scriptSegments = []
+        recommendations = []
+        lastScannedBookText = ""
         statusMessage = "已导入文本，发现 \(chapters.count) 个章节。"
-        updateRecommendations()
         saveState()
     }
 
@@ -243,12 +271,17 @@ final class ReaderStore: ObservableObject {
             }
             statusMessage = "已识别 \(characters.count) 个角色。"
         }
+        lastScannedBookText = bookText
         updateRecommendations()
         saveState()
     }
 
     func buildScript(for wholeBook: Bool) {
         ensureVoiceOptionsLoaded()
+        if characters.isEmpty || lastScannedBookText != bookText {
+            scanCharacters()
+        }
+
         let targetText: String
         if wholeBook {
             targetText = bookText
@@ -256,10 +289,6 @@ final class ReaderStore: ObservableObject {
             targetText = chapter.text
         } else {
             targetText = bookText
-        }
-
-        if characters.isEmpty {
-            scanCharacters()
         }
 
         scriptSegments = createScriptSegments(from: targetText)
@@ -385,24 +414,15 @@ final class ReaderStore: ObservableObject {
     func playChapterWithTTS(chapter: BookChapter) async {
         isBusy = true
         statusMessage = "正在准备朗读章节..."
-        
-        let voice = characters.first?.voice ?? "zh-CN-XiaoxiaoNeural"
-        
-        do {
-            let audioURL = try await client.synthesizeAudio(
-                text: chapter.text,
-                voice: voice,
-                rate: characters.first?.rate ?? 0,
-                pitch: characters.first?.pitch ?? 0,
-                style: characters.first?.style ?? "neutral"
-            )
-            audioController.playFiles([audioURL])
-            statusMessage = "正在朗读：\(chapter.title)"
+
+        let segments = createScriptSegments(from: chapter.text)
+        guard !segments.isEmpty else {
+            statusMessage = "当前章节脚本为空，无法朗读。"
             isBusy = false
-        } catch {
-            statusMessage = "朗读失败：\(error.localizedDescription)"
-            isBusy = false
+            return
         }
+
+        await playScriptSegments(segments)
     }
 
     private func playScriptSegments(_ segments: [ScriptSegment]) async {

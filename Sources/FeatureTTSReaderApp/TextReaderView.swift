@@ -72,6 +72,7 @@ struct TextReaderView: View {
                             let contentH = (UIApplication.shared.windows.first?.bounds.height ?? 800)
                             let offset = -minY
                             let percent = max(0, min(1, Double(offset / max(200, contentH))))
+                            scrollPosition = percent * 100
                             if let chapterID = store.selectedChapterID {
                                 store.setChapterProgress(chapterID, percent: percent)
                             }

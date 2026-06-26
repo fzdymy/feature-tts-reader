@@ -44,6 +44,9 @@ struct ContentView: View {
             .onAppear {
                 rawText = store.bookText
             }
+            .onChange(of: store.bookText) { newBookText in
+                rawText = newBookText
+            }
             .sheet(item: $selectedCharacter) { character in
                 CharacterEditorView(character: character, voices: store.voices.isEmpty ? VoiceItem.defaultItems() : store.voices) { updated in
                     if let index = store.characters.firstIndex(where: { $0.id == updated.id }) {
@@ -95,7 +98,10 @@ struct ContentView: View {
                 .frame(minHeight: 220)
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.3)))
             HStack {
-                Button(action: { store.importText(rawText) }) {
+                Button(action: {
+                    store.importText(rawText)
+                    rawText = store.bookText
+                }) {
                     Text("导入文本")
                 }
                 Spacer()

@@ -150,11 +150,12 @@ struct ReaderState: Codable {
     var bookProgressByChapter: [UUID: Double]
     var lastReadChapterIndexByBook: [UUID: Int]
     var defaultSensitivity: Int
+    var lastScannedBookText: String = ""
 
     private enum CodingKeys: String, CodingKey {
         case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText
     }
 
     init(
@@ -180,7 +181,8 @@ struct ReaderState: Codable {
         bookmarks: [BookBookmark] = [],
         bookProgressByChapter: [UUID: Double] = [:],
         lastReadChapterIndexByBook: [UUID: Int] = [:],
-        defaultSensitivity: Int = 50
+        defaultSensitivity: Int = 50,
+        lastScannedBookText: String = ""
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -205,6 +207,7 @@ struct ReaderState: Codable {
         self.bookProgressByChapter = bookProgressByChapter
         self.lastReadChapterIndexByBook = lastReadChapterIndexByBook
         self.defaultSensitivity = defaultSensitivity
+        self.lastScannedBookText = lastScannedBookText
     }
 
     init(from decoder: Decoder) throws {
@@ -232,5 +235,6 @@ struct ReaderState: Codable {
         bookProgressByChapter = try container.decodeIfPresent([UUID: Double].self, forKey: .bookProgressByChapter) ?? [:]
         lastReadChapterIndexByBook = try container.decodeIfPresent([UUID: Int].self, forKey: .lastReadChapterIndexByBook) ?? [:]
         defaultSensitivity = try container.decodeIfPresent(Int.self, forKey: .defaultSensitivity) ?? 50
+        lastScannedBookText = try container.decodeIfPresent(String.self, forKey: .lastScannedBookText) ?? ""
     }
 }
