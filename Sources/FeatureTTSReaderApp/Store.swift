@@ -131,14 +131,24 @@ final class ReaderStore: ObservableObject {
     }
 
     func importFile(at url: URL) async {
-        // attempt to read with various encodings: UTF-8, GBK, UTF-16
-        let possibleEncodings: [String.Encoding] = [.utf8, .utf16, .utf16LittleEndian, .utf16BigEndian, .unicode, .gb_18030_2000]
+        // attempt to read with various encodings: UTF-8, UTF-16, UTF-16 variants, GBK
+        let gb18030Encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(kCFStringEncodingGB_18030_2000)))
+        let possibleEncodings: [String.Encoding] = [
+            .utf8,
+            .utf16,
+            .utf16LittleEndian,
+            .utf16BigEndian,
+            .unicode,
+            gb18030Encoding
+        ]
         var content: String? = nil
+        let data = try? Data(contentsOf: url)
         for enc in possibleEncodings {
-            if let data = try? Data(contentsOf: url), let s = String(data: data, encoding: enc) {
-                content = s
-                break
+            guard let enc = enc, let data = data, let s = String(data: data, encoding: enc) else {
+                continue
             }
+            content = s
+            break
         }
         guard let text = content else {
             statusMessage = "导入失败：无法识别文件编码。"
