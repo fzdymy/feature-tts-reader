@@ -160,7 +160,17 @@ struct ReaderDetailView: View {
                         }) {
                             Image(systemName: "bookmark")
                         }
-                        Button(action: { isReading.toggle() }) {
+                        Button(action: { 
+                            if isReading {
+                                store.stopPlayback()
+                                isReading = false
+                            } else {
+                                Task {
+                                    await store.playChapterWithTTS(chapter: chapter)
+                                    isReading = true
+                                }
+                            }
+                        }) {
                             Image(systemName: isReading ? "pause.fill" : "play.fill")
                         }
                     }

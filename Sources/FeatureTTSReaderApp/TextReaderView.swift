@@ -60,7 +60,17 @@ struct TextReaderView: View {
                             .frame(maxWidth: 150)
                         
                         // 朗读按钮
-                        Button(action: { isSpeaking.toggle() }) {
+                        Button(action: { 
+                            if isSpeaking {
+                                store.stopPlayback()
+                                isSpeaking = false
+                            } else {
+                                Task {
+                                    await store.playChapterWithTTS(chapter: chapter)
+                                    isSpeaking = true
+                                }
+                            }
+                        }) {
                             Image(systemName: isSpeaking ? "pause.fill" : "play.fill")
                         }
                         

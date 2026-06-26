@@ -289,6 +289,33 @@ final class ReaderStore: ObservableObject {
         statusMessage = "已停止播放。"
     }
 
+    func playChapterWithTTS(chapter: BookChapter) async {
+        isBusy = true
+        statusMessage = "正在准备朗读章节..."
+        
+        guard let voice = characters.first?.voice ?? "zh-CN-XiaoxiaoNeural" else {
+            statusMessage = "未配置语音。"
+            isBusy = false
+            return
+        }
+        
+        do {
+            let audioURL = try await client.synthesizeAudio(
+                text: chapter.text,
+                voice: voice,
+                rate: characters.first?.rate ?? 0,
+                pitch: characters.first?.pitch ?? 0,
+                style: characters.first?.style ?? "neutral"
+            )
+            audioController.playFiles([audioURL])
+            statusMessage = "正在朗读：\(chapter.title)"
+            isBusy = false
+        } catch {
+            statusMessage = "朗读失败：\(error.localizedDescription)"
+            isBusy = false
+        }
+    }
+
     private func playScriptSegments(_ segments: [ScriptSegment]) async {
         guard !segments.isEmpty else {
             statusMessage = "当前没有可播放的朗读段落。"
