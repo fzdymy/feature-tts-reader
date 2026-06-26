@@ -45,9 +45,11 @@ struct ContentView: View {
                 rawText = store.bookText
             }
             .sheet(item: $selectedCharacter) { character in
-                CharacterEditorView(character: character, voices: store.voices) { updated in
+                CharacterEditorView(character: character, voices: store.voices.isEmpty ? VoiceItem.defaultItems() : store.voices) { updated in
                     if let index = store.characters.firstIndex(where: { $0.id == updated.id }) {
                         store.characters[index] = updated
+                        store.updateRecommendations()
+                        store.saveState()
                     }
                 }
             }

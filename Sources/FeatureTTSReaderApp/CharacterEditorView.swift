@@ -59,6 +59,7 @@ struct CharacterEditorView: View {
                                 store.characters[idx].voice = v
                             }
                         }
+                        store.updateRecommendations()
                         store.saveState()
                     }) {
                         Text("为所有角色应用推荐音色")

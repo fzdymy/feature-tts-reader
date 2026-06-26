@@ -51,6 +51,16 @@ struct VoiceItem: Identifiable, Hashable, Codable {
     var displayName: String {
         name.isEmpty ? id : name
     }
+
+    static func defaultItems() -> [VoiceItem] {
+        [
+            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN", styleList: nil)
+        ]
+    }
 }
 
 enum VoiceCatalogSource: String, CaseIterable, Codable, Identifiable {

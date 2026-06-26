@@ -111,6 +111,12 @@ final class ReaderStore: ObservableObject {
         try? data.write(to: stateFileURL(), options: .atomic)
     }
 
+    private func ensureVoiceOptionsLoaded() {
+        if selectedVoiceCatalog != .remote && voices.isEmpty {
+            voices = loadLocalVoiceCatalog(selectedVoiceCatalog)
+        }
+    }
+
     func testTTSConnection() async -> String {
         guard let url = URL(string: apiEndpoint) else { return "无效的 TTS 服务地址。" }
         do {
@@ -222,11 +228,19 @@ final class ReaderStore: ObservableObject {
     }
 
     func scanCharacters() {
+        ensureVoiceOptionsLoaded()
         characters = inferCharacters(from: bookText)
         if characters.isEmpty {
-            characters = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+            characters = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳"), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
             statusMessage = "未识别到明确人物，已创建默认叙述者。"
         } else {
+            characters = characters.map { profile in
+                var updated = profile
+                if updated.voice.isEmpty {
+                    updated.voice = defaultVoice(for: profile.gender, tone: profile.tone, name: profile.name)
+                }
+                return updated
+            }
             statusMessage = "已识别 \(characters.count) 个角色。"
         }
         updateRecommendations()
@@ -234,6 +248,7 @@ final class ReaderStore: ObservableObject {
     }
 
     func buildScript(for wholeBook: Bool) {
+        ensureVoiceOptionsLoaded()
         let targetText: String
         if wholeBook {
             targetText = bookText
@@ -277,13 +292,14 @@ final class ReaderStore: ObservableObject {
         do {
             voices = try await client.fetchVoiceList()
             if voices.isEmpty {
+                voices = VoiceItem.defaultItems()
                 statusMessage = "语音列表为空，使用默认内置音色。"
             } else {
                 statusMessage = "已加载远程服务音色，共 \(voices.count) 个。"
             }
         } catch {
-            voices = []
-            statusMessage = "获取语音失败：\(error.localizedDescription)"
+            voices = VoiceItem.defaultItems()
+            statusMessage = "获取语音失败：\(error.localizedDescription)，已使用默认内置音色。"
         }
         updateRecommendations()
         saveState()
@@ -513,11 +529,16 @@ final class ReaderStore: ObservableObject {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
             let lines = trimmed.chunked(into: 900)
             for line in lines {
-                let speaker = detectSpeaker(in: line) ?? characters.first?.name ?? "叙述者"
-                var profile = characters.first(where: { line.contains($0.name) }) ?? characters.first(where: { $0.name == speaker }) ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+                    let speaker = detectSpeaker(in: line) ?? characters.first?.name ?? "叙述者"
+                let matchedProfile = characters.first(where: { line.contains($0.name) })
+                let speakerProfile = matchedProfile ?? characters.first(where: { $0.name == speaker })
+                let tone = detectTone(in: line)
+                var profile = speakerProfile ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+                if profile.voice.isEmpty {
+                    profile.voice = defaultVoice(for: profile.gender, tone: tone, name: profile.name)
+                }
 
                 // detect tone for this line and derive style/pitch adjustments
-                let tone = detectTone(in: line)
                 let dynamicStyle = styleFromTone(tone)
                 let tonePitchBase: Int
                 switch dynamicStyle {
@@ -616,7 +637,7 @@ final class ReaderStore: ObservableObject {
 
         let counts = countCharacterAppearances(in: text)
         let candidates = characters.sorted { (counts[$0.name] ?? 0) > (counts[$1.name] ?? 0) }
-        let voiceOptions = voices.isEmpty ? defaultVoiceItems() : voices
+        let voiceOptions = voices.isEmpty ? VoiceItem.defaultItems() : voices
 
         recommendations = candidates.map { profile in
             let suggested = suggestedVoices(for: profile, from: voiceOptions)
@@ -636,13 +657,7 @@ final class ReaderStore: ObservableObject {
     }
 
     private func defaultVoiceItems() -> [VoiceItem] {
-        [
-            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN", styleList: nil)
-        ]
+        VoiceItem.defaultItems()
     }
 
     private func detectGender(in context: String) -> String {
@@ -702,7 +717,7 @@ final class ReaderStore: ObservableObject {
     }
 
     private func defaultVoice(for gender: String, tone: String, name: String? = nil) -> String {
-        let options = voices.isEmpty ? defaultVoiceItems() : voices
+        let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
         let profile = CharacterProfile(id: UUID(), name: name ?? "叙述者", gender: gender, age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
         let best = options.max(by: { voiceMatchScore($0, for: profile) < voiceMatchScore($1, for: profile) })
         return best?.id ?? "zh-CN-XiaoxiaoNeural"
