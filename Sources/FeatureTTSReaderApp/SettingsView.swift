@@ -33,6 +33,11 @@ struct SettingsView: View {
                     Slider(value: $store.readerLineSpacing, in: 0...20, step: 1)
                     Text("\(Int(store.readerLineSpacing))")
                 }
+                HStack {
+                    Text("语气灵敏度")
+                    Slider(value: Binding(get: { Double(store.defaultSensitivity) }, set: { store.defaultSensitivity = Int($0) }), in: 0...100)
+                    Text("\(store.defaultSensitivity)")
+                }
                 Picker("主题", selection: $store.readerTheme) {
                     ForEach(ReaderTheme.allCases, id: \ .self) { theme in
                         Text(theme.displayName).tag(theme)

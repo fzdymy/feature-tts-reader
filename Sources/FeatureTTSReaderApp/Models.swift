@@ -109,11 +109,12 @@ struct ReaderState: Codable {
     var defaultStyle: String
     var bookmarks: [BookBookmark]
     var bookProgressByChapter: [UUID: Double]
+    var defaultSensitivity: Int
 
     private enum CodingKeys: String, CodingKey {
-        case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
-             books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter
+           case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
+               books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
+               readerTheme, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, defaultSensitivity
     }
 
     init(
@@ -137,6 +138,7 @@ struct ReaderState: Codable {
         defaultStyle: String = "neutral",
         bookmarks: [BookBookmark] = [],
         bookProgressByChapter: [UUID: Double] = [:]
+            defaultSensitivity: Int = 50
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -158,6 +160,7 @@ struct ReaderState: Codable {
         self.defaultStyle = defaultStyle
         self.bookmarks = bookmarks
         self.bookProgressByChapter = bookProgressByChapter
+        self.defaultSensitivity = defaultSensitivity
     }
 
     init(from decoder: Decoder) throws {
@@ -182,5 +185,6 @@ struct ReaderState: Codable {
         defaultStyle = try container.decodeIfPresent(String.self, forKey: .defaultStyle) ?? "neutral"
         bookmarks = try container.decodeIfPresent([BookBookmark].self, forKey: .bookmarks) ?? []
         bookProgressByChapter = try container.decodeIfPresent([UUID: Double].self, forKey: .bookProgressByChapter) ?? [:]
+        defaultSensitivity = try container.decodeIfPresent(Int.self, forKey: .defaultSensitivity) ?? 50
     }
 }

@@ -27,6 +27,7 @@ final class ReaderStore: ObservableObject {
     @Published var readerTheme: ReaderTheme = .light
     @Published var bookmarks: [BookBookmark] = []
     @Published var bookProgressByChapter: [UUID: Double] = [:]
+    @Published var defaultSensitivity: Int = 50
 
     private let audioController = AudioPlaybackController()
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
@@ -67,6 +68,7 @@ final class ReaderStore: ObservableObject {
         readerTheme = state.readerTheme
         bookmarks = state.bookmarks
         bookProgressByChapter = state.bookProgressByChapter
+        defaultSensitivity = state.defaultSensitivity
         updateRecommendations(from: bookText)
     }
 
@@ -91,7 +93,8 @@ final class ReaderStore: ObservableObject {
             defaultPitch: characters.first?.pitch ?? 0,
             defaultStyle: characters.first?.style ?? "neutral",
             bookmarks: bookmarks,
-            bookProgressByChapter: bookProgressByChapter
+            bookProgressByChapter: bookProgressByChapter,
+            defaultSensitivity: defaultSensitivity
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateFileURL(), options: .atomic)
