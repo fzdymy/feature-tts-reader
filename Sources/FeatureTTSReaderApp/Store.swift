@@ -628,7 +628,7 @@ final class ReaderStore: ObservableObject {
         return nil
     }
 
-    private func updateRecommendations(from sourceText: String? = nil) {
+    func updateRecommendations(from sourceText: String? = nil) {
         let text = sourceText ?? bookText
         guard !characters.isEmpty else {
             recommendations = []
