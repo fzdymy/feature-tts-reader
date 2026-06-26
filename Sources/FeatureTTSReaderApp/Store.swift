@@ -308,11 +308,7 @@ final class ReaderStore: ObservableObject {
         isBusy = true
         statusMessage = "正在准备朗读章节..."
         
-        guard let voice = characters.first?.voice ?? "zh-CN-XiaoxiaoNeural" else {
-            statusMessage = "未配置语音。"
-            isBusy = false
-            return
-        }
+        let voice = characters.first?.voice ?? "zh-CN-XiaoxiaoNeural"
         
         do {
             let audioURL = try await client.synthesizeAudio(
