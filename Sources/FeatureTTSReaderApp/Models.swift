@@ -137,8 +137,8 @@ struct ReaderState: Codable {
         defaultPitch: Int = 0,
         defaultStyle: String = "neutral",
         bookmarks: [BookBookmark] = [],
-        bookProgressByChapter: [UUID: Double] = [:]
-            defaultSensitivity: Int = 50
+        bookProgressByChapter: [UUID: Double] = [:],
+        defaultSensitivity: Int = 50
     ) {
         self.bookText = bookText
         self.chapters = chapters

@@ -468,8 +468,10 @@ final class ReaderStore: ObservableObject {
                 default: tonePitchBase = 0
                 }
 
+                // determine sensitivity: use character-specific if set (>0), otherwise fall back to global default
+                let sensitivityValue = (profile.sensitivity > 0) ? profile.sensitivity : defaultSensitivity
                 // sensitivity scales how strongly this character follows detected tone
-                let sensitivityFactor = Double(max(0, min(profile.sensitivity, 100))) / 50.0 // 50 -> 1.0
+                let sensitivityFactor = Double(max(0, min(sensitivityValue, 100))) / 50.0 // 50 -> 1.0
                 let scaledPitchAdjustment = Int(Double(tonePitchBase) * sensitivityFactor)
 
                 // If profile has a non-neutral custom style, honor it; otherwise prefer detected style when sensitivity high

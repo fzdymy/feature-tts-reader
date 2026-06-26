@@ -131,23 +131,46 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
             } else {
                 ForEach(store.characters) { character in
-                    Button(action: { selectedCharacter = character }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(character.name)
-                                    .font(.headline)
-                                Text(character.info)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text("音色：\(character.voice) · 语速：\(character.rate) · 音调：\(character.pitch) · 风格：\(character.style)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
+                    HStack {
+                        Button(action: { selectedCharacter = character }) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(character.name)
+                                        .font(.headline)
+                                    Text(character.info)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text("音色：\(character.voice) · 语速：\(character.rate) · 音调：\(character.pitch) · 风格：\(character.style)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
                             }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.secondary)
+                            .padding(.vertical, 6)
                         }
-                        .padding(.vertical, 6)
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                // quick apply first recommended voice for this character
+                                if let rec = store.recommendations.first(where: { $0.id == character.id }), let suggested = rec.suggestedVoices.first {
+                                    store.applyVoice(suggested.id, toCharacterID: character.id)
+                                }
+                            }) {
+                                Image(systemName: "wand.and.stars")
+                            }
+                            Button(action: { Task { await store.previewVoice(for: character) } }) {
+                                Image(systemName: "play.circle")
+                            }
+                            Button(action: {
+                                if let idx = store.characters.firstIndex(where: { $0.id == character.id }) {
+                                    store.characters[idx].sensitivity = store.defaultSensitivity
+                                    store.saveState()
+                                }
+                            }) {
+                                Image(systemName: "slider.horizontal.3")
+                            }
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .foregroundColor(.blue)
                     }
                 }
             }
