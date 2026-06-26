@@ -24,6 +24,29 @@ struct TextReaderView: View {
         }
     }
 
+    private var paragraphs: [String] {
+        chapter.text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var textColor: Color {
+        store.readerTheme == .dark ? .white : .primary
+    }
+
+    @ViewBuilder
+    private func paragraphView(_ para: String) -> some View {
+        Text(para)
+            .font(.system(size: store.readerFontSize))
+            .foregroundColor(textColor)
+            .lineSpacing(store.readerLineSpacing)
+            .padding(.vertical, 6)
+            .id(para)
+            .onTapGesture(count: 2) {
+                Task { await store.playFromParagraph(para); isSpeaking = true }
+            }
+    }
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             VStack {
@@ -31,16 +54,8 @@ struct TextReaderView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             VStack(alignment: .leading, spacing: 10) {
-                                ForEach(chapter.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }, id: \.self) { para in
-                                    Text(para)
-                                        .font(.system(size: store.readerFontSize))
-                                        .foregroundColor(store.readerTheme == .dark ? .white : .primary)
-                                        .lineSpacing(store.readerLineSpacing)
-                                        .padding(.vertical, 6)
-                                        .id(para)
-                                        .onTapGesture(count: 2) {
-                                            Task { await store.playFromParagraph(para); isSpeaking = true }
-                                        }
+                                ForEach(paragraphs, id: \.self) { para in
+                                    paragraphView(para)
                                 }
                             }
                             .padding()
@@ -50,7 +65,7 @@ struct TextReaderView: View {
                             })
                             Spacer().frame(height: 100)
                             Color.clear.frame(height: 1).background(GeometryReader { geo in
-                                Color.clear.preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scrollView")) .minY)
+                                Color.clear.preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scrollView")).minY)
                             })
                         }
                     }

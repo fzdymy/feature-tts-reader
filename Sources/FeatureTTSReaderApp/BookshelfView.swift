@@ -204,17 +204,26 @@ struct ReaderDetailView: View {
     @State private var lineSpacing: Double = 8
     @State private var theme: ReaderTheme = .light
     @State private var isReading: Bool = false
+
+    private var textColor: Color {
+        theme == .dark ? .white : .primary
+    }
+
+    @ViewBuilder
+    private var chapterTextView: some View {
+        Text(chapter.text)
+            .font(.system(size: fontSize))
+            .foregroundColor(textColor)
+            .lineSpacing(lineSpacing)
+            .padding()
+    }
     
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(chapter.text)
-                            .font(.system(size: fontSize))
-                            .foregroundColor(theme == .dark ? .white : .primary)
-                            .lineSpacing(lineSpacing)
-                            .padding()
+                        chapterTextView
                         Spacer().frame(height: 100)
                     }
                     .id("content")
