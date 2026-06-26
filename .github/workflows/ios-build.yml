@@ -35,22 +35,23 @@ jobs:
       - name: Create export options plist
         run: |
           mkdir -p build
-          cat << 'PLIST' > build/exportOptions.plist
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://apple.com">
-<plist version="1.0">
-<dict>
-	<key>method</key>
-	<string>development</string>
-	<key>signingStyle</key>
-	<string>automatic</string>
-	<key>compileBitcode</key>
-	<false/>
-	<key>stripSwiftSymbols</key>
-	<true/>
-</dict>
-</plist>
-PLIST
+          # 使用 sed 去除每行前端的 10 个空格，保证写入文件的 plist 格式绝对纯净
+          sed 's/^          //' << 'PLIST' > build/exportOptions.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://apple.com">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>compileBitcode</key>
+              <false/>
+              <key>stripSwiftSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
 
       - name: Export IPA
         run: |
