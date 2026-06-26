@@ -38,13 +38,11 @@ jobs:
 
       - name: Package app into IPA
         run: |
-          # 1. 创建标准的打包目录结构
+
           mkdir -p build/Payload/FeatureTTSReader.app
-          
-          # 2. 复制二进制文件
+
           cp build_output/Release-iphoneos/FeatureTTSReader build/Payload/FeatureTTSReader.app/
-          
-          # 3. 使用系统自带的 plutil 动态创建完美的 Info.plist，不含任何长字符串
+
           PLIST_PATH="build/Payload/FeatureTTSReader.app/Info.plist"
           plutil -create xml1 "$PLIST_PATH"
           plutil -insert CFBundleDevelopmentRegion -string "en" "$PLIST_PATH"
@@ -61,6 +59,13 @@ jobs:
           plutil -insert UIDeviceFamily.0 -integer 1 "$PLIST_PATH"
           plutil -insert UIDeviceFamily.1 -integer 2 "$PLIST_PATH"
           
-          # 4. 封包为 .ipa 文件（只 cd 一次）
+
           cd build
           zip -r FeatureTTSReader_unsigned.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FeatureTTSReader-Unsigned-IPA
+          path: build/FeatureTTSReader_unsigned.ipa
+          if-no-files-found: error
