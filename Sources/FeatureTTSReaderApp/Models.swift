@@ -10,6 +10,7 @@ struct BookChapter: Identifiable, Hashable, Codable {
         if cleaned.count <= 120 { return cleaned }
         return String(cleaned.prefix(120)) + "..."
     }
+}
 
 struct Book: Identifiable, Hashable, Codable {
     let id: UUID
@@ -181,5 +182,4 @@ struct ReaderState: Codable {
         bookmarks = try container.decodeIfPresent([BookBookmark].self, forKey: .bookmarks) ?? []
         bookProgressByChapter = try container.decodeIfPresent([UUID: Double].self, forKey: .bookProgressByChapter) ?? [:]
     }
-}
 }
