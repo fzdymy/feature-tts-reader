@@ -26,6 +26,7 @@ final class ReaderStore: ObservableObject {
     @Published var readerLineSpacing: Double = 8
     @Published var readerTheme: ReaderTheme = .light
     @Published var bookmarks: [BookBookmark] = []
+    @Published var bookProgressByChapter: [UUID: Double] = [:]
 
     private let audioController = AudioPlaybackController()
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
@@ -65,6 +66,7 @@ final class ReaderStore: ObservableObject {
         readerLineSpacing = state.readerLineSpacing
         readerTheme = state.readerTheme
         bookmarks = state.bookmarks
+        bookProgressByChapter = state.bookProgressByChapter
         updateRecommendations(from: bookText)
     }
 
@@ -89,7 +91,7 @@ final class ReaderStore: ObservableObject {
             defaultPitch: characters.first?.pitch ?? 0,
             defaultStyle: characters.first?.style ?? "neutral",
             bookmarks: bookmarks,
-            bookProgressByChapter: [:]
+            bookProgressByChapter: bookProgressByChapter
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateFileURL(), options: .atomic)
@@ -111,9 +113,10 @@ final class ReaderStore: ObservableObject {
     }
 
     func addBookmark(note: String = "") {
-        guard let chapterID = selectedChapterID,
+          guard let chapterID = selectedChapterID,
               let chapter = chapters.first(where: { $0.id == chapterID }) else { return }
-        let entry = BookBookmark(id: UUID(), chapterID: chapterID, chapterTitle: chapter.title, percent: currentBookProgress, note: note, createdAt: Date())
+          let percent = bookProgressByChapter[chapterID] ?? currentBookProgress
+          let entry = BookBookmark(id: UUID(), chapterID: chapterID, chapterTitle: chapter.title, percent: percent, note: note, createdAt: Date())
         bookmarks.append(entry)
         statusMessage = "已保存书签：\(chapter.title) \(Int(currentBookProgress * 100))%"
         saveState()
@@ -122,6 +125,18 @@ final class ReaderStore: ObservableObject {
     func removeBookmark(_ id: UUID) {
         bookmarks.removeAll { $0.id == id }
         saveState()
+    }
+
+    func setChapterProgress(_ chapterID: UUID, percent: Double) {
+        let capped = min(max(percent, 0), 1)
+        bookProgressByChapter[chapterID] = capped
+        // update overall progress as average or current chapter
+        currentBookProgress = capped
+        saveState()
+    }
+
+    func getChapterProgress(_ chapterID: UUID) -> Double {
+        return bookProgressByChapter[chapterID] ?? 0
     }
 
     func clearLibrary() {
