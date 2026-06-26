@@ -6,14 +6,14 @@ struct BookshelfView: View {
 
     private func readerDestination(for book: Book) -> some View {
         let chapters = extractChapters(from: book.text)
-        if let resumeChapterID = store.lastReadChapter(for: book.id), let chapter = chapters.first(where: { $0.id == resumeChapterID }) {
-            return AnyView(ReaderDetailView(book: book, chapter: chapter).environmentObject(store))
+        if let resumeIndex = store.lastReadChapterIndex(for: book.id), resumeIndex >= 0, resumeIndex < chapters.count {
+            return AnyView(ReaderDetailView(book: book, chapter: chapters[resumeIndex], bookID: book.id, chapterIndex: resumeIndex).environmentObject(store))
         }
         if let firstChapter = chapters.first {
-            return AnyView(ReaderDetailView(book: book, chapter: firstChapter).environmentObject(store))
+            return AnyView(ReaderDetailView(book: book, chapter: firstChapter, bookID: book.id, chapterIndex: 0).environmentObject(store))
         }
         let fullChapter = BookChapter(id: UUID(), title: "全文", text: book.text)
-        return AnyView(ReaderDetailView(book: book, chapter: fullChapter).environmentObject(store))
+        return AnyView(ReaderDetailView(book: book, chapter: fullChapter, bookID: book.id, chapterIndex: 0).environmentObject(store))
     }
 
     private func extractChapters(from text: String) -> [BookChapter] {
@@ -135,8 +135,8 @@ struct BookDetailView: View {
                 }
             } else {
                 List {
-                    ForEach(chapters) { chapter in
-                        NavigationLink(destination: ReaderDetailView(book: book, chapter: chapter)) {
+                    ForEach(Array(chapters.enumerated()), id: \ .1) { index, chapter in
+                        NavigationLink(destination: ReaderDetailView(book: book, chapter: chapter, bookID: book.id, chapterIndex: index).environmentObject(store)) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(chapter.title).font(.headline)
                                 Text(chapter.preview).font(.caption).foregroundColor(.secondary).lineLimit(2)
@@ -195,6 +195,8 @@ struct ReaderDetailView: View {
     @EnvironmentObject private var store: ReaderStore
     let book: Book
     let chapter: BookChapter
+    let bookID: UUID
+    let chapterIndex: Int
     @State private var showControls: Bool = true
     @State private var scrollPosition: CGFloat = 0
     @State private var fontSize: Double = 18
@@ -264,6 +266,9 @@ struct ReaderDetailView: View {
         }
         .navigationTitle(chapter.title)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            store.rememberLastReadChapter(bookID: bookID, chapterIndex: chapterIndex)
+        }
     }
 }
 

@@ -27,6 +27,7 @@ final class ReaderStore: ObservableObject {
     @Published var readerTheme: ReaderTheme = .light
     @Published var bookmarks: [BookBookmark] = []
     @Published var bookProgressByChapter: [UUID: Double] = [:]
+    @Published var lastReadChapterIndexByBook: [UUID: Int] = [:]
     @Published var defaultSensitivity: Int = 50
 
     private let audioController = AudioPlaybackController()
@@ -68,6 +69,7 @@ final class ReaderStore: ObservableObject {
         readerTheme = state.readerTheme
         bookmarks = state.bookmarks
         bookProgressByChapter = state.bookProgressByChapter
+        lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
         defaultSensitivity = state.defaultSensitivity
         updateRecommendations(from: bookText)
     }
@@ -94,6 +96,7 @@ final class ReaderStore: ObservableObject {
             defaultStyle: characters.first?.style ?? "neutral",
             bookmarks: bookmarks,
             bookProgressByChapter: bookProgressByChapter,
+            lastReadChapterIndexByBook: lastReadChapterIndexByBook,
             defaultSensitivity: defaultSensitivity
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
@@ -140,6 +143,15 @@ final class ReaderStore: ObservableObject {
 
     func getChapterProgress(_ chapterID: UUID) -> Double {
         return bookProgressByChapter[chapterID] ?? 0
+    }
+
+    func rememberLastReadChapter(bookID: UUID, chapterIndex: Int) {
+        lastReadChapterIndexByBook[bookID] = chapterIndex
+        saveState()
+    }
+
+    func lastReadChapterIndex(for bookID: UUID) -> Int? {
+        return lastReadChapterIndexByBook[bookID]
     }
 
     func clearLibrary() {
