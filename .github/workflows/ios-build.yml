@@ -38,29 +38,15 @@ jobs:
 
       - name: Package app into IPA
         run: |
-          mkdir -p build/Payload
+          mkdir -p build/Payload/FeatureTTSReader.app
+          cp build_output/Release-iphoneos/FeatureTTSReader build/Payload/FeatureTTSReader.app/
           
-          echo "=== 正在全局搜寻编译产物 ==="
-          # 1. 优先搜寻当前目录下的编译输出
-          APP_PATH=$(find build_output -name "*.app" -type d 2>/dev/null | head -n 1)
+          # 使用 Base64 解码生成 Info.plist，彻底杜绝 YAML 格式错误
+          echo "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+Q0ZCdW5kbGVEZXZlbG9wbWVudFJlZ2lvbjwva2V5PgoJPHN0cmluZz5lbjwvc3RyaW5nPgoJPGtleT5DRkJ1bmRsZUV4ZWN1dGFibGU8L2tleT4KCTxzdHJpbmc+RmVhdHVyZVRUU1JlYWRlcjwvc3RyaW5nPgoJPGtleT5DRkJ1bmRsZUlkZW50aWZpZXI8L2tleT4KCTxzdHJpbmc+Y29tLmV4YW1wbGUuRmVhdHVyZVRUU1JlYWRlcjwvc3RyaW5nPgoJPGtleT5DRkJ1bmRsZUluZm9EaWN0aW9uYXJ5VmVyc2lvbjwva2V5PgoJPHN0cmluZz42LjA8L3N0cmluZz4KCTxrZXk+Q0ZCdW5kbGVOYW1lPC9rZXk+Cgk8c3RyaW5nPkZlYXR1cmVUVFNSZWFkZXI8L3N0cmluZz4KCTxrZXk+Q0ZCdW5kbGVQYWNrYWdlVHlwZTwva2V5PgoJPHN0cmluZz5BUFBMPC9zdHJpbmc+Cgk8a2V5PkNGQnVuZGxlU2hvcnRWZXJzaW9uU3RyaW5nPC9rZXk+Cgk8c3RyaW5nPjEuMDwvc3RyaW5nPgoJPGtleT5DRkJ1bmRsZVZlcnNpb248L2tleT4KCTxzdHJpbmc+MTwvc3RyaW5nPgoJPGtleT5MU1JlcXVpcmVzSVBob25lT1M8L2tleT4KCTx0cnVlLz4KCTxrZXk+TWluaW11bU9TVmVyc2lvbjwva2V5PgoJPHN0cmluZz4xNS4wPC9zdHJpbmc+Cgk8a2V5PlVJRGV2aWNlRmFtaWx5PC9rZXk+Cgk8YXJyYXk+CgkJPGludGVnZXI+MTwvaW50ZWdlcj4KCQk8aW50ZWdlcj4yPC9pbnRlZ2VyPgoJL3BhcnJheT4KPC9kaWN0Pgo8L3BsaXN0Pg==" | base64 -d > build/Payload/FeatureTTSReader.app/Info.plist
           
-          # 2. 如果没找到，去系统的默认本地 DerivedData 目录搜寻
-          if [ -z "$APP_PATH" ]; then
-            echo "提示：未在当前目录找到，正在前往系统 DerivedData 目录搜寻..."
-            APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "FeatureTTSReader*.app" -type d 2>/dev/null | head -n 1)
-          fi
+          cd build
+          zip -r FeatureTTSReader_unsigned.ipa Payload
           
-          # 3. 如果依然没找到，抛出搜寻结果诊断日志
-          if [ -z "$APP_PATH" ]; then
-            echo "错误: 未能找到任何编译出的 .app 文件！"
-            echo "=== 当前工作目录结构如下 ==="
-            ls -R build_output 2>/dev/null || echo "build_output 目录为空"
-            exit 1
-          fi
-          
-          echo "成功找到 App 路径: $APP_PATH"
-          cp -R "$APP_PATH" build/Payload/
-          
-          # 封包为 .ipa 文件
+          # 4. 封包为可供 SideStore 识别的 .ipa 文件
           cd build
           zip -r FeatureTTSReader_unsigned.ipa Payload
