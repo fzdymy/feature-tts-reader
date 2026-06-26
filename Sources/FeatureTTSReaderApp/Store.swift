@@ -461,16 +461,27 @@ final class ReaderStore: ObservableObject {
                 // detect tone for this line and derive style/pitch adjustments
                 let tone = detectTone(in: line)
                 let dynamicStyle = styleFromTone(tone)
-                let tonePitchAdjustment: Int
+                let tonePitchBase: Int
                 switch dynamicStyle {
-                case "cheerful": tonePitchAdjustment = 8
-                case "angry": tonePitchAdjustment = 10
-                case "sad": tonePitchAdjustment = -6
-                default: tonePitchAdjustment = 0
+                case "cheerful": tonePitchBase = 8
+                case "angry": tonePitchBase = 10
+                case "sad": tonePitchBase = -6
+                default: tonePitchBase = 0
                 }
 
-                let finalStyle = profile.style == "neutral" ? dynamicStyle : profile.style
-                let finalPitch = profile.pitch + tonePitchAdjustment
+                // sensitivity scales how strongly this character follows detected tone
+                let sensitivityFactor = Double(max(0, min(profile.sensitivity, 100))) / 50.0 // 50 -> 1.0
+                let scaledPitchAdjustment = Int(Double(tonePitchBase) * sensitivityFactor)
+
+                // If profile has a non-neutral custom style, honor it; otherwise prefer detected style when sensitivity high
+                let finalStyle: String
+                if profile.style != "neutral" {
+                    finalStyle = profile.style
+                } else {
+                    finalStyle = sensitivityFactor >= 0.6 ? dynamicStyle : "neutral"
+                }
+
+                let finalPitch = profile.pitch + scaledPitchAdjustment
                 let finalRate = profile.rate
 
                 segments.append(ScriptSegment(
