@@ -30,7 +30,8 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath $PWD/DerivedData \
+            -clonedSourcePackagesDirPath $PWD/.spm_cache \
+            BUILD_DIR=$PWD/build_output \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
@@ -38,16 +39,16 @@ jobs:
       - name: Package app into IPA
         run: |
           mkdir -p build/Payload
-
-          APP_PATH=$(find DerivedData -name "*.app" -type d | head -n 1)
+          
+          # 精准寻找编译出的 .app 文件夹并复制到 Payload
+          APP_PATH=$(find build_output -name "*.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "错误: 未找到编译出的 .app 文件！"
+            echo "错误: 未在输出目录中找到编译出的 .app 文件！"
             exit 1
           fi
           
           echo "寻找到的 App 路径: $APP_PATH"
           cp -R "$APP_PATH" build/Payload/
-          
-          # 封包为 .ipa 文件
+
           cd build
-          zip -r FeatureTTSReader.ipa Payload
+          zip -r FeatureTTSReaderipa Payload
