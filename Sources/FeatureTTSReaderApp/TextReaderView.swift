@@ -7,11 +7,21 @@ struct TextReaderView: View {
     @State private var isSpeaking: Bool = false
     @State private var speakingIndex: Int = 0
     @State private var showBookmarks: Bool = false
+    @State private var currentScale: CGFloat = 1.0
 
     private var fontSizeBinding: Binding<Double> { $store.readerFontSize }
     private var lineSpacingBinding: Binding<Double> { $store.readerLineSpacing }
     private var chapterBookmarks: [BookBookmark] {
         store.bookmarks.filter { $0.chapterID == chapter.id }
+    }
+
+    private func adjustPage(by delta: Double) {
+        if let chapterID = store.selectedChapterID {
+            let current = store.getChapterProgress(chapterID)
+            let next = min(max(0, current + delta), 1)
+            store.setChapterProgress(chapterID, percent: next)
+            store.statusMessage = "已翻页，进度：\(Int(next * 100))%"
+        }
     }
 
     var body: some View {
@@ -44,6 +54,15 @@ struct TextReaderView: View {
                             })
                         }
                     }
+                    .gesture(MagnificationGesture()
+                        .onChanged { v in currentScale = v }
+                        .onEnded { v in
+                            let newSize = min(max(14, store.readerFontSize * Double(v)), 32)
+                            store.readerFontSize = newSize
+                            store.saveState()
+                            currentScale = 1.0
+                        }
+                    )
                     .coordinateSpace(name: "scrollView")
                     .onTapGesture { withAnimation { showControls.toggle() } }
                     .onPreferenceChange(ContentHeightKey.self) { _ in }
@@ -71,6 +90,12 @@ struct TextReaderView: View {
                     }
                     
                     HStack(spacing: 12) {
+                        Button(action: { adjustPage(by: -0.1) }) {
+                            Image(systemName: "chevron.up.circle")
+                        }
+                        Button(action: { adjustPage(by: 0.1) }) {
+                            Image(systemName: "chevron.down.circle")
+                        }
                         // 书签按钮
                         Button(action: { showBookmarks.toggle() }) {
                             Image(systemName: "bookmark\(chapterBookmarks.isEmpty ? "" : ".fill")")
