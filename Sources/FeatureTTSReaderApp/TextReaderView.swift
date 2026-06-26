@@ -8,6 +8,7 @@ struct TextReaderView: View {
     @State private var speakingIndex: Int = 0
     @State private var showBookmarks: Bool = false
     @State private var currentScale: CGFloat = 1.0
+    @State private var scrollProgress: Double = 0
 
     private var fontSizeBinding: Binding<Double> { $store.readerFontSize }
     private var lineSpacingBinding: Binding<Double> { $store.readerLineSpacing }
@@ -87,7 +88,7 @@ struct TextReaderView: View {
                             let contentH = (UIApplication.shared.windows.first?.bounds.height ?? 800)
                             let offset = -minY
                             let percent = max(0, min(1, Double(offset / max(200, contentH))))
-                            scrollPosition = percent * 100
+                            scrollProgress = percent * 100
                             if let chapterID = store.selectedChapterID {
                                 store.setChapterProgress(chapterID, percent: percent)
                             }
