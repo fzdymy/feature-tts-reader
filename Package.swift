@@ -15,7 +15,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "FeatureTTSReaderApp",
-            path: "Sources/FeatureTTSReaderApp"
+            path: "Sources/FeatureTTSReaderApp",
+            resources: [
+                .process("Resources")
+            ]
         )
     ]
 )

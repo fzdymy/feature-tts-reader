@@ -10,6 +10,7 @@ final class ReaderStore: ObservableObject {
     @Published var characters: [CharacterProfile] = []
     @Published var scriptSegments: [ScriptSegment] = []
     @Published var voices: [VoiceItem] = []
+    @Published var selectedVoiceCatalog: VoiceCatalogSource = .remote
     @Published var recommendations: [CharacterRecommendation] = []
     @Published var selectedChapterID: UUID?
     @Published var statusMessage: String = "请导入小说或粘贴文本。"
@@ -70,7 +71,13 @@ final class ReaderStore: ObservableObject {
         bookmarks = state.bookmarks
         bookProgressByChapter = state.bookProgressByChapter
         lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
+        selectedVoiceCatalog = state.selectedVoiceCatalog
         defaultSensitivity = state.defaultSensitivity
+
+        if selectedVoiceCatalog != .remote {
+            voices = loadLocalVoiceCatalog(selectedVoiceCatalog)
+        }
+
         updateRecommendations(from: bookText)
     }
 
@@ -90,6 +97,7 @@ final class ReaderStore: ObservableObject {
             readerFontSize: readerFontSize,
             readerLineSpacing: readerLineSpacing,
             readerTheme: readerTheme,
+            selectedVoiceCatalog: selectedVoiceCatalog,
             defaultVoice: characters.first?.voice ?? "zh-CN-XiaoxiaoNeural",
             defaultRate: characters.first?.rate ?? 0,
             defaultPitch: characters.first?.pitch ?? 0,
@@ -250,17 +258,28 @@ final class ReaderStore: ObservableObject {
     }
 
     func refreshVoices() async {
-        guard !apiEndpoint.isEmpty else {
-            statusMessage = "请先填写 TTS 服务地址。"
+        isBusy = true
+        if selectedVoiceCatalog != .remote {
+            voices = loadLocalVoiceCatalog(selectedVoiceCatalog)
+            statusMessage = "已加载本地音色目录：\(selectedVoiceCatalog.displayName)，共 \(voices.count) 个音色。"
+            updateRecommendations()
+            saveState()
+            isBusy = false
             return
         }
-        isBusy = true
+
+        guard !apiEndpoint.isEmpty else {
+            statusMessage = "请先填写 TTS 服务地址。"
+            isBusy = false
+            return
+        }
+
         do {
             voices = try await client.fetchVoiceList()
             if voices.isEmpty {
                 statusMessage = "语音列表为空，使用默认内置音色。"
             } else {
-                statusMessage = "已加载 \(voices.count) 个语音风格。"
+                statusMessage = "已加载远程服务音色，共 \(voices.count) 个。"
             }
         } catch {
             voices = []
@@ -616,31 +635,13 @@ final class ReaderStore: ObservableObject {
         return result
     }
 
-    private func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
-        var list = voiceOptions
-        if profile.gender == "女性" {
-            list = list.sorted { lhs, rhs in
-                let lscore = (lhs.id.contains("Xiao") || lhs.id.contains("xia")) ? 1 : 0
-                let rscore = (rhs.id.contains("Xiao") || rhs.id.contains("xia")) ? 1 : 0
-                return lscore > rscore
-            }
-        } else if profile.gender == "男性" {
-            list = list.sorted { lhs, rhs in
-                let lscore = (lhs.id.contains("Yun") || lhs.id.contains("yun")) ? 1 : 0
-                let rscore = (rhs.id.contains("Yun") || rhs.id.contains("yun")) ? 1 : 0
-                return lscore > rscore
-            }
-        }
-        return Array(list.prefix(4))
-    }
-
     private func defaultVoiceItems() -> [VoiceItem] {
         [
-            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN")
+            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN", styleList: nil)
         ]
     }
 
@@ -700,16 +701,92 @@ final class ReaderStore: ObservableObject {
         }
     }
 
-    private func defaultVoice(for gender: String, tone: String) -> String {
-        if gender == "女性" {
-            if tone == "温柔" || tone == "轻松" {
-                return "zh-CN-XiaomoNeural"
+    private func defaultVoice(for gender: String, tone: String, name: String? = nil) -> String {
+        let options = voices.isEmpty ? defaultVoiceItems() : voices
+        let profile = CharacterProfile(id: UUID(), name: name ?? "叙述者", gender: gender, age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+        let best = options.max(by: { voiceMatchScore($0, for: profile) < voiceMatchScore($1, for: profile) })
+        return best?.id ?? "zh-CN-XiaoxiaoNeural"
+    }
+
+    private func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
+        var score = 0
+        let lowerID = voice.id.lowercased()
+        let lowerName = voice.name.lowercased()
+        let locale = voice.locale.lowercased()
+
+        if profile.gender == "女性" {
+            if lowerID.contains("xiao") || lowerName.contains("小") || lowerName.contains("xia") { score += 20 }
+            if !lowerID.contains("yun") && !lowerName.contains("云") { score += 5 }
+        } else if profile.gender == "男性" {
+            if lowerID.contains("yun") || lowerName.contains("云") { score += 20 }
+            if !lowerID.contains("xiao") && !lowerName.contains("小") { score += 5 }
+        }
+
+        if profile.tone == "温柔" || profile.tone == "轻松" {
+            if lowerID.contains("xiao") || lowerName.contains("晓") || lowerName.contains("柔") { score += 10 }
+        }
+        if profile.tone == "激昂" {
+            if let styles = voice.styleList, styles.contains(where: { $0.contains("angry") || $0.contains("excited") || $0.contains("strong") || $0.contains("loud") }) { score += 12 }
+        }
+        if profile.tone == "疑问" {
+            if let styles = voice.styleList, styles.contains(where: { $0.contains("chat") || $0.contains("assistant") || $0.contains("question") }) { score += 8 }
+        }
+        if profile.tone == "平稳" {
+            score += 5
+        }
+
+        if locale.contains("zh") { score += 5 }
+        if let styles = voice.styleList, styles.contains("chat") { score += 3 }
+
+        if let name = profile.name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
+            if lowerID.contains(name.lowercased()) || lowerName.contains(name.lowercased()) { score += 15 }
+        }
+
+        return score
+    }
+
+    private func loadLocalVoiceCatalog(_ source: VoiceCatalogSource) -> [VoiceItem] {
+        guard let resourceName = source.resourceName else { return [] }
+        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "json") else {
+            return defaultVoiceItems()
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            let raw = try decoder.decode([LocalVoiceCatalogItem].self, from: data)
+            return raw.compactMap { item in
+                let voiceID = item.short_name ?? item.name ?? item.local_name ?? item.display_name
+                guard let id = voiceID else { return nil }
+                let title = item.display_name ?? item.local_name ?? item.name ?? id
+                return VoiceItem(id: id, name: title, locale: item.locale ?? "zh-CN", styleList: item.style_list ?? item.styleList)
             }
-            return "zh-CN-XiaoxiaoNeural"
+        } catch {
+            return defaultVoiceItems()
         }
-        if gender == "男性" {
-            return "zh-CN-YunxiNeural"
+    }
+
+    private func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
+        var list = voiceOptions
+        list.sort { voiceMatchScore($0, for: profile) > voiceMatchScore($1, for: profile) }
+        return Array(list.prefix(6))
+    }
+
+    private func voiceSourceDescription(_ source: VoiceCatalogSource) -> String {
+        switch source {
+        case .remote: return "远程服务音色"
+        case .chinese35: return "本地 35 种音色"
+        case .fullChinese: return "本地完整音色"
         }
-        return "zh-CN-XiaoxiaoNeural"
+    }
+
+    private struct LocalVoiceCatalogItem: Decodable {
+        let name: String?
+        let display_name: String?
+        let local_name: String?
+        let short_name: String?
+        let locale: String?
+        let style_list: [String]?
+        let styleList: [String]?
     }
 }

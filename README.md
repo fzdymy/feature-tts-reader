@@ -8,6 +8,7 @@
 - 浏览并微调角色音色设置
 - 读取当前章节或整本小说
 - 支持本地 TTS 接口和开放式语音列表
+- 支持本地音色目录：`chinese_voices_35.json` 与 `full_chinese_voices.json`
 
 ## 当前实现状态
 
@@ -17,6 +18,7 @@
 - 章节目录与阅读器视图
 - 多角色识别与角色音色/参数配置界面
 - 本地 TTS 调用，支持 Bearer Token 认证与 `api_key` 查询参数认证
+- 本地音色目录与语音映射已完成：支持 `chinese_voices_35.json` 和 `full_chinese_voices.json`
 - 阅读进度保存、书签添加/删除、深色/浅色主题、字号与行距调节
 - 书架打开时自动定位到上次阅读章节（已实现恢复逻辑）
 
@@ -33,15 +35,36 @@
 2. 选择设备为 iOS 17 或更高版本。
 3. 运行前请先在应用设置中填写本地 `tts` 服务地址，例如 `http://127.0.0.1:8080`。
 4. 请在“API Key”字段中填写你的 TTS 认证密钥。应用会自动使用 Bearer Token 头部认证，或将该值附加到 `?api_key=` 查询参数。
+5. 在设置里选择语音目录：远程服务、本地 35 种音色或本地完整音色。
+6. 导入小说文本，点击“扫描章节”与“识别角色”。
+7. 选择章节，或切换为“全书模式”，然后点击播放。
 5. 导入小说文本，点击“扫描章节”与“识别角色”。
 6. 选择章节，或切换为“全书模式”，然后点击播放。
 
 ## GitHub Actions 打包
 
 - 已配置 `.github/workflows/ios-build.yml` 进行自动构建。
-- 该 workflow 使用 macOS 15 Runner 和 Xcode 26.3.0。
-- 若要导出 IPA，请在仓库 Secret 中设置 `APPLE_TEAM_ID`。
-- 源码会构建并生成 Xcode 项目，然后归档并导出 IPA。
+- 该 workflow 使用 macOS Runner 和 Xcode 最新版本构建 iOS 可执行应用。
+- 目前打包步骤已修正为直接复制 `build_output/Release-iphoneos/FeatureTTSReader.app` 并生成 IPA。
+- 若要导出 IPA，请在仓库 Secret 中设置 `APPLE_TEAM_ID`（如果需要签名发布）。
+- 源码会构建并生成 iOS App，然后归档并导出 `FeatureTTSReader_unsigned.ipa`。
+
+## 本地查看构建日志
+
+如果本机已安装 `gh` CLI，可使用以下命令查看 GitHub Actions 运行和日志：
+
+```bash
+gh run list
+gh run view <run-id> --log
+```
+
+也可以触发新的工作流：
+
+```bash
+gh workflow run ios-build.yml
+```
+
+若需在 GitHub Action 中定位构建失败点，可打开对应运行并检查 `Build unsigned app product` 与 `Package app into IPA` 两个步骤。
 
 ## TTS 接口兼容
 

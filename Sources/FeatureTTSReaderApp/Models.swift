@@ -46,6 +46,34 @@ struct VoiceItem: Identifiable, Hashable, Codable {
     let id: String
     let name: String
     let locale: String
+    let styleList: [String]?
+
+    var displayName: String {
+        name.isEmpty ? id : name
+    }
+}
+
+enum VoiceCatalogSource: String, CaseIterable, Codable, Identifiable {
+    case remote
+    case chinese35
+    case fullChinese
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .remote: return "远程服务"
+        case .chinese35: return "本地 35 种音色"
+        case .fullChinese: return "本地 full 音色"
+        }
+    }
+
+    var resourceName: String? {
+        switch self {
+        case .remote: return nil
+        case .chinese35: return "chinese_voices_35"
+        case .fullChinese: return "full_chinese_voices"
+        }
+    }
 }
 
 struct BookBookmark: Identifiable, Hashable, Codable {
@@ -103,6 +131,7 @@ struct ReaderState: Codable {
     var readerFontSize: Double
     var readerLineSpacing: Double
     var readerTheme: ReaderTheme
+    var selectedVoiceCatalog: VoiceCatalogSource
     var defaultVoice: String
     var defaultRate: Int
     var defaultPitch: Int
@@ -115,7 +144,7 @@ struct ReaderState: Codable {
     private enum CodingKeys: String, CodingKey {
         case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity
     }
 
     init(
@@ -133,6 +162,7 @@ struct ReaderState: Codable {
         readerFontSize: Double = 18,
         readerLineSpacing: Double = 8,
         readerTheme: ReaderTheme = .light,
+        selectedVoiceCatalog: VoiceCatalogSource = .remote,
         defaultVoice: String = "zh-CN-XiaoxiaoNeural",
         defaultRate: Int = 0,
         defaultPitch: Int = 0,
@@ -156,6 +186,7 @@ struct ReaderState: Codable {
         self.readerFontSize = readerFontSize
         self.readerLineSpacing = readerLineSpacing
         self.readerTheme = readerTheme
+        self.selectedVoiceCatalog = selectedVoiceCatalog
         self.defaultVoice = defaultVoice
         self.defaultRate = defaultRate
         self.defaultPitch = defaultPitch
@@ -182,6 +213,7 @@ struct ReaderState: Codable {
         readerFontSize = try container.decodeIfPresent(Double.self, forKey: .readerFontSize) ?? 18
         readerLineSpacing = try container.decodeIfPresent(Double.self, forKey: .readerLineSpacing) ?? 8
         readerTheme = try container.decodeIfPresent(ReaderTheme.self, forKey: .readerTheme) ?? .light
+        selectedVoiceCatalog = try container.decodeIfPresent(VoiceCatalogSource.self, forKey: .selectedVoiceCatalog) ?? .remote
         defaultVoice = try container.decodeIfPresent(String.self, forKey: .defaultVoice) ?? "zh-CN-XiaoxiaoNeural"
         defaultRate = try container.decodeIfPresent(Int.self, forKey: .defaultRate) ?? 0
         defaultPitch = try container.decodeIfPresent(Int.self, forKey: .defaultPitch) ?? 0

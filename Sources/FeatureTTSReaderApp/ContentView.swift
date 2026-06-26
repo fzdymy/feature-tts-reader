@@ -63,6 +63,15 @@ struct ContentView: View {
             SecureField("API Key（api_key）", text: $store.apiKey)
                 .textContentType(.password)
                 .submitLabel(.done)
+            Picker("语音目录", selection: $store.selectedVoiceCatalog) {
+                ForEach(VoiceCatalogSource.allCases) { source in
+                    Text(source.displayName).tag(source)
+                }
+            }
+            .pickerStyle(.menu)
+            .onChange(of: store.selectedVoiceCatalog) { _ in
+                Task { await store.refreshVoices() }
+            }
             HStack {
                 Button(action: { Task { await store.refreshVoices() } }) {
                     Label("刷新语音列表", systemImage: "arrow.clockwise")
@@ -253,6 +262,9 @@ struct ContentView: View {
 
     private var voiceSection: some View {
         Section(header: Text("可用音色")) {
+            Text("音色来源：\(store.selectedVoiceCatalog.displayName)")
+                .font(.caption)
+                .foregroundColor(.secondary)
             if store.voices.isEmpty {
                 Text("请刷新语音列表以加载本地 TTS 服务支持的音色。")
                     .foregroundColor(.secondary)

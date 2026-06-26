@@ -11,6 +11,15 @@ struct SettingsView: View {
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
                 SecureField("API Key（api_key）", text: $store.apiKey)
+                Picker("语音目录", selection: $store.selectedVoiceCatalog) {
+                    ForEach(VoiceCatalogSource.allCases) { source in
+                        Text(source.displayName).tag(source)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: store.selectedVoiceCatalog) { _ in
+                    Task { await store.refreshVoices() }
+                }
                 Button("测试连接") {
                     Task {
                         testResult = "测试中..."

@@ -67,23 +67,25 @@ actor TTSHttpClient {
             let id: String?
             let displayName: String?
             let locale: String?
+            let style_list: [String]?
+            let styleList: [String]?
 
             enum CodingKeys: String, CodingKey {
-                case voice, name, id, displayName, locale
+                case voice, name, id, displayName, locale, style_list, styleList
             }
         }
 
         if let wrapper = try? JSONDecoder().decode([String: [VoiceListItem]].self, from: data), let values = wrapper["voices"] ?? wrapper["data"] {
             return values.compactMap { item in
                 guard let voiceId = item.voice ?? item.id else { return nil }
-                return VoiceItem(id: voiceId, name: item.name ?? item.displayName ?? voiceId, locale: item.locale ?? "zh-CN")
+                return VoiceItem(id: voiceId, name: item.name ?? item.displayName ?? voiceId, locale: item.locale ?? "zh-CN", styleList: nil)
             }
         }
 
         if let items = try? JSONDecoder().decode([VoiceListItem].self, from: data) {
             return items.compactMap { item in
                 guard let voiceId = item.voice ?? item.id else { return nil }
-                return VoiceItem(id: voiceId, name: item.name ?? item.displayName ?? voiceId, locale: item.locale ?? "zh-CN")
+                return VoiceItem(id: voiceId, name: item.name ?? item.displayName ?? voiceId, locale: item.locale ?? "zh-CN", styleList: nil)
             }
         }
 
@@ -92,11 +94,11 @@ actor TTSHttpClient {
         }
 
         return [
-            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN"),
-            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN")
+            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN", styleList: nil)
         ]
     }
 }
