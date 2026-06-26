@@ -3,6 +3,7 @@ import AVFoundation
 
 struct CharacterEditorView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: ReaderStore
     @State private var profile: CharacterProfile
     @State private var samplePlayer: AVAudioPlayer?
     let voices: [VoiceItem]
@@ -36,6 +37,21 @@ struct CharacterEditorView: View {
                             Text(style).tag(style)
                         }
                     }
+                    HStack {
+                        Text("语气敏感度")
+                        Slider(value: Binding(get: { Double(profile.sensitivity) }, set: { profile.sensitivity = Int($0) }), in: 0...100)
+                        Text("\(profile.sensitivity)")
+                    }
+                    Button(action: {
+                        // apply recommended voice if available
+                        if let rec = store.recommendations.first(where: { $0.profile.id == profile.id }) {
+                            if let v = rec.suggestedVoices.first?.id {
+                                profile.voice = v
+                            }
+                        }
+                    }) {
+                        Text("重置为推荐音色")
+                    }
                 }
                 Section(header: Text("试听")) {
                     Button(action: playSample) {
@@ -53,6 +69,12 @@ struct CharacterEditorView: View {
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    Button("保存并试听") {
+                        onSave(profile)
+                        playSample()
+                    }
                 }
             }
         }

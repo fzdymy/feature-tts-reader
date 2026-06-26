@@ -201,7 +201,7 @@ final class ReaderStore: ObservableObject {
     func scanCharacters() {
         characters = inferCharacters(from: bookText)
         if characters.isEmpty {
-            characters = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral")]
+            characters = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral", sensitivity: 50)]
             statusMessage = "未识别到明确人物，已创建默认叙述者。"
         } else {
             statusMessage = "已识别 \(characters.count) 个角色。"
@@ -440,7 +440,8 @@ final class ReaderStore: ObservableObject {
                 voice: defaultVoice(for: gender, tone: tone),
                 rate: style == "cheerful" ? 10 : style == "sad" ? -10 : 0,
                 pitch: style == "cheerful" ? 10 : style == "sad" ? -5 : 0,
-                style: style
+                style: style,
+                sensitivity: 50
             ))
         }
 
@@ -455,7 +456,7 @@ final class ReaderStore: ObservableObject {
             let lines = trimmed.chunked(into: 900)
             for line in lines {
                 let speaker = detectSpeaker(in: line) ?? characters.first?.name ?? "叙述者"
-                var profile = characters.first(where: { line.contains($0.name) }) ?? characters.first(where: { $0.name == speaker }) ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral")
+                var profile = characters.first(where: { line.contains($0.name) }) ?? characters.first(where: { $0.name == speaker }) ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral", sensitivity: 50)
 
                 // detect tone for this line and derive style/pitch adjustments
                 let tone = detectTone(in: line)

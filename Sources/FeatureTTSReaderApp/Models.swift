@@ -35,6 +35,7 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
     var rate: Int
     var pitch: Int
     var style: String
+    var sensitivity: Int
 
     var info: String {
         [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
