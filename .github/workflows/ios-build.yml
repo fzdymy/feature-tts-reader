@@ -21,8 +21,7 @@ jobs:
           xcode-version: '26.3.0'
 
       - name: Install dependencies
-        run: |
-          swift package resolve
+        run: swift package resolve
 
       - name: Build app
         run: |
@@ -33,9 +32,10 @@ jobs:
             -archivePath $PWD/build/FeatureTTSReader.xcarchive \
             archive
 
-      - name: Create export options
+      - name: Create export options plist
         run: |
-          cat > exportOptions.plist <<"EOF"
+          mkdir -p build
+          cat > build/exportOptions.plist << 'PLIST_EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -50,13 +50,14 @@ jobs:
   <true/>
 </dict>
 </plist>
-EOF
+PLIST_EOF
 
-      - name: Create IPA
+      - name: Export IPA
         run: |
-          xcodebuild -exportArchive -archivePath $PWD/build/FeatureTTSReader.xcarchive -exportPath $PWD/build/FeatureTTSReader -exportOptionsPlist $PWD/exportOptions.plist
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          xcodebuild -exportArchive \
+            -archivePath $PWD/build/FeatureTTSReader.xcarchive \
+            -exportPath $PWD/build/FeatureTTSReader \
+            -exportOptionsPlist $PWD/build/exportOptions.plist
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
