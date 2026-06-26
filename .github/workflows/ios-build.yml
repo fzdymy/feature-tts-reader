@@ -40,15 +40,27 @@ jobs:
         run: |
           mkdir -p build/Payload
           
-          # 精准寻找编译出的 .app 文件夹并复制到 Payload
-          APP_PATH=$(find build_output -name "*.app" -type d | head -n 1)
+          echo "=== 正在全局搜寻编译产物 ==="
+          # 1. 优先搜寻当前目录下的编译输出
+          APP_PATH=$(find build_output -name "*.app" -type d 2>/dev/null | head -n 1)
+          
+          # 2. 如果没找到，去系统的默认本地 DerivedData 目录搜寻
           if [ -z "$APP_PATH" ]; then
-            echo "错误: 未在输出目录中找到编译出的 .app 文件！"
+            echo "提示：未在当前目录找到，正在前往系统 DerivedData 目录搜寻..."
+            APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "FeatureTTSReader*.app" -type d 2>/dev/null | head -n 1)
+          fi
+          
+          # 3. 如果依然没找到，抛出搜寻结果诊断日志
+          if [ -z "$APP_PATH" ]; then
+            echo "错误: 未能找到任何编译出的 .app 文件！"
+            echo "=== 当前工作目录结构如下 ==="
+            ls -R build_output 2>/dev/null || echo "build_output 目录为空"
             exit 1
           fi
           
-          echo "寻找到的 App 路径: $APP_PATH"
+          echo "成功找到 App 路径: $APP_PATH"
           cp -R "$APP_PATH" build/Payload/
-
+          
+          # 封包为 .ipa 文件
           cd build
-          zip -r FeatureTTSReaderipa Payload
+          zip -r FeatureTTSReader_unsigned.ipa Payload
