@@ -23,30 +23,31 @@ jobs:
       - name: Install dependencies
         run: swift package resolve
 
-      # 关键步骤 1：直接通过构建，并强制关闭代码签名要求
       - name: Build unsigned app product
         run: |
           xcodebuild build \
             -scheme FeatureTTSReader \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath $PWD/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-      # 关键步骤 2：手动组装 Payload 文件夹并压缩为标准无签名 .ipa
       - name: Package app into IPA
         run: |
           mkdir -p build/Payload
-          # 寻找编译出的 .app 文件并复制到 Payload 目录下
-          cp -R DerivedData/Build/Products/Release-iphoneos/*.app build/Payload/
-          # 进入 build 目录打包，确保 zip 内部根目录为 Payload
-          cd build
-          zip -r FeatureTTSReader_unsigned.ipa Payload
+
+          APP_PATH=$(find DerivedData -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "错误: 未找到编译出的 .app 文件！"
+            exit 1
+          fi
           
-      - name: Upload Unsigned IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FeatureTTSReader-SideStore-Ready
-          path: build/FeatureTTSReader_unsigned.ipa
+          echo "寻找到的 App 路径: $APP_PATH"
+          cp -R "$APP_PATH" build/Payload/
+          
+          # 封包为 .ipa 文件
+          cd build
+          zip -r FeatureTTSReader.ipa Payload
