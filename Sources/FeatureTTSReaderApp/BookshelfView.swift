@@ -155,8 +155,10 @@ struct ReaderDetailView: View {
                             Image(systemName: theme == .dark ? "sun.max" : "moon.fill")
                         }
                         Slider(value: $fontSize, in: 14...32).frame(maxWidth: 150)
-                        Button(action: { 
-                            store.bookmarks.append(BookBookmark(id: UUID(), chapterID: chapter.id, chapterTitle: chapter.title, percent: 0, note: "", createdAt: Date()))
+                        Button(action: {
+                            // ensure selected chapter is set then add bookmark via store helper
+                            store.selectedChapterID = chapter.id
+                            store.addBookmark(note: "")
                         }) {
                             Image(systemName: "bookmark")
                         }

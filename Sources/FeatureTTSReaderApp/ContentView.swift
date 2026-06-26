@@ -207,6 +207,16 @@ struct ContentView: View {
                 Text("请先识别角色并刷新语音列表，即可查看推荐音色。")
                     .foregroundColor(.secondary)
             } else {
+                HStack {
+                    Button(action: { store.applyRecommendationsToUnmapped() }) {
+                        Text("应用到未映射角色")
+                    }
+                    Spacer()
+                    Button(action: { store.autoApplyRecommendedToAll() }) {
+                        Text("全部应用")
+                    }
+                }
+                .padding(.vertical, 4)
                 ForEach(store.recommendations) { rec in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
