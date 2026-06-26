@@ -7,10 +7,10 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section(header: Text("TTS 服务")) {
-                TextField("TTS 服务地址", text: $store.apiEndpoint)
+                TextField("TTS 服务地址，例如 http://127.0.0.1:8080", text: $store.apiEndpoint)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
-                SecureField("可选 API Key", text: $store.apiKey)
+                SecureField("API Key（api_key）", text: $store.apiKey)
                 Button("测试连接") {
                     Task {
                         testResult = "测试中..."

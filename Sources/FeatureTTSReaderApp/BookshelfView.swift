@@ -6,10 +6,14 @@ struct BookshelfView: View {
 
     private func readerDestination(for book: Book) -> some View {
         let chapters = extractChapters(from: book.text)
+        if let resumeChapterID = store.lastReadChapter(for: book.id), let chapter = chapters.first(where: { $0.id == resumeChapterID }) {
+            return AnyView(ReaderDetailView(book: book, chapter: chapter).environmentObject(store))
+        }
         if let firstChapter = chapters.first {
             return AnyView(ReaderDetailView(book: book, chapter: firstChapter).environmentObject(store))
         }
-        return AnyView(BookDetailView(book: book).environmentObject(store))
+        let fullChapter = BookChapter(id: UUID(), title: "全文", text: book.text)
+        return AnyView(ReaderDetailView(book: book, chapter: fullChapter).environmentObject(store))
     }
 
     private func extractChapters(from text: String) -> [BookChapter] {
@@ -55,15 +59,15 @@ struct BookshelfView: View {
                         Text("书架为空，点击导入本地 TXT 或分享文件到本应用。")
                             .foregroundColor(.secondary)
                     } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(spacing: 16) {
+                        ScrollView(.vertical, showsIndicators: true) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 3), spacing: 16) {
                                 ForEach(store.books) { book in
                                     NavigationLink(destination: readerDestination(for: book)) {
                                         VStack(alignment: .leading, spacing: 8) {
                                             ZStack {
                                                 RoundedRectangle(cornerRadius: 16)
                                                     .fill(Color.blue.opacity(0.15))
-                                                    .frame(width: 180, height: 120)
+                                                    .frame(height: 120)
                                                 Image(systemName: "book.fill")
                                                     .resizable()
                                                     .scaledToFit()
@@ -77,17 +81,16 @@ struct BookshelfView: View {
                                             Text(book.preview)
                                                 .font(.caption)
                                                 .foregroundColor(.secondary)
-                                                .lineLimit(2)
+                                                .lineLimit(3)
                                         }
-                                        .frame(width: 180)
                                         .padding(12)
                                         .background(RoundedRectangle(cornerRadius: 18).fill(Color(UIColor.secondarySystemBackground)))
                                         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.secondary.opacity(0.2)))
                                     }
                                 }
                             }
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, -16)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
                         }
                         .listRowInsets(EdgeInsets())
                     }

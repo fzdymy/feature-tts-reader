@@ -56,11 +56,11 @@ struct ContentView: View {
 
     private var settingsSection: some View {
         Section(header: Text("TTS 服务设置")) {
-            TextField("TTS 服务地址", text: $store.apiEndpoint)
+            TextField("TTS 服务地址，例如 http://127.0.0.1:8080", text: $store.apiEndpoint)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
                 .submitLabel(.done)
-            SecureField("可选 API Key", text: $store.apiKey)
+            SecureField("API Key（api_key）", text: $store.apiKey)
                 .textContentType(.password)
                 .submitLabel(.done)
             HStack {
