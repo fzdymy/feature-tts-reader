@@ -513,14 +513,37 @@ final class ReaderStore: ObservableObject {
         await playScriptSegments(slice)
     }
 
+    // Quick E2E test helper: import sample text, build script for first chapter and synthesize first segment
+    func runQuickE2ETest(sampleText: String) async -> String {
+        importText(sampleText)
+        buildScript(for: false)
+        guard let first = scriptSegments.first else { return "脚本为空，无法测试。" }
+        do {
+            let url = try await client.synthesizeAudio(text: "\(first.characterName)：\(first.text)", voice: first.voice, rate: first.rate, pitch: first.pitch, style: first.style)
+            // play briefly to validate
+            audioController.playFiles([url])
+            return "合成并播放成功：\(url.lastPathComponent)"
+        } catch {
+            return "合成失败：\(error.localizedDescription)"
+        }
+    }
+
     private func detectSpeaker(in line: String) -> String? {
         for profile in characters {
             if line.contains(profile.name) {
                 return profile.name
             }
         }
-        if let matched = line.firstMatch(regex: "([\\p{Han}]{2,4})(?=笑道|说道|问道|喊道|低声说|轻声说|轻声道|说道|道)")?.first {
+        // detect patterns like: 小明说道："..." or 小芳："..."
+        if let matched = line.firstMatch(regex: "^([\\p{Han}]{1,4})[：: ]")?.first {
             return matched
+        }
+        if let inQuote = line.firstMatch(regex: "([\\p{Han}]{1,4})(?=笑道|说道|问道|喊道|低声说|轻声说|轻声道|说道|道)")?.first {
+            return inQuote
+        }
+        // detect quoted dialogue with preceding speaker on previous line like: 小明：\n"..."
+        if let prevSpeaker = line.firstMatch(regex: "(?m)([\\p{Han}]{1,4})[：:][\r\n]+\")")?.first {
+            return prevSpeaker
         }
         return nil
     }

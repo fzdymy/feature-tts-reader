@@ -52,6 +52,17 @@ struct CharacterEditorView: View {
                     }) {
                         Text("重置为推荐音色")
                     }
+                    Button(action: {
+                        // apply first suggested voice to all characters (quick mapping)
+                        for rec in store.recommendations {
+                            if let v = rec.suggestedVoices.first?.id, let idx = store.characters.firstIndex(where: { $0.id == rec.profile.id }) {
+                                store.characters[idx].voice = v
+                            }
+                        }
+                        store.saveState()
+                    }) {
+                        Text("为所有角色应用推荐音色")
+                    }
                 }
                 Section(header: Text("试听")) {
                     Button(action: playSample) {
