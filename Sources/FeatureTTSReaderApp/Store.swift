@@ -455,19 +455,49 @@ final class ReaderStore: ObservableObject {
             let lines = trimmed.chunked(into: 900)
             for line in lines {
                 let speaker = detectSpeaker(in: line) ?? characters.first?.name ?? "叙述者"
-                let profile = characters.first(where: { line.contains($0.name) }) ?? characters.first(where: { $0.name == speaker }) ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral")
+                var profile = characters.first(where: { line.contains($0.name) }) ?? characters.first(where: { $0.name == speaker }) ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: "中性", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0, style: "neutral")
+
+                // detect tone for this line and derive style/pitch adjustments
+                let tone = detectTone(in: line)
+                let dynamicStyle = styleFromTone(tone)
+                let tonePitchAdjustment: Int
+                switch dynamicStyle {
+                case "cheerful": tonePitchAdjustment = 8
+                case "angry": tonePitchAdjustment = 10
+                case "sad": tonePitchAdjustment = -6
+                default: tonePitchAdjustment = 0
+                }
+
+                let finalStyle = profile.style == "neutral" ? dynamicStyle : profile.style
+                let finalPitch = profile.pitch + tonePitchAdjustment
+                let finalRate = profile.rate
+
                 segments.append(ScriptSegment(
                     id: UUID(),
                     characterName: profile.name,
                     voice: profile.voice,
-                    rate: profile.rate,
-                    pitch: profile.pitch,
-                    style: profile.style,
+                    rate: finalRate,
+                    pitch: finalPitch,
+                    style: finalStyle,
                     text: line
                 ))
             }
         }
         return segments
+    }
+
+    func playFromParagraph(_ paragraph: String) async {
+        guard !bookText.isEmpty else {
+            statusMessage = "请先导入小说文本。"
+            return
+        }
+        // ensure script built for current chapter
+        buildScript(for: false)
+        let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let idx = scriptSegments.firstIndex(where: { $0.text.contains(trimmed) || $0.text == trimmed }) ?? 0
+        let slice = Array(scriptSegments[idx...])
+        await playScriptSegments(slice)
     }
 
     private func detectSpeaker(in line: String) -> String? {
