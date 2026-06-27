@@ -48,7 +48,7 @@ struct SettingsView: View {
                     Text("\(store.defaultSensitivity)")
                 }
                 Picker("主题", selection: $store.readerTheme) {
-                    ForEach(ReaderTheme.allCases, id: \ .self) { theme in
+                    ForEach(ReaderTheme.allCases, id: \.self) { theme in
                         Text(theme.displayName).tag(theme)
                     }
                 }

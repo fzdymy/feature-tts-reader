@@ -93,7 +93,11 @@ struct CharacterEditorView: View {
     }
 
     private func playSample() {
-        let request = TTSHttpClient(baseURL: URL(string: UserDefaults.standard.string(forKey: "ReaderStore.apiEndpoint") ?? "http://127.0.0.1:8080")!, apiKey: UserDefaults.standard.string(forKey: "ReaderStore.apiKey") ?? nil)
+        guard let url = URL(string: store.apiEndpoint) else {
+            debugPrint("试听失败：无效的 TTS 服务地址")
+            return
+        }
+        let request = TTSHttpClient(baseURL: url, apiKey: store.apiKey.isEmpty ? nil : store.apiKey)
         Task {
             do {
                 let text = "你好，我是 \(profile.name)，这是我的声音示例。"

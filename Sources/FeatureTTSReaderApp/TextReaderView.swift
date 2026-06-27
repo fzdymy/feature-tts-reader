@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct TextReaderView: View {
     @EnvironmentObject private var store: ReaderStore
@@ -9,9 +10,22 @@ struct TextReaderView: View {
     @State private var showBookmarks: Bool = false
     @State private var currentScale: CGFloat = 1.0
     @State private var scrollProgress: Double = 0
+    @State private var contentHeight: CGFloat = 0
 
-    private var fontSizeBinding: Binding<Double> { $store.readerFontSize }
-    private var lineSpacingBinding: Binding<Double> { $store.readerLineSpacing }
+    private var fontSizeBinding: Binding<Double> {
+        Binding(get: { store.readerFontSize }, set: { newValue in
+            store.readerFontSize = newValue
+            store.saveState()
+        })
+    }
+
+    private var lineSpacingBinding: Binding<Double> {
+        Binding(get: { store.readerLineSpacing }, set: { newValue in
+            store.readerLineSpacing = newValue
+            store.saveState()
+        })
+    }
+
     private var chapterBookmarks: [BookBookmark] {
         store.bookmarks.filter { $0.chapterID == chapter.id }
     }
@@ -81,11 +95,12 @@ struct TextReaderView: View {
                     )
                     .coordinateSpace(name: "scrollView")
                     .onTapGesture { withAnimation { showControls.toggle() } }
-                    .onPreferenceChange(ContentHeightKey.self) { _ in }
+                    .onPreferenceChange(ContentHeightKey.self) { height in
+                        contentHeight = height
+                    }
                     .onPreferenceChange(ScrollOffsetKey.self) { minY in
-                        // estimate progress by comparing minY to content height
                         DispatchQueue.main.async {
-                            let contentH = (UIApplication.shared.windows.first?.bounds.height ?? 800)
+                            let contentH = max(contentHeight, UIScreen.main.bounds.height)
                             let offset = -minY
                             let percent = max(0, min(1, Double(offset / max(200, contentH))))
                             scrollProgress = percent * 100
@@ -166,6 +181,9 @@ struct TextReaderView: View {
         }
         .navigationTitle(chapter.title)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            store.selectedChapterID = chapter.id
+        }
         .onDisappear {
             store.saveState()
         }

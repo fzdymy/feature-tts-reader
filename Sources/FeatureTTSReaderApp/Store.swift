@@ -34,6 +34,7 @@ final class ReaderStore: ObservableObject {
     @Published var defaultSensitivity: Int = 50
 
     private let audioController = AudioPlaybackController()
+    private let persistence = PersistenceController.shared
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
 
     init() {
@@ -54,6 +55,7 @@ final class ReaderStore: ObservableObject {
     func loadState() {
         let url = stateFileURL()
         guard let data = try? Data(contentsOf: url), let state = try? JSONDecoder().decode(ReaderState.self, from: data) else {
+            loadPersistentLibrary()
             return
         }
         bookText = state.bookText
@@ -85,6 +87,7 @@ final class ReaderStore: ObservableObject {
             lastScannedBookText = bookText
         }
         updateRecommendations(from: bookText)
+        loadPersistentLibrary()
     }
 
     func saveState() {
@@ -116,6 +119,33 @@ final class ReaderStore: ObservableObject {
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: stateFileURL(), options: .atomic)
+        persistLibrary()
+    }
+
+    private func persistLibrary() {
+        persistence.saveBooks(books)
+        persistence.saveBookmarks(bookmarks)
+        persistence.saveChapterProgressMap(bookProgressByChapter)
+        persistence.saveLastReadChapterIndexMap(lastReadChapterIndexByBook)
+    }
+
+    private func loadPersistentLibrary() {
+        let persistedBooks = persistence.fetchBooks()
+        if !persistedBooks.isEmpty {
+            books = persistedBooks
+        }
+        let persistedBookmarks = persistence.fetchBookmarks()
+        if !persistedBookmarks.isEmpty {
+            bookmarks = persistedBookmarks
+        }
+        let persistedProgress = persistence.fetchChapterProgress()
+        if !persistedProgress.isEmpty {
+            bookProgressByChapter = persistedProgress
+        }
+        let persistedLastRead = persistence.fetchLastReadChapterIndexByBook()
+        if !persistedLastRead.isEmpty {
+            lastReadChapterIndexByBook = persistedLastRead
+        }
     }
 
     private func ensureVoiceOptionsLoaded() {
@@ -145,7 +175,8 @@ final class ReaderStore: ObservableObject {
           let percent = bookProgressByChapter[chapterID] ?? currentBookProgress
           let entry = BookBookmark(id: UUID(), chapterID: chapterID, chapterTitle: chapter.title, percent: percent, note: note, createdAt: Date())
         bookmarks.append(entry)
-        statusMessage = "已保存书签：\(chapter.title) \(Int(currentBookProgress * 100))%"
+        persistence.saveBookmarks(bookmarks)
+        statusMessage = "已保存书签：\(chapter.title) \(Int(percent * 100))%"
         saveState()
     }
 
@@ -157,8 +188,8 @@ final class ReaderStore: ObservableObject {
     func setChapterProgress(_ chapterID: UUID, percent: Double) {
         let capped = min(max(percent, 0), 1)
         bookProgressByChapter[chapterID] = capped
-        // update overall progress as average or current chapter
         currentBookProgress = capped
+        persistence.saveChapterProgressMap(bookProgressByChapter)
         saveState()
     }
 
@@ -168,6 +199,7 @@ final class ReaderStore: ObservableObject {
 
     func rememberLastReadChapter(bookID: UUID, chapterIndex: Int) {
         lastReadChapterIndexByBook[bookID] = chapterIndex
+        persistence.saveLastReadChapterIndexMap(lastReadChapterIndexByBook)
         saveState()
     }
 
@@ -177,6 +209,9 @@ final class ReaderStore: ObservableObject {
 
     func clearLibrary() {
         books.removeAll()
+        bookmarks.removeAll()
+        bookProgressByChapter.removeAll()
+        lastReadChapterIndexByBook.removeAll()
         bookText = ""
         chapters.removeAll()
         characters.removeAll()
@@ -188,6 +223,7 @@ final class ReaderStore: ObservableObject {
         currentBookProgress = 0
         lastScannedBookText = ""
         statusMessage = "已清空书架。"
+        persistence.clearLibrary()
         saveState()
     }
 
@@ -216,6 +252,7 @@ final class ReaderStore: ObservableObject {
         let title = url.deletingPathExtension().lastPathComponent
         let book = Book(id: UUID(), title: title, text: text, importedAt: Date())
         books.append(book)
+        persistence.saveBooks(books)
         bookText = text
         currentBookTitle = title
         currentBookID = book.id.uuidString

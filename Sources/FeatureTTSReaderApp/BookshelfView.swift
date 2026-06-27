@@ -136,7 +136,8 @@ struct BookDetailView: View {
                 }
             } else {
                 List {
-                    ForEach(Array(chapters.enumerated()), id: \ .1) { index, chapter in
+                    ForEach(chapters.indices, id: \.self) { index in
+                        let chapter = chapters[index]
                         NavigationLink(destination: ReaderDetailView(book: book, chapter: chapter, bookID: book.id, chapterIndex: index).environmentObject(store)) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(chapter.title).font(.headline)
@@ -199,22 +200,18 @@ struct ReaderDetailView: View {
     let bookID: UUID
     let chapterIndex: Int
     @State private var showControls: Bool = true
-    @State private var scrollPosition: CGFloat = 0
-    @State private var fontSize: Double = 18
-    @State private var lineSpacing: Double = 8
-    @State private var theme: ReaderTheme = .light
     @State private var isReading: Bool = false
 
     private var textColor: Color {
-        theme == .dark ? .white : .primary
+        store.readerTheme == .dark ? .white : .primary
     }
 
     @ViewBuilder
     private var chapterTextView: some View {
         Text(chapter.text)
-            .font(.system(size: fontSize))
+            .font(.system(size: store.readerFontSize))
             .foregroundColor(textColor)
-            .lineSpacing(lineSpacing)
+            .lineSpacing(store.readerLineSpacing)
             .padding()
     }
     
@@ -229,17 +226,21 @@ struct ReaderDetailView: View {
                     .id("content")
                 }
             }
-            .background(theme == .dark ? Color.black : Color.white)
+            .background(store.readerTheme == .dark ? Color.black : Color.white)
             .onTapGesture { withAnimation { showControls.toggle() } }
             
             if showControls {
                 VStack(spacing: 0) {
                     Spacer()
                     HStack(spacing: 12) {
-                        Button(action: { theme = theme == .dark ? .light : .dark }) {
-                            Image(systemName: theme == .dark ? "sun.max" : "moon.fill")
+                        Button(action: {
+                            store.readerTheme = store.readerTheme == .dark ? .light : .dark
+                            store.saveState()
+                        }) {
+                            Image(systemName: store.readerTheme == .dark ? "sun.max" : "moon.fill")
                         }
-                        Slider(value: $fontSize, in: 14...32).frame(maxWidth: 150)
+                        Slider(value: Binding(get: { store.readerFontSize }, set: { newValue in store.readerFontSize = newValue; store.saveState() }), in: 14...32)
+                            .frame(maxWidth: 150)
                         Button(action: {
                             // ensure selected chapter is set then add bookmark via store helper
                             store.selectedChapterID = chapter.id
@@ -266,7 +267,7 @@ struct ReaderDetailView: View {
                 }
             }
             
-            Text("\(Int(scrollPosition))%")
+            Text("\(Int(store.getChapterProgress(chapter.id) * 100))%")
                 .font(.caption2)
                 .padding(8)
                 .background(Color.black.opacity(0.6))
@@ -279,6 +280,10 @@ struct ReaderDetailView: View {
         .onAppear {
             store.selectedChapterID = chapter.id
             store.rememberLastReadChapter(bookID: bookID, chapterIndex: chapterIndex)
+            store.saveState()
+        }
+        .onDisappear {
+            store.saveState()
         }
     }
 }
