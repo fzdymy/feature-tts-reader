@@ -13,6 +13,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
+                homeEntrySection
                 settingsSection
                 importSection
                 chapterSection
@@ -89,6 +90,26 @@ struct ContentView: View {
             }
             Button(action: store.saveSettings) {
                 Text("保存设置")
+            }
+        }
+    }
+
+    private var homeEntrySection: some View {
+        Section(header: Text("快速入口")) {
+            NavigationLink(destination: BookshelfView().environmentObject(store)) {
+                Label("进入书架", systemImage: "books.vertical")
+            }
+            NavigationLink(destination: ChapterListView().environmentObject(store)) {
+                Label("查看章节目录", systemImage: "list.bullet")
+            }
+            HStack {
+                Button(action: { Task { await store.playSelectedChapter() } }) {
+                    Label("播放当前章节", systemImage: "play.fill")
+                }
+                Spacer()
+                Button(action: { Task { await store.playWholeBook() } }) {
+                    Label("播放整本小说", systemImage: "book.fill")
+                }
             }
         }
     }

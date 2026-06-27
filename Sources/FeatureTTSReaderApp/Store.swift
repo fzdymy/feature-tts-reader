@@ -4,7 +4,7 @@ import AVFoundation
 import SwiftUI
 
 @MainActor
-final class ReaderStore: ObservableObject, AVSpeechSynthesizerDelegate {
+final class ReaderStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
     @Published var characters: [CharacterProfile] = []
@@ -609,8 +609,10 @@ final class ReaderStore: ObservableObject, AVSpeechSynthesizerDelegate {
         return chapters
     }
 
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        isSpeaking = false
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            self.isSpeaking = false
+        }
     }
 
     private func inferCharacters(from text: String) -> [CharacterProfile] {
@@ -733,7 +735,11 @@ final class ReaderStore: ObservableObject, AVSpeechSynthesizerDelegate {
         guard !trimmed.isEmpty else { return }
         let idx = scriptSegments.firstIndex(where: { $0.text.contains(trimmed) || $0.text == trimmed }) ?? 0
         let slice = Array(scriptSegments[idx...])
-        await playScriptSegments(slice)
+        do {
+            try await playScriptSegments(slice)
+        } catch {
+            statusMessage = "朗读失败：\(error.localizedDescription)"
+        }
     }
 
     // Quick E2E test helper: import sample text, build script for first chapter and synthesize first segment
