@@ -95,6 +95,17 @@ struct BookBookmark: Identifiable, Hashable, Codable {
     let createdAt: Date
 }
 
+struct TTSQueueItem: Identifiable, Codable, Hashable {
+    let id = UUID()
+    let segment: ScriptSegment
+    let audioURL: URL
+    let chapterTitle: String
+    let chapterIndex: Int
+    let bookID: UUID
+    let segmentIndex: Int
+    let totalSegments: Int
+}
+
 enum ReaderTheme: String, CaseIterable, Codable {
     case light
     case dark
@@ -152,11 +163,24 @@ struct ReaderState: Codable {
     var defaultSensitivity: Int
     var playTimeoutSeconds: Double = 30.0
     var lastScannedBookText: String = ""
+    var readerFontName: String = "PingFang SC"
+    var readerParagraphSpacing: Double = 8
+    var customBackgroundImage: Data?
+    var showChapterTitle: Bool = true
+    var showProgressBar: Bool = true
+    var showPageNumber: Bool = true
+    var showTime: Bool = true
+    var showBattery: Bool = true
+    var ttsQueue: [TTSQueueItem]?
+    var ttsCurrentIndex: Int?
+    var ttsIsPlaying: Bool?
+    var ttsChapterTitle: String?
+    var ttsSegmentTitle: String?
 
     private enum CodingKeys: String, CodingKey {
         case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle
     }
 
     init(
@@ -184,7 +208,20 @@ struct ReaderState: Codable {
         lastReadChapterIndexByBook: [UUID: Int] = [:],
         defaultSensitivity: Int = 50,
         lastScannedBookText: String = "",
-        playTimeoutSeconds: Double = 30.0
+        playTimeoutSeconds: Double = 30.0,
+        readerFontName: String = "PingFang SC",
+        readerParagraphSpacing: Double = 8,
+        customBackgroundImage: Data? = nil,
+        showChapterTitle: Bool = true,
+        showProgressBar: Bool = true,
+        showPageNumber: Bool = true,
+        showTime: Bool = true,
+        showBattery: Bool = true,
+        ttsQueue: [TTSQueueItem]? = nil,
+        ttsCurrentIndex: Int? = nil,
+        ttsIsPlaying: Bool? = nil,
+        ttsChapterTitle: String? = nil,
+        ttsSegmentTitle: String? = nil
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -240,5 +277,10 @@ struct ReaderState: Codable {
         defaultSensitivity = try container.decodeIfPresent(Int.self, forKey: .defaultSensitivity) ?? 50
         lastScannedBookText = try container.decodeIfPresent(String.self, forKey: .lastScannedBookText) ?? ""
         playTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .playTimeoutSeconds) ?? 30.0
+        ttsQueue = try container.decodeIfPresent([TTSQueueItem].self, forKey: .ttsQueue)
+        ttsCurrentIndex = try container.decodeIfPresent(Int.self, forKey: .ttsCurrentIndex)
+        ttsIsPlaying = try container.decodeIfPresent(Bool.self, forKey: .ttsIsPlaying)
+        ttsChapterTitle = try container.decodeIfPresent(String.self, forKey: .ttsChapterTitle)
+        ttsSegmentTitle = try container.decodeIfPresent(String.self, forKey: .ttsSegmentTitle)
     }
 }

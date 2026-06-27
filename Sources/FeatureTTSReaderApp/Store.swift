@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AVFoundation
 import SwiftUI
+import MediaPlayer
 
 @MainActor
 final class ReaderStore: NSObject, ObservableObject {
@@ -27,10 +28,27 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var isSpeaking: Bool = false
     @Published var playTimeoutSeconds: Double = 30.0
 
+    // Enhanced TTS playback state
+    @Published var ttsQueue: [TTSQueueItem] = []
+    @Published var ttsCurrentIndex: Int = 0
+    @Published var ttsCurrentTime: TimeInterval = 0
+    @Published var ttsDuration: TimeInterval = 0
+    @Published var ttsIsPlaying: Bool = false
+    @Published var ttsChapterTitle: String = ""
+    @Published var ttsSegmentTitle: String = ""
+
     private var lastScannedBookText: String = ""
     @Published var readerFontSize: Double = 18
     @Published var readerLineSpacing: Double = 8
+    @Published var readerParagraphSpacing: Double = 8
     @Published var readerTheme: ReaderTheme = .light
+    @Published var readerFontName: String = "PingFang SC"
+    @Published var customBackgroundImage: Data?
+    @Published var showChapterTitle: Bool = true
+    @Published var showProgressBar: Bool = true
+    @Published var showPageNumber: Bool = true
+    @Published var showTime: Bool = true
+    @Published var showBattery: Bool = true
     @Published var bookmarks: [BookBookmark] = []
     @Published var bookProgressByChapter: [UUID: Double] = [:]
     @Published var lastReadChapterIndexByBook: [UUID: Int] = [:]
@@ -46,6 +64,10 @@ final class ReaderStore: NSObject, ObservableObject {
         super.init()
         speechSynthesizer.delegate = speechDelegate
         loadSettings()
+        setupAudioSession()
+        setupRemoteCommands()
+        observeAudioController()
+        audioController.restorePlaybackState()
 
         // Load state off the main actor to avoid blocking UI on startup
         Task.detached { [weak self] in
@@ -74,12 +96,28 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.isSpeaking = state.isSpeaking
                     strong.readerFontSize = state.readerFontSize
                     strong.readerLineSpacing = state.readerLineSpacing
+                    strong.readerParagraphSpacing = state.readerParagraphSpacing
                     strong.readerTheme = state.readerTheme
+                    strong.readerFontName = state.readerFontName
+                    strong.customBackgroundImage = state.customBackgroundImage
+                    strong.showChapterTitle = state.showChapterTitle
+                    strong.showProgressBar = state.showProgressBar
+                    strong.showPageNumber = state.showPageNumber
+                    strong.showTime = state.showTime
+                    strong.showBattery = state.showBattery
                     strong.bookmarks = state.bookmarks
                     strong.bookProgressByChapter = state.bookProgressByChapter
                     strong.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
                     strong.defaultSensitivity = state.defaultSensitivity
+                    strong.lastScannedBookText = state.lastScannedBookText
                     strong.playTimeoutSeconds = state.playTimeoutSeconds
+
+                    // Restore TTS queue state
+                    strong.ttsQueue = state.ttsQueue ?? []
+                    strong.ttsCurrentIndex = state.ttsCurrentIndex ?? 0
+                    strong.ttsIsPlaying = state.ttsIsPlaying ?? false
+                    strong.ttsChapterTitle = state.ttsChapterTitle ?? ""
+                    strong.ttsSegmentTitle = state.ttsSegmentTitle ?? ""
                 }
             } else {
                 await MainActor.run {
@@ -88,6 +126,117 @@ final class ReaderStore: NSObject, ObservableObject {
             }
         }
     }
+
+    private func setupAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.allowBluetooth, .allowAirPlay, .mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            Logger.log(error: error)
+        }
+    }
+
+    private func setupRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in
+            self?.audioController.resume()
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            self?.audioController.pause()
+            return .success
+        }
+        center.stopCommand.addTarget { [weak self] _ in
+            self?.audioController.stop()
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            self?.audioController.playNext()
+            return .success
+        }
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            self?.audioController.playPrevious()
+            return .success
+        }
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            self?.audioController.seek(to: event.positionTime)
+            return .success
+        }
+        center.skipForwardCommand.preferredIntervals = [15]
+        center.skipForwardCommand.addTarget { [weak self] _ in
+            self?.audioController.seekForward(15)
+            return .success
+        }
+        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            self?.audioController.seekBackward(15)
+            return .success
+        }
+    }
+
+    private func observeAudioController() {
+        // Observe audio controller state changes and sync with published properties
+        audioController.$isPlaying
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isPlaying in
+                self?.ttsIsPlaying = isPlaying
+                self?.isSpeaking = isPlaying
+            }
+            .store(in: &cancellables)
+
+        audioController.$currentProgress
+            .receive(on: RunLoop.main)
+            .sink { [weak self] progress in
+                self?.playProgress = progress
+            }
+            .store(in: &cancellables)
+
+        audioController.$currentIndex
+            .receive(on: RunLoop.main)
+            .sink { [weak self] index in
+                self?.ttsCurrentIndex = index
+            }
+            .store(in: &cancellables)
+
+        audioController.$currentTime
+            .receive(on: RunLoop.main)
+            .sink { [weak self] time in
+                self?.ttsCurrentTime = time
+            }
+            .store(in: &cancellables)
+
+        audioController.$currentDuration
+            .receive(on: RunLoop.main)
+            .sink { [weak self] duration in
+                self?.ttsDuration = duration
+            }
+            .store(in: &cancellables)
+
+        audioController.$currentTitle
+            .receive(on: RunLoop.main)
+            .sink { [weak self] title in
+                self?.ttsSegmentTitle = title
+            }
+            .store(in: &cancellables)
+
+        audioController.$queue
+            .receive(on: RunLoop.main)
+            .sink { [weak self] queue in
+                self?.ttsQueue = queue.map { item in
+                    TTSQueueItem(
+                        segment: item.segment,
+                        audioURL: item.audioURL,
+                        chapterTitle: item.chapterTitle,
+                        chapterIndex: item.chapterIndex,
+                        bookID: UUID(uuidString: item.bookID) ?? UUID()
+                    )
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private var cancellables = Set<AnyCancellable>()
 
     func loadSettings() {
         apiEndpoint = UserDefaults.standard.string(forKey: "ReaderStore.apiEndpoint") ?? apiEndpoint
@@ -120,7 +269,15 @@ final class ReaderStore: NSObject, ObservableObject {
         currentBookProgress = state.currentBookProgress
         readerFontSize = state.readerFontSize
         readerLineSpacing = state.readerLineSpacing
+        readerParagraphSpacing = state.readerParagraphSpacing
         readerTheme = state.readerTheme
+        readerFontName = state.readerFontName
+        customBackgroundImage = state.customBackgroundImage
+        showChapterTitle = state.showChapterTitle
+        showProgressBar = state.showProgressBar
+        showPageNumber = state.showPageNumber
+        showTime = state.showTime
+        showBattery = state.showBattery
         bookmarks = state.bookmarks
         bookProgressByChapter = state.bookProgressByChapter
         lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
@@ -155,7 +312,15 @@ final class ReaderStore: NSObject, ObservableObject {
             currentBookProgress: currentBookProgress,
             readerFontSize: readerFontSize,
             readerLineSpacing: readerLineSpacing,
+            readerParagraphSpacing: readerParagraphSpacing,
             readerTheme: readerTheme,
+            readerFontName: readerFontName,
+            customBackgroundImage: customBackgroundImage,
+            showChapterTitle: showChapterTitle,
+            showProgressBar: showProgressBar,
+            showPageNumber: showPageNumber,
+            showTime: showTime,
+            showBattery: showBattery,
             selectedVoiceCatalog: selectedVoiceCatalog,
             defaultVoice: characters.first?.voice ?? "zh-CN-XiaoxiaoNeural",
             defaultRate: characters.first?.rate ?? 0,
@@ -672,44 +837,86 @@ final class ReaderStore: NSObject, ObservableObject {
             statusMessage = "当前没有可播放的朗读段落。"
             return
         }
+
+        let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
+        let chapterTitle = chapters.first(where: { $0.id == selectedChapterID })?.title ?? "当前章节"
+        let bookID = UUID(uuidString: currentBookID) ?? UUID()
+        let chapterIndex = chapters.firstIndex(where: { $0.id == selectedChapterID }) ?? 0
+
+        var queueItems: [AudioPlaybackController.TTSQueueItem] = []
+
         isBusy = true
         playProgress = 0
+
         for (index, segment) in segments.enumerated() {
             currentPlayingLine = segment.characterName
             statusMessage = "正在合成：\(segment.characterName) (\(index + 1)/\(segments.count))"
             let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
+
             do {
                 let audioURL = try await client.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
-                // play this segment immediately to avoid buffering many files and await completion
-                do {
-                    try await withThrowingTaskGroup(of: Void.self) { group in
-                        group.addTask {
-                            try await withTimeout(seconds: self.playTimeoutSeconds) {
-                                await self.audioController.playFilesAndWait([audioURL])
-                            }
-                        }
-                        // wait for the group or throw
-                        try await group.next()
-                        group.cancelAll()
-                    }
-                } catch {
-                    // log and propagate to trigger fallback
-                    Logger.log(error: error)
-                    isBusy = false
-                    throw error
-                }
-                // cleanup temporary audio file
-                try? FileManager.default.removeItem(at: audioURL)
+
+                let queueItem = AudioPlaybackController.TTSQueueItem(
+                    segment: segment,
+                    audioURL: audioURL,
+                    chapterTitle: chapterTitle,
+                    bookTitle: bookTitle,
+                    bookID: bookID.uuidString,
+                    chapterIndex: chapterIndex,
+                    segmentIndex: index,
+                    totalSegments: segments.count
+                )
+                queueItems.append(queueItem)
+
+                playProgress = Double(index + 1) / Double(segments.count)
             } catch {
-                // on any synthesis error, stop and propagate to caller to allow fallback
                 isBusy = false
                 throw error
             }
-            playProgress = Double(index + 1) / Double(segments.count)
+        }
+
+        // Update local TTS queue for UI
+        ttsQueue = queueItems.map { item in
+            TTSQueueItem(
+                segment: item.segment,
+                audioURL: item.audioURL,
+                chapterTitle: item.chapterTitle,
+                chapterIndex: item.chapterIndex,
+                bookID: item.bookID == bookID.uuidString ? bookID : UUID(uuidString: item.bookID) ?? UUID()
+            )
+        }
+        ttsCurrentIndex = 0
+        ttsChapterTitle = chapterTitle
+        ttsSegmentTitle = queueItems.first?.segment.characterName ?? ""
+        ttsIsPlaying = true
+
+        // Play via audio controller
+        audioController.playQueue(queueItems)
+
+        // Update play progress based on audio controller
+        await MainActor.run {
+            isSpeaking = true
+        }
+
+        // Wait for playback to complete or be interrupted
+        while audioController.isPlaying && !queueItems.isEmpty {
+            try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            await MainActor.run {
+                ttsCurrentTime = audioController.currentProgress * (audioController.currentDuration)
+                ttsDuration = audioController.currentDuration
+                ttsCurrentIndex = audioController.currentIndex
+                ttsSegmentTitle = audioController.currentTitle
+                playProgress = Double(audioController.currentIndex + 1) / Double(queueItems.count)
+            }
+        }
+
+        await MainActor.run {
+            isSpeaking = false
+            isBusy = false
+            ttsIsPlaying = false
         }
 
         statusMessage = "已播放完毕。"
-        isBusy = false
     }
 
     private func playLocalSpeech(_ text: String) async {
