@@ -52,6 +52,11 @@ struct SettingsView: View {
                         Text(theme.displayName).tag(theme)
                     }
                 }
+                HStack {
+                    Text("播放超时（秒）")
+                    Slider(value: $store.playTimeoutSeconds, in: 5...120, step: 1)
+                    Text("\(Int(store.playTimeoutSeconds))s")
+                }
             }
 
             Section {

@@ -58,7 +58,16 @@ struct TextReaderView: View {
             .padding(.vertical, 6)
             .id(para)
             .onTapGesture(count: 2) {
-                Task { await store.playFromParagraph(para); isSpeaking = true }
+                if !isSpeaking {
+                    isSpeaking = true
+                    Task {
+                        await store.playFromParagraph(para)
+                        await MainActor.run { isSpeaking = false }
+                    }
+                } else {
+                    store.stopPlayback()
+                    isSpeaking = false
+                }
             }
     }
 
@@ -151,9 +160,10 @@ struct TextReaderView: View {
                                 store.stopPlayback()
                                 isSpeaking = false
                             } else {
+                                isSpeaking = true
                                 Task {
                                     await store.playChapterWithTTS(chapter: chapter)
-                                    isSpeaking = true
+                                    await MainActor.run { isSpeaking = false }
                                 }
                             }
                         }) {

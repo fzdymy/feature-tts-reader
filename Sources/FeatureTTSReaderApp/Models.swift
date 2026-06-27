@@ -150,6 +150,7 @@ struct ReaderState: Codable {
     var bookProgressByChapter: [UUID: Double]
     var lastReadChapterIndexByBook: [UUID: Int]
     var defaultSensitivity: Int
+    var playTimeoutSeconds: Double = 30.0
     var lastScannedBookText: String = ""
 
     private enum CodingKeys: String, CodingKey {
@@ -183,6 +184,7 @@ struct ReaderState: Codable {
         lastReadChapterIndexByBook: [UUID: Int] = [:],
         defaultSensitivity: Int = 50,
         lastScannedBookText: String = ""
+        playTimeoutSeconds: Double = 30.0
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -208,6 +210,7 @@ struct ReaderState: Codable {
         self.lastReadChapterIndexByBook = lastReadChapterIndexByBook
         self.defaultSensitivity = defaultSensitivity
         self.lastScannedBookText = lastScannedBookText
+        self.playTimeoutSeconds = playTimeoutSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -236,5 +239,6 @@ struct ReaderState: Codable {
         lastReadChapterIndexByBook = try container.decodeIfPresent([UUID: Int].self, forKey: .lastReadChapterIndexByBook) ?? [:]
         defaultSensitivity = try container.decodeIfPresent(Int.self, forKey: .defaultSensitivity) ?? 50
         lastScannedBookText = try container.decodeIfPresent(String.self, forKey: .lastScannedBookText) ?? ""
+        playTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .playTimeoutSeconds) ?? 30.0
     }
 }

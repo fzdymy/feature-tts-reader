@@ -25,6 +25,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var currentBookID: String = UUID().uuidString
     @Published var currentBookProgress: Double = 0.0
     @Published var isSpeaking: Bool = false
+    @Published var playTimeoutSeconds: Double = 30.0
 
     private var lastScannedBookText: String = ""
     @Published var readerFontSize: Double = 18
@@ -79,6 +80,7 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.bookProgressByChapter = state.bookProgressByChapter
                     strong.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
                     strong.defaultSensitivity = state.defaultSensitivity
+                        strong.playTimeoutSeconds = state.playTimeoutSeconds
                 }
             } else {
                 await MainActor.run {
@@ -163,7 +165,8 @@ final class ReaderStore: NSObject, ObservableObject {
             bookProgressByChapter: bookProgressByChapter,
             lastReadChapterIndexByBook: lastReadChapterIndexByBook,
             defaultSensitivity: defaultSensitivity,
-            lastScannedBookText: lastScannedBookText
+            lastScannedBookText: lastScannedBookText,
+            playTimeoutSeconds: playTimeoutSeconds
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         let targetURL = stateFileURL()
@@ -669,7 +672,23 @@ final class ReaderStore: NSObject, ObservableObject {
             do {
                 let audioURL = try await client.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
                 // play this segment immediately to avoid buffering many files and await completion
-                await audioController.playFilesAndWait([audioURL])
+                do {
+                    try await withThrowingTaskGroup(of: Void.self) { group in
+                        group.addTask {
+                            try await withTimeout(seconds: playTimeoutSeconds) {
+                                await self.audioController.playFilesAndWait([audioURL])
+                            }
+                        }
+                        // wait for the group or throw
+                        try await group.next()
+                        group.cancelAll()
+                    }
+                } catch {
+                    // log and propagate to trigger fallback
+                    Logger.log(error: error)
+                    isBusy = false
+                    throw error
+                }
                 // cleanup temporary audio file
                 try? FileManager.default.removeItem(at: audioURL)
             } catch {
@@ -703,6 +722,24 @@ final class ReaderStore: NSObject, ObservableObject {
             utterance.pitchMultiplier = 1.0
             utterance.preUtteranceDelay = 0.1
             speechSynthesizer.speak(utterance)
+        }
+        // note: AVSpeechSynthesizer uses delegate proxy to update isSpeaking when done
+    }
+
+    private enum TimeoutError: Error {
+        case timedOut
+    }
+
+    private func withTimeout<T>(seconds: Double, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw TimeoutError.timedOut
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
 

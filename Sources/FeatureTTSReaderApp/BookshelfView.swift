@@ -182,7 +182,10 @@ struct BookDetailView: View {
         }
         .navigationTitle(book.title)
         .onAppear {
-            chapters = extractChapters(from: book.text)
+            Task {
+                let parsed = await Task.detached { parseChapters(text: book.text) }.value
+                chapters = parsed
+            }
         }
     }
     
@@ -293,14 +296,15 @@ struct ReaderDetailView: View {
                         }) {
                             Image(systemName: "bookmark")
                         }
-                        Button(action: { 
+                        Button(action: {
                             if isReading {
                                 store.stopPlayback()
                                 isReading = false
                             } else {
+                                isReading = true
                                 Task {
                                     await store.playChapterWithTTS(chapter: chapter)
-                                    isReading = true
+                                    await MainActor.run { isReading = false }
                                 }
                             }
                         }) {

@@ -127,6 +127,16 @@ final class AudioPlaybackController: NSObject, AVAudioPlayerDelegate, Observable
         }
     }
 
+    func pause() {
+        player?.pause()
+        isPlaying = false
+    }
+
+    func resume() {
+        player?.play()
+        isPlaying = player?.isPlaying ?? false
+    }
+
     func stop() {
         player?.stop()
         player = nil
