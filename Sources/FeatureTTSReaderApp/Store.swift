@@ -40,7 +40,8 @@ final class ReaderStore: NSObject, ObservableObject {
     private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
 
-    init() {
+    override init() {
+        super.init()
         speechSynthesizer.delegate = speechDelegate
         loadSettings()
         loadState()
