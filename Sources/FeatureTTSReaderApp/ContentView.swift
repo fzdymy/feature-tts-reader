@@ -16,6 +16,7 @@ struct ContentView: View {
                 settingsSection
                 importSection
                 chapterSection
+                quickNavigationSection
                 characterSection
                 recommendationSection
                 actionSection
@@ -26,21 +27,21 @@ struct ContentView: View {
             .navigationTitle("多角色小说朗读")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    NavigationLink(destination: BookshelfView()) {
+                    NavigationLink(destination: BookshelfView().environmentObject(store)) {
                         Image(systemName: "books.vertical")
                     }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 12) {
-                        Button(action: { useWholeBook.toggle() }) {
-                            Text(useWholeBook ? "全书模式" : "章节模式")
-                        }
-                        NavigationLink(destination: SettingsView()) {
-                            Image(systemName: "gearshape")
-                        }
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button(action: { useWholeBook.toggle() }) {
+                        Text(useWholeBook ? "全书模式" : "章节模式")
+                    }
+                    NavigationLink(destination: SettingsView().environmentObject(store)) {
+                        Image(systemName: "gearshape")
                     }
                 }
             }
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color(UIColor.systemBackground), for: .navigationBar)
             .onAppear {
                 rawText = store.bookText
             }
@@ -122,7 +123,7 @@ struct ContentView: View {
                 Text("未发现章节，请先导入小说文本。")
                     .foregroundColor(.secondary)
             } else {
-                NavigationLink(destination: ChapterListView()) {
+                NavigationLink(destination: ChapterListView().environmentObject(store)) {
                     HStack {
                         Text(selectedChapterTitle)
                         Spacer()
@@ -287,6 +288,17 @@ struct ContentView: View {
                     }
                     .padding(.vertical, 4)
                 }
+            }
+        }
+    }
+
+    private var quickNavigationSection: some View {
+        Section(header: Text("快速导航")) {
+            NavigationLink(destination: ChapterListView().environmentObject(store)) {
+                Label("章节目录", systemImage: "list.bullet")
+            }
+            NavigationLink(destination: SettingsView().environmentObject(store)) {
+                Label("设置", systemImage: "gearshape")
             }
         }
     }

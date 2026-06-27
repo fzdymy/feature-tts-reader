@@ -10,7 +10,7 @@ struct ChapterListView: View {
                     .foregroundColor(.secondary)
             } else {
                 ForEach(store.chapters) { chapter in
-                    NavigationLink(destination: TextReaderView(chapter: chapter)) {
+                    NavigationLink(destination: TextReaderView(chapter: chapter).environmentObject(store)) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(chapter.title)
                                 .font(.headline)
