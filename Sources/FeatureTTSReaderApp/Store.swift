@@ -571,7 +571,7 @@ final class ReaderStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
             return chapters
         }
 
-        var parts = trimmed.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let parts = trimmed.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if parts.count >= 3 {
             return parts.enumerated().map { index, piece in
                 BookChapter(id: UUID(), title: "章节 \(index + 1)", text: piece.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -609,7 +609,7 @@ final class ReaderStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         return chapters
     }
 
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+    @objc nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.isSpeaking = false
         }
