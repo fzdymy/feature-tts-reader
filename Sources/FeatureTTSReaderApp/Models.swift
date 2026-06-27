@@ -183,7 +183,7 @@ struct ReaderState: Codable {
         bookProgressByChapter: [UUID: Double] = [:],
         lastReadChapterIndexByBook: [UUID: Int] = [:],
         defaultSensitivity: Int = 50,
-        lastScannedBookText: String = ""
+        lastScannedBookText: String = "",
         playTimeoutSeconds: Double = 30.0
     ) {
         self.bookText = bookText
