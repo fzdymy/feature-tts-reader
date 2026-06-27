@@ -58,7 +58,6 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.chapters = state.chapters
                     strong.characters = state.characters
                     strong.scriptSegments = state.scriptSegments
-                    strong.voices = state.voices
                     strong.selectedVoiceCatalog = state.selectedVoiceCatalog
                     strong.recommendations = state.recommendations
                     strong.selectedChapterID = state.selectedChapterID
@@ -80,7 +79,7 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.bookProgressByChapter = state.bookProgressByChapter
                     strong.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
                     strong.defaultSensitivity = state.defaultSensitivity
-                        strong.playTimeoutSeconds = state.playTimeoutSeconds
+                    strong.playTimeoutSeconds = state.playTimeoutSeconds
                 }
             } else {
                 await MainActor.run {
@@ -128,6 +127,7 @@ final class ReaderStore: NSObject, ObservableObject {
         selectedVoiceCatalog = state.selectedVoiceCatalog
         defaultSensitivity = state.defaultSensitivity
         lastScannedBookText = state.lastScannedBookText
+        playTimeoutSeconds = state.playTimeoutSeconds
 
         if selectedVoiceCatalog != .remote {
             voices = loadLocalVoiceCatalog(selectedVoiceCatalog)
@@ -369,24 +369,28 @@ final class ReaderStore: NSObject, ObservableObject {
                     var collected = Data()
                     let chunkSize = 64 * 1024
                     while true {
-                        autoreleasepool {
-                            let chunk = try fh.read(upToCount: chunkSize) ?? Data()
-                            if chunk.count > 0 {
-                                collected.append(chunk)
-                                if fileSize > 0 {
-                                    let p = Double(collected.count) / Double(max(1, fileSize))
-                                    progress(min(max(p, 0), 1))
-                                }
+                        let chunk: Data
+                        do {
+                            chunk = try fh.read(upToCount: chunkSize) ?? Data()
+                        } catch {
+                            try? fh.close()
+                            cont.resume(throwing: error)
+                            return
+                        }
+                        if chunk.count > 0 {
+                            collected.append(chunk)
+                            if fileSize > 0 {
+                                let p = Double(collected.count) / Double(max(1, fileSize))
+                                progress(min(max(p, 0), 1))
                             }
-                            if chunk.isEmpty {
-                                try? fh.close()
-                                cont.resume(returning: collected)
-                                break
-                            }
+                        }
+                        if chunk.isEmpty {
+                            try? fh.close()
+                            cont.resume(returning: collected)
+                            return
                         }
                     }
                 } catch {
-                    // fallback: try a single-shot read
                     do {
                         let d = try Data(contentsOf: url)
                         progress(1.0)
@@ -407,8 +411,8 @@ final class ReaderStore: NSObject, ObservableObject {
         }
 
         // perform chapter extraction off-main-thread
-        let extracted = await Task.detached { [trimmedText] in
-            return extractChapters(from: trimmedText)
+        let extracted = await Task.detached { [weak self, trimmedText] in
+            return self?.extractChapters(from: trimmedText) ?? []
         }.value
 
         await MainActor.run {
@@ -437,9 +441,9 @@ final class ReaderStore: NSObject, ObservableObject {
     func parseChaptersAsync() async {
         let text = bookText
         await MainActor.run { isBusy = true; importProgress = 0.0; statusMessage = "正在扫描章节..." }
-        let extracted = await Task.detached { [text] in
+        let extracted = await Task.detached { [weak self, text] in
             // reuse existing extraction logic
-            return extractChapters(from: text)
+            return self?.extractChapters(from: text) ?? []
         }.value
         await MainActor.run {
             chapters = extracted
@@ -456,21 +460,23 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func scanCharacters() async {
         ensureVoiceOptionsLoaded()
+        let currentVoices = voices
+        let currentSensitivity = defaultSensitivity
         // perform character inference off the main thread
-        let inferred = await Task.detached { [bookText, defaultSensitivity] in
-            return inferCharacters(from: bookText)
+        let inferred = await Task.detached { [bookText, currentVoices, currentSensitivity, weak self] in
+            return self?.inferCharacters(from: bookText, voices: currentVoices, defaultSensitivity: currentSensitivity) ?? []
         }.value
 
         await MainActor.run {
             var final = inferred
             if final.isEmpty {
-                final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳"), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
                 statusMessage = "未识别到明确人物，已创建默认叙述者。"
             } else {
                 final = final.map { profile in
                     var updated = profile
                     if updated.voice.isEmpty {
-                        updated.voice = defaultVoice(for: profile.gender, tone: profile.tone, name: profile.name)
+                        updated.voice = defaultVoice(for: profile.gender, tone: profile.tone, name: profile.name, voices: voices)
                     }
                     return updated
                 }
@@ -484,8 +490,11 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func createScriptSegmentsAsync(from text: String) async -> [ScriptSegment] {
-        return await Task.detached { [text, defaultSensitivity] in
-            return createScriptSegments(from: text)
+        let currentCharacters = characters
+        let currentVoices = voices
+        let currentSensitivity = defaultSensitivity
+        return await Task.detached { [weak self, text, currentCharacters, currentVoices, currentSensitivity] in
+            return self?.createScriptSegments(from: text, characters: currentCharacters, defaultSensitivity: currentSensitivity, voices: currentVoices) ?? []
         }.value
     }
 
@@ -581,7 +590,7 @@ final class ReaderStore: NSObject, ObservableObject {
             if let idx = characters.firstIndex(where: { $0.id == rec.profile.id }) {
                 let current = characters[idx].voice
                 // if voice is default or empty, apply suggestion
-                if current.isEmpty || current == defaultVoice(for: characters[idx].gender, tone: characters[idx].tone) {
+                if current.isEmpty || current == defaultVoice(for: characters[idx].gender, tone: characters[idx].tone, voices: voices) {
                     if let v = rec.suggestedVoices.first?.id {
                         characters[idx].voice = v
                     }
@@ -675,7 +684,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 do {
                     try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
-                            try await withTimeout(seconds: playTimeoutSeconds) {
+                            try await withTimeout(seconds: self.playTimeoutSeconds) {
                                 await self.audioController.playFilesAndWait([audioURL])
                             }
                         }
@@ -743,7 +752,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    private func extractChapters(from text: String) -> [BookChapter] {
+    nonisolated private func extractChapters(from text: String) -> [BookChapter] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -781,7 +790,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return splitIntoPseudoChapters(trimmed)
     }
 
-    private func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
+    nonisolated private func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
         let pageSize = 5000
         var chapters: [BookChapter] = []
         var startIndex = text.startIndex
@@ -810,7 +819,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
 
-    private func inferCharacters(from text: String) -> [CharacterProfile] {
+    nonisolated private func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) -> [CharacterProfile] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var names = OrderedSet<String>()
 
@@ -851,7 +860,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 gender: gender,
                 age: age,
                 tone: tone,
-                voice: defaultVoice(for: gender, tone: tone),
+                voice: defaultVoice(for: gender, tone: tone, voices: voices),
                 rate: style == "cheerful" ? 10 : style == "sad" ? -10 : 0,
                 pitch: style == "cheerful" ? 10 : style == "sad" ? -5 : 0,
                 style: style,
@@ -862,20 +871,20 @@ final class ReaderStore: NSObject, ObservableObject {
         return result
     }
 
-    private func createScriptSegments(from text: String) -> [ScriptSegment] {
+    nonisolated private func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         for paragraph in paragraphs {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
             let lines = trimmed.chunked(into: 900)
             for line in lines {
-                    let speaker = detectSpeaker(in: line) ?? characters.first?.name ?? "叙述者"
+                let speaker = detectSpeaker(in: line, characters: characters) ?? characters.first?.name ?? "叙述者"
                 let matchedProfile = characters.first(where: { line.contains($0.name) })
                 let speakerProfile = matchedProfile ?? characters.first(where: { $0.name == speaker })
                 let tone = detectTone(in: line)
                 var profile = speakerProfile ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
                 if profile.voice.isEmpty {
-                    profile.voice = defaultVoice(for: profile.gender, tone: tone, name: profile.name)
+                    profile.voice = defaultVoice(for: profile.gender, tone: tone, name: profile.name, voices: voices)
                 }
 
                 // detect tone for this line and derive style/pitch adjustments
@@ -952,7 +961,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    private func detectSpeaker(in line: String) -> String? {
+    nonisolated private func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
         for profile in characters {
             if line.contains(profile.name) {
                 return profile.name
@@ -1004,7 +1013,7 @@ final class ReaderStore: NSObject, ObservableObject {
         VoiceItem.defaultItems()
     }
 
-    private func detectGender(in context: String) -> String {
+    nonisolated private func detectGender(in context: String) -> String {
         let lower = context
         if lower.contains("小姐") || lower.contains("姑娘") || lower.contains("她") || lower.contains("母亲") || lower.contains("姐姐") || lower.contains("妹妹") || lower.contains("老婆") || lower.contains("太太") {
             return "女性"
@@ -1015,7 +1024,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return "未知"
     }
 
-    private func detectAge(in context: String) -> String {
+    nonisolated private func detectAge(in context: String) -> String {
         if context.contains("少年") || context.contains("小孩") || context.contains("稚") || context.contains("孩子") {
             return "少年"
         }
@@ -1034,7 +1043,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return "未知"
     }
 
-    private func detectTone(in context: String) -> String {
+    nonisolated private func detectTone(in context: String) -> String {
         if context.contains("！") || context.contains("怒") || context.contains("大声") || context.contains("愤") {
             return "激昂"
         }
@@ -1050,7 +1059,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return "平稳"
     }
 
-    private func styleFromTone(_ tone: String) -> String {
+    nonisolated private func styleFromTone(_ tone: String) -> String {
         switch tone {
         case "激昂": return "angry"
         case "疑问": return "neutral"
@@ -1060,14 +1069,14 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    private func defaultVoice(for gender: String, tone: String, name: String? = nil) -> String {
+    nonisolated private func defaultVoice(for gender: String, tone: String, name: String? = nil, voices: [VoiceItem]) -> String {
         let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
-        let profile = CharacterProfile(id: UUID(), name: name ?? "叙述者", gender: gender, age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+        let profile = CharacterProfile(id: UUID(), name: name ?? "叙述者", gender: gender, age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: 50)
         let best = options.max(by: { voiceMatchScore($0, for: profile) < voiceMatchScore($1, for: profile) })
         return best?.id ?? "zh-CN-XiaoxiaoNeural"
     }
 
-    private func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
+    nonisolated private func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
         var score = 0
         let lowerID = voice.id.lowercased()
         let lowerName = voice.name.lowercased()
@@ -1125,7 +1134,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    private func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
+    nonisolated private func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
         var list = voiceOptions
         list.sort { voiceMatchScore($0, for: profile) > voiceMatchScore($1, for: profile) }
         return Array(list.prefix(6))
