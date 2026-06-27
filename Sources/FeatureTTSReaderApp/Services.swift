@@ -108,11 +108,23 @@ final class AudioPlaybackController: NSObject, AVAudioPlayerDelegate, Observable
 
     private var queue: [URL] = []
     private var player: AVAudioPlayer?
+    // Optional continuation to resume when playback fully completes
+    private var playbackCompletion: (() -> Void)?
 
     func playFiles(_ urls: [URL]) {
         stop()
         queue = urls
         playNext()
+    }
+
+    func playFilesAndWait(_ urls: [URL]) async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            // set completion handler to resume continuation when finished
+            playbackCompletion = {
+                cont.resume()
+            }
+            playFiles(urls)
+        }
     }
 
     func stop() {
@@ -125,6 +137,9 @@ final class AudioPlaybackController: NSObject, AVAudioPlayerDelegate, Observable
     private func playNext() {
         guard !queue.isEmpty else {
             isPlaying = false
+            // notify any waiter that playback finished
+            playbackCompletion?()
+            playbackCompletion = nil
             return
         }
         let next = queue.removeFirst()

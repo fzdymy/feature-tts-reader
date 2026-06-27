@@ -15,6 +15,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var selectedChapterID: UUID?
     @Published var statusMessage: String = "请导入小说或粘贴文本。"
     @Published var isBusy: Bool = false
+    @Published var importProgress: Double = 0.0
     @Published var currentPlayingLine: String = ""
     @Published var apiKey: String = ""
     @Published var apiEndpoint: String = "http://127.0.0.1:8080"
@@ -44,7 +45,47 @@ final class ReaderStore: NSObject, ObservableObject {
         super.init()
         speechSynthesizer.delegate = speechDelegate
         loadSettings()
-        loadState()
+
+        // Load state off the main actor to avoid blocking UI on startup
+        Task.detached { [weak self] in
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let url = docs.appendingPathComponent("tts_reader_state.json")
+            if let data = try? Data(contentsOf: url), let state = try? JSONDecoder().decode(ReaderState.self, from: data) {
+                await MainActor.run {
+                    guard let strong = self else { return }
+                    strong.bookText = state.bookText
+                    strong.chapters = state.chapters
+                    strong.characters = state.characters
+                    strong.scriptSegments = state.scriptSegments
+                    strong.voices = state.voices
+                    strong.selectedVoiceCatalog = state.selectedVoiceCatalog
+                    strong.recommendations = state.recommendations
+                    strong.selectedChapterID = state.selectedChapterID
+                    strong.statusMessage = state.statusMessage
+                    strong.isBusy = state.isBusy
+                    strong.currentPlayingLine = state.currentPlayingLine
+                    strong.apiKey = state.apiKey
+                    strong.apiEndpoint = state.apiEndpoint
+                    strong.playProgress = state.playProgress
+                    strong.books = state.books
+                    strong.currentBookTitle = state.currentBookTitle
+                    strong.currentBookID = state.currentBookID
+                    strong.currentBookProgress = state.currentBookProgress
+                    strong.isSpeaking = state.isSpeaking
+                    strong.readerFontSize = state.readerFontSize
+                    strong.readerLineSpacing = state.readerLineSpacing
+                    strong.readerTheme = state.readerTheme
+                    strong.bookmarks = state.bookmarks
+                    strong.bookProgressByChapter = state.bookProgressByChapter
+                    strong.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
+                    strong.defaultSensitivity = state.defaultSensitivity
+                }
+            } else {
+                await MainActor.run {
+                    self?.loadPersistentLibrary()
+                }
+            }
+        }
     }
 
     func loadSettings() {
@@ -55,6 +96,8 @@ final class ReaderStore: NSObject, ObservableObject {
     func saveSettings() {
         UserDefaults.standard.set(apiEndpoint, forKey: "ReaderStore.apiEndpoint")
         UserDefaults.standard.set(apiKey, forKey: "ReaderStore.apiKey")
+        // also persist to state file so settings survive app restarts
+        saveState()
     }
 
     func loadState() {
@@ -123,7 +166,10 @@ final class ReaderStore: NSObject, ObservableObject {
             lastScannedBookText: lastScannedBookText
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: stateFileURL(), options: .atomic)
+        let targetURL = stateFileURL()
+        Task.detached {
+            try? data.write(to: targetURL, options: .atomic)
+        }
         persistLibrary()
     }
 
@@ -242,9 +288,25 @@ final class ReaderStore: NSObject, ObservableObject {
             .unicode
         ]
         var content: String? = nil
-        let data = try? Data(contentsOf: url)
+        // read file with progress reporting on a background thread
+        await MainActor.run {
+            importProgress = 0.0
+            isBusy = true
+            statusMessage = "正在导入文件..."
+        }
+        var fileData: Data? = nil
+        do {
+            fileData = try await readDataWithProgress(url) { progress in
+                Task { @MainActor in
+                    self.importProgress = progress
+                }
+            }
+        } catch {
+            fileData = nil
+        }
+
         for enc in possibleEncodings {
-            guard let data = data, let s = String(data: data, encoding: enc) else {
+            guard let data = fileData, let s = String(data: data, encoding: enc) else {
                 continue
             }
             content = s
@@ -269,6 +331,10 @@ final class ReaderStore: NSObject, ObservableObject {
         lastScannedBookText = ""
         statusMessage = "已导入：\(title)，共 \(chapters.count) 章。"
         saveState()
+        await MainActor.run {
+            importProgress = 0.0
+            isBusy = false
+        }
     }
 
     private func stateFileURL() -> URL {
@@ -276,64 +342,154 @@ final class ReaderStore: NSObject, ObservableObject {
         return docs.appendingPathComponent("tts_reader_state.json")
     }
 
-    func importText(_ text: String) {
+    private func readDataFromURL(_ url: URL) async throws -> Data {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let d = try Data(contentsOf: url)
+                    cont.resume(returning: d)
+                } catch {
+                    cont.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func readDataWithProgress(_ url: URL, progress: @escaping (Double) -> Void) async throws -> Data {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let fm = FileManager.default
+                    let attrs = try? fm.attributesOfItem(atPath: url.path)
+                    let fileSize = (attrs?[.size] as? NSNumber)?.intValue ?? 0
+                    let fh = try FileHandle(forReadingFrom: url)
+                    var collected = Data()
+                    let chunkSize = 64 * 1024
+                    while true {
+                        autoreleasepool {
+                            let chunk = try fh.read(upToCount: chunkSize) ?? Data()
+                            if chunk.count > 0 {
+                                collected.append(chunk)
+                                if fileSize > 0 {
+                                    let p = Double(collected.count) / Double(max(1, fileSize))
+                                    progress(min(max(p, 0), 1))
+                                }
+                            }
+                            if chunk.isEmpty {
+                                try? fh.close()
+                                cont.resume(returning: collected)
+                                break
+                            }
+                        }
+                    }
+                } catch {
+                    // fallback: try a single-shot read
+                    do {
+                        let d = try Data(contentsOf: url)
+                        progress(1.0)
+                        cont.resume(returning: d)
+                    } catch {
+                        cont.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    func importText(_ text: String) async {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else {
-            statusMessage = "导入文本为空。"
+            await MainActor.run { statusMessage = "导入文本为空。" }
             return
         }
 
-        bookText = trimmedText
-        currentBookTitle = "未命名文本"
-        currentBookID = UUID().uuidString
-        chapters = extractChapters(from: bookText)
-        selectedChapterID = chapters.first?.id
-        characters = []
-        scriptSegments = []
-        recommendations = []
-        lastScannedBookText = ""
-        statusMessage = "已导入文本，发现 \(chapters.count) 个章节。"
+        // perform chapter extraction off-main-thread
+        let extracted = await Task.detached { [trimmedText] in
+            return extractChapters(from: trimmedText)
+        }.value
 
-        let book = Book(id: UUID(), title: currentBookTitle, text: bookText, importedAt: Date())
-        books.append(book)
-        saveState()
+        await MainActor.run {
+            bookText = trimmedText
+            currentBookTitle = "未命名文本"
+            currentBookID = UUID().uuidString
+            chapters = extracted
+            selectedChapterID = chapters.first?.id
+            characters = []
+            scriptSegments = []
+            recommendations = []
+            lastScannedBookText = ""
+            statusMessage = "已导入文本，发现 \(chapters.count) 个章节。"
+
+            let book = Book(id: UUID(), title: currentBookTitle, text: bookText, importedAt: Date())
+            books.append(book)
+            saveState()
+        }
     }
 
     func parseChapters() {
-        chapters = extractChapters(from: bookText)
-        selectedChapterID = chapters.first?.id
-        statusMessage = "已扫描 \(chapters.count) 个章节。"
-        if currentBookTitle.isEmpty {
-            currentBookTitle = "未命名文本"
-        }
-        saveState()
+        // synchronous wrapper kept for compatibility; prefer async version
+        Task { await parseChaptersAsync() }
     }
 
-    func scanCharacters() {
-        ensureVoiceOptionsLoaded()
-        characters = inferCharacters(from: bookText)
-        if characters.isEmpty {
-            characters = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳"), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
-            statusMessage = "未识别到明确人物，已创建默认叙述者。"
-        } else {
-            characters = characters.map { profile in
-                var updated = profile
-                if updated.voice.isEmpty {
-                    updated.voice = defaultVoice(for: profile.gender, tone: profile.tone, name: profile.name)
-                }
-                return updated
+    func parseChaptersAsync() async {
+        let text = bookText
+        await MainActor.run { isBusy = true; importProgress = 0.0; statusMessage = "正在扫描章节..." }
+        let extracted = await Task.detached { [text] in
+            // reuse existing extraction logic
+            return extractChapters(from: text)
+        }.value
+        await MainActor.run {
+            chapters = extracted
+            selectedChapterID = chapters.first?.id
+            statusMessage = "已扫描 \(chapters.count) 个章节。"
+            if currentBookTitle.isEmpty {
+                currentBookTitle = "未命名文本"
             }
-            statusMessage = "已识别 \(characters.count) 个角色。"
+            importProgress = 0.0
+            isBusy = false
+            saveState()
         }
-        lastScannedBookText = bookText
-        updateRecommendations()
-        saveState()
     }
 
-    func buildScript(for wholeBook: Bool) {
+    func scanCharacters() async {
+        ensureVoiceOptionsLoaded()
+        // perform character inference off the main thread
+        let inferred = await Task.detached { [bookText, defaultSensitivity] in
+            return inferCharacters(from: bookText)
+        }.value
+
+        await MainActor.run {
+            var final = inferred
+            if final.isEmpty {
+                final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳"), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                statusMessage = "未识别到明确人物，已创建默认叙述者。"
+            } else {
+                final = final.map { profile in
+                    var updated = profile
+                    if updated.voice.isEmpty {
+                        updated.voice = defaultVoice(for: profile.gender, tone: profile.tone, name: profile.name)
+                    }
+                    return updated
+                }
+                statusMessage = "已识别 \(final.count) 个角色。"
+            }
+            characters = final
+            lastScannedBookText = bookText
+            updateRecommendations()
+            saveState()
+        }
+    }
+
+    func createScriptSegmentsAsync(from text: String) async -> [ScriptSegment] {
+        return await Task.detached { [text, defaultSensitivity] in
+            return createScriptSegments(from: text)
+        }.value
+    }
+
+    func buildScript(for wholeBook: Bool) async {
         ensureVoiceOptionsLoaded()
         if characters.isEmpty || lastScannedBookText != bookText {
-            scanCharacters()
+            await scanCharacters()
         }
 
         let targetText: String
@@ -345,14 +501,17 @@ final class ReaderStore: NSObject, ObservableObject {
             targetText = bookText
         }
 
-        scriptSegments = createScriptSegments(from: targetText)
-        if scriptSegments.isEmpty {
-            statusMessage = "生成脚本失败，请先导入文本并扫描角色。"
-        } else {
-            statusMessage = "已生成 \(scriptSegments.count) 个朗读段落。"
+        let segments = await createScriptSegmentsAsync(from: targetText)
+        await MainActor.run {
+            scriptSegments = segments
+            if scriptSegments.isEmpty {
+                statusMessage = "生成脚本失败，请先导入文本并扫描角色。"
+            } else {
+                statusMessage = "已生成 \(scriptSegments.count) 个朗读段落。"
+            }
+            updateRecommendations(from: wholeBook ? bookText : (chapters.first(where: { $0.id == selectedChapterID })?.text ?? bookText))
+            saveState()
         }
-        updateRecommendations(from: wholeBook ? bookText : (chapters.first(where: { $0.id == selectedChapterID })?.text ?? bookText))
-        saveState()
     }
 
     func refreshVoices() async {
@@ -447,7 +606,7 @@ final class ReaderStore: NSObject, ObservableObject {
             statusMessage = "请先导入小说文本。"
             return
         }
-        buildScript(for: false)
+        await buildScript(for: false)
         do {
             try await playScriptSegments(scriptSegments)
         } catch {
@@ -461,7 +620,7 @@ final class ReaderStore: NSObject, ObservableObject {
             statusMessage = "请先导入小说文本。"
             return
         }
-        buildScript(for: true)
+        await buildScript(for: true)
         do {
             try await playScriptSegments(scriptSegments)
         } catch {
@@ -481,7 +640,7 @@ final class ReaderStore: NSObject, ObservableObject {
         isBusy = true
         statusMessage = "正在准备朗读章节..."
 
-        let segments = createScriptSegments(from: chapter.text)
+        let segments = await createScriptSegmentsAsync(from: chapter.text)
         guard !segments.isEmpty else {
             statusMessage = "当前章节脚本为空，无法朗读。"
             isBusy = false
@@ -503,23 +662,25 @@ final class ReaderStore: NSObject, ObservableObject {
         }
         isBusy = true
         playProgress = 0
-        var audioURLs: [URL] = []
         for (index, segment) in segments.enumerated() {
             currentPlayingLine = segment.characterName
-            statusMessage = "正在合成：\(segment.characterName)"
+            statusMessage = "正在合成：\(segment.characterName) (\(index + 1)/\(segments.count))"
             let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
             do {
                 let audioURL = try await client.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
-                audioURLs.append(audioURL)
+                // play this segment immediately to avoid buffering many files and await completion
+                await audioController.playFilesAndWait([audioURL])
+                // cleanup temporary audio file
+                try? FileManager.default.removeItem(at: audioURL)
             } catch {
+                // on any synthesis error, stop and propagate to caller to allow fallback
                 isBusy = false
                 throw error
             }
             playProgress = Double(index + 1) / Double(segments.count)
         }
 
-        audioController.playFiles(audioURLs)
-        statusMessage = "已开始播放，当前音色：\(segments.first?.voice ?? "未知")。"
+        statusMessage = "已播放完毕。"
         isBusy = false
     }
 
@@ -727,7 +888,7 @@ final class ReaderStore: NSObject, ObservableObject {
             return
         }
         // ensure script built for current chapter
-        buildScript(for: false)
+        await buildScript(for: false)
         let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let idx = scriptSegments.firstIndex(where: { $0.text.contains(trimmed) || $0.text == trimmed }) ?? 0
@@ -741,8 +902,8 @@ final class ReaderStore: NSObject, ObservableObject {
 
     // Quick E2E test helper: import sample text, build script for first chapter and synthesize first segment
     func runQuickE2ETest(sampleText: String) async -> String {
-        importText(sampleText)
-        buildScript(for: false)
+        await importText(sampleText)
+        await buildScript(for: false)
         guard let first = scriptSegments.first else { return "脚本为空，无法测试。" }
         do {
             let url = try await client.synthesizeAudio(text: "\(first.characterName)：\(first.text)", voice: first.voice, rate: first.rate, pitch: first.pitch, style: first.style)

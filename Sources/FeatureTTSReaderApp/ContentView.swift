@@ -119,19 +119,20 @@ struct ContentView: View {
             TextEditor(text: $rawText)
                 .frame(minHeight: 220)
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.3)))
+            if store.importProgress > 0 {
+                ProgressView(value: store.importProgress)
+                    .padding(.vertical, 4)
+            }
             HStack {
-                Button(action: {
-                    store.importText(rawText)
-                    rawText = store.bookText
-                }) {
+                Button(action: { Task { await store.importText(rawText); rawText = store.bookText } }) {
                     Text("导入文本")
                 }
                 Spacer()
-                Button(action: { store.parseChapters() }) {
+                Button(action: { Task { await store.parseChaptersAsync() } }) {
                     Text("扫描章节")
                 }
                 Spacer()
-                Button(action: { store.scanCharacters() }) {
+                Button(action: { Task { await store.scanCharacters() } }) {
                     Text("识别角色")
                 }
             }
@@ -155,7 +156,7 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                Button(action: { store.buildScript(for: useWholeBook) }) {
+                Button(action: { Task { await store.buildScript(for: useWholeBook) } }) {
                     Label("生成朗读脚本", systemImage: "doc.richtext")
                 }
                 if !store.scriptSegments.isEmpty {

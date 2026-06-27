@@ -136,6 +136,7 @@ struct TextReaderView: View {
                         // 主题切换
                         Button(action: { 
                             store.readerTheme = store.readerTheme == .dark ? .light : .dark
+                            store.saveState()
                         }) {
                             Image(systemName: store.readerTheme == .dark ? "sun.max" : "moon.fill")
                         }
