@@ -3,6 +3,10 @@ import SwiftUI
 struct ChapterListView: View {
     @EnvironmentObject private var store: ReaderStore
 
+    private var currentBook: Book {
+        Book(id: UUID(uuidString: store.currentBookID) ?? UUID(), title: store.currentBookTitle.isEmpty ? "当前书籍" : store.currentBookTitle, text: store.bookText, importedAt: Date())
+    }
+
     var body: some View {
         List {
             if store.chapters.isEmpty {
@@ -10,7 +14,8 @@ struct ChapterListView: View {
                     .foregroundColor(.secondary)
             } else {
                 ForEach(store.chapters) { chapter in
-                    NavigationLink(destination: TextReaderView(chapter: chapter).environmentObject(store)) {
+                    let chapterIndex = store.chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
+                    NavigationLink(destination: ReaderDetailView(book: currentBook, chapter: chapter, bookID: currentBook.id, chapterIndex: chapterIndex).environmentObject(store)) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(chapter.title)
                                 .font(.headline)

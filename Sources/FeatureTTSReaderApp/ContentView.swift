@@ -61,7 +61,7 @@ struct ContentView: View {
     }
 
     private var settingsSection: some View {
-        Section(header: Text("TTS 服务设置")) {
+        Section(header: Text("全局参数与 TTS 设置")) {
             TextField("TTS 服务地址，例如 http://127.0.0.1:8080", text: $store.apiEndpoint)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
@@ -123,6 +123,9 @@ struct ContentView: View {
                 Text("未发现章节，请先导入小说文本。")
                     .foregroundColor(.secondary)
             } else {
+                Text("共计 \(store.chapters.count) 章")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
                 NavigationLink(destination: ChapterListView().environmentObject(store)) {
                     HStack {
                         Text(selectedChapterTitle)

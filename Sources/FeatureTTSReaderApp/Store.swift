@@ -4,7 +4,7 @@ import AVFoundation
 import SwiftUI
 
 @MainActor
-final class ReaderStore: ObservableObject {
+final class ReaderStore: ObservableObject, AVSpeechSynthesizerDelegate {
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
     @Published var characters: [CharacterProfile] = []
@@ -23,6 +23,7 @@ final class ReaderStore: ObservableObject {
     @Published var currentBookTitle: String = ""
     @Published var currentBookID: String = UUID().uuidString
     @Published var currentBookProgress: Double = 0.0
+    @Published var isSpeaking: Bool = false
 
     private var lastScannedBookText: String = ""
     @Published var readerFontSize: Double = 18
@@ -35,9 +36,11 @@ final class ReaderStore: ObservableObject {
 
     private let audioController = AudioPlaybackController()
     private let persistence = PersistenceController.shared
+    private let speechSynthesizer = AVSpeechSynthesizer()
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
 
     init() {
+        speechSynthesizer.delegate = self
         loadSettings()
         loadState()
     }
@@ -272,7 +275,13 @@ final class ReaderStore: ObservableObject {
     }
 
     func importText(_ text: String) {
-        bookText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else {
+            statusMessage = "导入文本为空。"
+            return
+        }
+
+        bookText = trimmedText
         currentBookTitle = "未命名文本"
         currentBookID = UUID().uuidString
         chapters = extractChapters(from: bookText)
@@ -282,6 +291,9 @@ final class ReaderStore: ObservableObject {
         recommendations = []
         lastScannedBookText = ""
         statusMessage = "已导入文本，发现 \(chapters.count) 个章节。"
+
+        let book = Book(id: UUID(), title: currentBookTitle, text: bookText, importedAt: Date())
+        books.append(book)
         saveState()
     }
 
@@ -289,6 +301,9 @@ final class ReaderStore: ObservableObject {
         chapters = extractChapters(from: bookText)
         selectedChapterID = chapters.first?.id
         statusMessage = "已扫描 \(chapters.count) 个章节。"
+        if currentBookTitle.isEmpty {
+            currentBookTitle = "未命名文本"
+        }
         saveState()
     }
 
@@ -431,7 +446,12 @@ final class ReaderStore: ObservableObject {
             return
         }
         buildScript(for: false)
-        await playScriptSegments(scriptSegments)
+        do {
+            try await playScriptSegments(scriptSegments)
+        } catch {
+            statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。"
+            await playLocalSpeech(bookText)
+        }
     }
 
     func playWholeBook() async {
@@ -440,11 +460,18 @@ final class ReaderStore: ObservableObject {
             return
         }
         buildScript(for: true)
-        await playScriptSegments(scriptSegments)
+        do {
+            try await playScriptSegments(scriptSegments)
+        } catch {
+            statusMessage = "远程 TTS 服务不可用，使用系统语音播放整本小说。"
+            await playLocalSpeech(bookText)
+        }
     }
 
     func stopPlayback() {
         audioController.stop()
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        isSpeaking = false
         statusMessage = "已停止播放。"
     }
 
@@ -459,10 +486,15 @@ final class ReaderStore: ObservableObject {
             return
         }
 
-        await playScriptSegments(segments)
+        do {
+            try await playScriptSegments(segments)
+        } catch {
+            statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。"
+            await playLocalSpeech(chapter.text)
+        }
     }
 
-    private func playScriptSegments(_ segments: [ScriptSegment]) async {
+    private func playScriptSegments(_ segments: [ScriptSegment]) async throws {
         guard !segments.isEmpty else {
             statusMessage = "当前没有可播放的朗读段落。"
             return
@@ -473,14 +505,13 @@ final class ReaderStore: ObservableObject {
         for (index, segment) in segments.enumerated() {
             currentPlayingLine = segment.characterName
             statusMessage = "正在合成：\(segment.characterName)"
+            let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
             do {
-                let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
                 let audioURL = try await client.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
                 audioURLs.append(audioURL)
             } catch {
-                statusMessage = "合成失败：\(error.localizedDescription)"
                 isBusy = false
-                return
+                throw error
             }
             playProgress = Double(index + 1) / Double(segments.count)
         }
@@ -488,6 +519,28 @@ final class ReaderStore: ObservableObject {
         audioController.playFiles(audioURLs)
         statusMessage = "已开始播放，当前音色：\(segments.first?.voice ?? "未知")。"
         isBusy = false
+    }
+
+    private func playLocalSpeech(_ text: String) async {
+        stopPlayback()
+        isSpeaking = true
+        statusMessage = "正在使用系统语音朗读..."
+
+        let textBlocks = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if textBlocks.isEmpty {
+            isSpeaking = false
+            statusMessage = "当前内容为空，无法朗读。"
+            return
+        }
+
+        for block in textBlocks {
+            let utterance = AVSpeechUtterance(string: block)
+            utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN") ?? AVSpeechSynthesisVoice(language: "en-US")
+            utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+            utterance.pitchMultiplier = 1.0
+            utterance.preUtteranceDelay = 0.1
+            speechSynthesizer.speak(utterance)
+        }
     }
 
     private func extractChapters(from text: String) -> [BookChapter] {
@@ -519,12 +572,45 @@ final class ReaderStore: ObservableObject {
         }
 
         var parts = trimmed.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if parts.count < 3 {
-            parts = trimmed.chunked(into: 12000)
+        if parts.count >= 3 {
+            return parts.enumerated().map { index, piece in
+                BookChapter(id: UUID(), title: "章节 \(index + 1)", text: piece.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
         }
-        return parts.enumerated().map { index, piece in
-            BookChapter(id: UUID(), title: "章节 \(index + 1)", text: piece.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        return splitIntoPseudoChapters(trimmed)
+    }
+
+    private func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
+        let pageSize = 5000
+        var chapters: [BookChapter] = []
+        var startIndex = text.startIndex
+        var chapterIndex = 1
+
+        while startIndex < text.endIndex {
+            let endIndex = text.index(startIndex, offsetBy: pageSize, limitedBy: text.endIndex) ?? text.endIndex
+            var splitIndex = endIndex
+            if splitIndex < text.endIndex {
+                if let punct = text[startIndex..<endIndex].lastIndex(where: { ".。！？!?".contains($0) }) {
+                    splitIndex = text.index(after: punct)
+                }
+            }
+            let chunk = String(text[startIndex..<splitIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !chunk.isEmpty {
+                chapters.append(BookChapter(id: UUID(), title: "第\(chapterIndex)章", text: chunk))
+                chapterIndex += 1
+            }
+            startIndex = splitIndex
         }
+
+        if chapters.isEmpty {
+            return [BookChapter(id: UUID(), title: "全文", text: text)]
+        }
+        return chapters
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        isSpeaking = false
     }
 
     private func inferCharacters(from text: String) -> [CharacterProfile] {

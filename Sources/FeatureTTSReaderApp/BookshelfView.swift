@@ -5,15 +5,7 @@ struct BookshelfView: View {
     @State private var showingImporter = false
 
     private func readerDestination(for book: Book) -> some View {
-        let chapters = extractChapters(from: book.text)
-        if let resumeIndex = store.lastReadChapterIndex(for: book.id), resumeIndex >= 0, resumeIndex < chapters.count {
-            return AnyView(ReaderDetailView(book: book, chapter: chapters[resumeIndex], bookID: book.id, chapterIndex: resumeIndex).environmentObject(store))
-        }
-        if let firstChapter = chapters.first {
-            return AnyView(ReaderDetailView(book: book, chapter: firstChapter, bookID: book.id, chapterIndex: 0).environmentObject(store))
-        }
-        let fullChapter = BookChapter(id: UUID(), title: "全文", text: book.text)
-        return AnyView(ReaderDetailView(book: book, chapter: fullChapter, bookID: book.id, chapterIndex: 0).environmentObject(store))
+        AnyView(BookDetailView(book: book).environmentObject(store))
     }
 
     private func extractChapters(from text: String) -> [BookChapter] {
@@ -102,9 +94,19 @@ struct BookshelfView: View {
                     Button(action: { store.clearLibrary() }) {
                         Label("清空书架", systemImage: "trash")
                     }
+                    NavigationLink(destination: SettingsView().environmentObject(store)) {
+                        Label("全局设置", systemImage: "gearshape")
+                    }
                 }
             }
             .navigationTitle("书架")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink(destination: SettingsView().environmentObject(store)) {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
             .sheet(isPresented: $showingImporter) {
                 DocumentImporter { url in
                     showingImporter = false
@@ -119,6 +121,12 @@ struct BookDetailView: View {
     @EnvironmentObject private var store: ReaderStore
     let book: Book
     @State private var chapters: [BookChapter] = []
+
+    private var resumeIndex: Int? {
+        let index = store.lastReadChapterIndex(for: book.id)
+        guard let index = index, index >= 0, index < chapters.count else { return nil }
+        return index
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -127,10 +135,33 @@ struct BookDetailView: View {
             Text("共 \(chapters.count) 章").font(.caption).foregroundColor(.secondary)
             Divider()
             
+            if let resumeIndex = resumeIndex {
+                Section {
+                    NavigationLink(destination: ReaderDetailView(book: book, chapter: chapters[resumeIndex], bookID: book.id, chapterIndex: resumeIndex).environmentObject(store)) {
+                        HStack {
+                            Image(systemName: "bookmark.fill")
+                                .foregroundColor(.blue)
+                            VStack(alignment: .leading) {
+                                Text("继续阅读")
+                                    .font(.headline)
+                                Text("从第 \(resumeIndex + 1) 章继续")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+            }
             if chapters.isEmpty {
                 Text("未发现章节，显示全文")
                     .foregroundColor(.secondary)
                     .padding()
+                NavigationLink(destination: ReaderDetailView(book: book, chapter: BookChapter(id: UUID(), title: "全文", text: book.text), bookID: book.id, chapterIndex: 0).environmentObject(store)) {
+                    Label("开始阅读全文", systemImage: "book")
+                        .padding(.vertical, 8)
+                }
                 ScrollView {
                     Text(book.text).padding()
                 }
@@ -239,11 +270,25 @@ struct ReaderDetailView: View {
                         }) {
                             Image(systemName: store.readerTheme == .dark ? "sun.max" : "moon.fill")
                         }
-                        Slider(value: Binding(get: { store.readerFontSize }, set: { newValue in store.readerFontSize = newValue; store.saveState() }), in: 14...32)
-                            .frame(maxWidth: 150)
                         Button(action: {
-                            // ensure selected chapter is set then add bookmark via store helper
-                            store.selectedChapterID = chapter.id
+                            store.readerFontSize = max(14, store.readerFontSize - 2)
+                            store.saveState()
+                        }) {
+                            Image(systemName: "textformat.size.smaller")
+                        }
+                        Text("\(Int(store.readerFontSize))")
+                            .font(.subheadline)
+                            .frame(minWidth: 32)
+                        Button(action: {
+                            store.readerFontSize = min(32, store.readerFontSize + 2)
+                            store.saveState()
+                        }) {
+                            Image(systemName: "textformat.size.larger")
+                        }
+                        Button(action: {
+                            if store.selectedChapterID != chapter.id {
+                                store.selectedChapterID = chapter.id
+                            }
                             store.addBookmark(note: "")
                         }) {
                             Image(systemName: "bookmark")
