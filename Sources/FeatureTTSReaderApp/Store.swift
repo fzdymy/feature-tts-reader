@@ -4,7 +4,7 @@ import AVFoundation
 import SwiftUI
 
 @MainActor
-final class ReaderStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+final class ReaderStore: NSObject, ObservableObject {
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
     @Published var characters: [CharacterProfile] = []
@@ -37,10 +37,11 @@ final class ReaderStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
     private let audioController = AudioPlaybackController()
     private let persistence = PersistenceController.shared
     private let speechSynthesizer = AVSpeechSynthesizer()
+    private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
 
     init() {
-        speechSynthesizer.delegate = self
+        speechSynthesizer.delegate = speechDelegate
         loadSettings()
         loadState()
     }
@@ -609,11 +610,6 @@ final class ReaderStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         return chapters
     }
 
-    @objc nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in
-            self.isSpeaking = false
-        }
-    }
 
     private func inferCharacters(from text: String) -> [CharacterProfile] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
@@ -954,3 +950,18 @@ final class ReaderStore: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         let styleList: [String]?
     }
 }
+
+private class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate {
+    weak var owner: ReaderStore?
+
+    init(owner: ReaderStore) {
+        self.owner = owner
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            owner?.isSpeaking = false
+        }
+    }
+}
+
