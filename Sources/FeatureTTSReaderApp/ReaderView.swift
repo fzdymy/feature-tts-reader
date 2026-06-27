@@ -2,6 +2,19 @@ import SwiftUI
 import Combine
 import UIKit
 
+enum TextAlign: Int, CaseIterable, Identifiable {
+    case leading = 0, center = 1, trailing = 2, justified = 3
+    var id: Self { self }
+    var displayName: String {
+        switch self {
+        case .leading: return "左对齐"
+        case .center: return "居中对齐"
+        case .trailing: return "右对齐"
+        case .justified: return "两端对齐"
+        }
+    }
+}
+
 struct ReaderView: View {
     @EnvironmentObject private var store: ReaderStore
     let book: Book
@@ -368,7 +381,7 @@ struct ReaderView: View {
             }
             .padding()
             .foregroundColor(textColor)
-            .background(VisualEffectView(material: .systemThinMaterial))
+            .background(VisualEffectView(style: .systemThinMaterial))
         }
         .animation(.easeInOut(duration: 0.2), value: showBookmarks)
     }
@@ -649,7 +662,7 @@ struct ReaderSettingsView: View {
     @State private var enableHyphenation: Bool = false
     @State private var enableKerning: Bool = true
     @State private var firstLineIndent: Double = 0
-    @State private var textAlignment: TextAlignment = .leading
+    @State private var textAlignment: TextAlign = .leading
     
     var body: some View {
         NavigationStack {
@@ -685,8 +698,10 @@ struct ReaderSettingsView: View {
                         Text("\(Int(firstLineIndent))")
                     }
                     Picker("对齐方式", selection: $textAlignment) {
-                        Text("左对齐").tag(TextAlignment.leading)
-                        Text("两端对齐").tag(TextAlignment.center)
+                        Text("左对齐").tag(TextAlign.leading)
+                        Text("居中对齐").tag(TextAlign.center)
+                        Text("右对齐").tag(TextAlign.trailing)
+                        Text("两端对齐").tag(TextAlign.justified)
                     }
                     Toggle("字距调整", isOn: $enableKerning)
                     Toggle("自动断字", isOn: $enableHyphenation)
@@ -792,7 +807,7 @@ struct ReaderSettingsView: View {
                 keepScreenOn = UIApplication.shared.isIdleTimerDisabled
                 pageMode = PageMode(rawValue: UserDefaults.standard.string(forKey: "pageMode") ?? "scroll") ?? .scroll
                 firstLineIndent = UserDefaults.standard.object(forKey: "firstLineIndent") as? Double ?? 0
-                textAlignment = TextAlignment(rawValue: UserDefaults.standard.integer(forKey: "textAlignment")) ?? .leading
+                textAlignment = TextAlign(rawValue: UserDefaults.standard.integer(forKey: "textAlignment")) ?? .leading
                 enableKerning = UserDefaults.standard.object(forKey: "enableKerning") as? Bool ?? true
                 enableHyphenation = UserDefaults.standard.object(forKey: "enableHyphenation") as? Bool ?? false
             }
@@ -1070,9 +1085,9 @@ struct ImagePicker: UIViewControllerRepresentable {
 }
 
 struct VisualEffectView: UIViewRepresentable {
-    let material: UIBlurEffect.Style
+    let style: UIBlurEffect.Style
     func makeUIView(context: Context) -> UIVisualEffectView {
-        UIVisualEffectView(effect: UIBlurEffect(style: material))
+        UIVisualEffectView(effect: UIBlurEffect(style: style))
     }
     func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
 }

@@ -312,7 +312,7 @@ struct ReaderDetailView: View {
                         }
                     }
                     .padding()
-                    .background(VisualEffectView(material: .systemThinMaterial))
+                    .background(VisualEffectView(style: .systemThinMaterial))
                 }
             }
             

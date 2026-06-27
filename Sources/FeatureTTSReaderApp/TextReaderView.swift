@@ -178,7 +178,7 @@ struct TextReaderView: View {
                         }
                     }
                     .padding()
-                    .background(VisualEffectView(material: .systemThinMaterial))
+                    .background(VisualEffectView(style: .systemThinMaterial))
                 }
             }
             
@@ -245,16 +245,6 @@ struct TextReaderView: View {
         .cornerRadius(8)
         .padding()
     }
-}
-
-// Minimal visual effect wrapper for SwiftUI
-import UIKit
-struct VisualEffectView: UIViewRepresentable {
-    let material: UIBlurEffect.Style
-    func makeUIView(context: Context) -> UIVisualEffectView {
-        UIVisualEffectView(effect: UIBlurEffect(style: material))
-    }
-    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
 }
 
 struct TextReaderView_Previews: PreviewProvider {

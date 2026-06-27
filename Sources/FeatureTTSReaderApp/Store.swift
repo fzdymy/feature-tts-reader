@@ -734,7 +734,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let text = "你好，我是 \(profile.name)，这是我的声音示例。"
         do {
             let audioURL = try await client.synthesizeAudio(text: text, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style)
-            audioController.playFiles([audioURL])
+            await audioController.playFilesAndWait([audioURL])
             statusMessage = "正在播放 \(profile.name) 语音示例。"
         } catch {
             statusMessage = "语音试听失败：\(error.localizedDescription)"
@@ -1155,13 +1155,13 @@ final class ReaderStore: NSObject, ObservableObject {
 
     // Quick E2E test helper: import sample text, build script for first chapter and synthesize first segment
     func runQuickE2ETest(sampleText: String) async -> String {
-        await importText(sampleText)
+await importText(sampleText)
         await buildScript(for: false)
         guard let first = scriptSegments.first else { return "脚本为空，无法测试。" }
         do {
             let url = try await client.synthesizeAudio(text: "\(first.characterName)：\(first.text)", voice: first.voice, rate: first.rate, pitch: first.pitch, style: first.style)
             // play briefly to validate
-            audioController.playFiles([url])
+            await audioController.playFilesAndWait([url])
             return "合成并播放成功：\(url.lastPathComponent)"
         } catch {
             return "合成失败：\(error.localizedDescription)"

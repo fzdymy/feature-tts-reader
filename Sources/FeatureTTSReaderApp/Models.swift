@@ -176,11 +176,12 @@ struct ReaderState: Codable {
     var ttsIsPlaying: Bool?
     var ttsChapterTitle: String?
     var ttsSegmentTitle: String?
+    var recommendations: [CharacterRecommendation]?
 
     private enum CodingKeys: String, CodingKey {
         case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations
     }
 
     init(
@@ -221,7 +222,8 @@ struct ReaderState: Codable {
         ttsCurrentIndex: Int? = nil,
         ttsIsPlaying: Bool? = nil,
         ttsChapterTitle: String? = nil,
-        ttsSegmentTitle: String? = nil
+        ttsSegmentTitle: String? = nil,
+        recommendations: [CharacterRecommendation]? = nil
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -248,6 +250,20 @@ struct ReaderState: Codable {
         self.defaultSensitivity = defaultSensitivity
         self.lastScannedBookText = lastScannedBookText
         self.playTimeoutSeconds = playTimeoutSeconds
+        self.readerFontName = readerFontName
+        self.readerParagraphSpacing = readerParagraphSpacing
+        self.customBackgroundImage = customBackgroundImage
+        self.showChapterTitle = showChapterTitle
+        self.showProgressBar = showProgressBar
+        self.showPageNumber = showPageNumber
+        self.showTime = showTime
+        self.showBattery = showBattery
+        self.ttsQueue = ttsQueue
+        self.ttsCurrentIndex = ttsCurrentIndex
+        self.ttsIsPlaying = ttsIsPlaying
+        self.ttsChapterTitle = ttsChapterTitle
+        self.ttsSegmentTitle = ttsSegmentTitle
+        self.recommendations = recommendations
     }
 
     init(from decoder: Decoder) throws {
@@ -282,5 +298,6 @@ struct ReaderState: Codable {
         ttsIsPlaying = try container.decodeIfPresent(Bool.self, forKey: .ttsIsPlaying)
         ttsChapterTitle = try container.decodeIfPresent(String.self, forKey: .ttsChapterTitle)
         ttsSegmentTitle = try container.decodeIfPresent(String.self, forKey: .ttsSegmentTitle)
+        recommendations = try container.decodeIfPresent([CharacterRecommendation].self, forKey: .recommendations)
     }
 }

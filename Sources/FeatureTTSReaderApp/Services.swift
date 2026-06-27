@@ -109,6 +109,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentProgress: Double = 0
     @Published private(set) var currentDuration: TimeInterval = 0
+    @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var currentTitle: String = ""
     @Published private(set) var currentAuthor: String = ""
     @Published private(set) var queue: [TTSQueueItem] = []
@@ -304,7 +305,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
     func seek(to time: TimeInterval) {
         player?.currentTime = time
         currentProgress = time / max(1, player?.duration ?? 1)
-        updateNowPlayingInfo(time)
+        updateNowPlayingInfo(progress: time)
         savePlaybackState()
     }
 
@@ -395,7 +396,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
-    private func restorePlaybackState() {
+    func restorePlaybackState() {
         guard let data = UserDefaults.standard.data(forKey: "ttsPlaybackState"),
               let state = try? JSONDecoder().decode(PlaybackState.self, from: data) else { return }
 
