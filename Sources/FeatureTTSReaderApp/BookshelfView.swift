@@ -16,18 +16,6 @@ struct BookshelfView: View {
         var icon: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
         var name: String { self == .grid ? "网格" : "列表" }
     }
-
-    enum SortOption: String, CaseIterable, Identifiable {
-        case recent = "recent"
-        case title = "title"
-        case progress = "progress"
-        var id: String { rawValue }
-        var name: String {
-            switch self {
-            case .recent: return "最近阅读"
-            case .title: return "标题"
-            case .progress: return "阅读进度"
-            }
         }
     }
 

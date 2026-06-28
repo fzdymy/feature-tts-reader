@@ -1,5 +1,20 @@
 import Foundation
 
+// MARK: - Sort Option
+enum SortOption: String, CaseIterable, Identifiable {
+    case recent = "recent"
+    case title = "title"
+    case progress = "progress"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .recent: return "最近阅读"
+        case .title: return "标题"
+        case .progress: return "阅读进度"
+        }
+    }
+}
+
 struct BookChapter: Identifiable, Hashable, Codable {
     let id: UUID
     let title: String

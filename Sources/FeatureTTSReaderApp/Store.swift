@@ -63,6 +63,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var defaultRate: Int = 0
     @Published var defaultPitch: Int = 0
     @Published var defaultStyle: String = "neutral"
+    @Published var defaultSortOption: SortOption = .recent
 
     private let audioController = AudioPlaybackController()
     private let persistence = PersistenceController.shared

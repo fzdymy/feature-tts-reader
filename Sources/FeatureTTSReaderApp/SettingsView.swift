@@ -1,22 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - Sort Option
-enum SortOption: String, CaseIterable, Identifiable {
-    case recent = "recent"
-    case title = "title"
-    case progress = "progress"
-    var id: String { rawValue }
-    var name: String {
-        switch self {
-        case .recent: return "最近阅读"
-        case .title: return "标题"
-        case .progress: return "阅读进度"
-        }
-    }
-}
-
-// MARK: - App Theme
+struct SettingsView: View {
 enum AppTheme: String, CaseIterable, Identifiable {
     case system = "system"
     case light = "light"
