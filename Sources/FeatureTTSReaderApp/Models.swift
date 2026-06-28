@@ -106,11 +106,12 @@ struct TTSQueueItem: Identifiable, Codable, Hashable {
     let totalSegments: Int
 }
 
-enum ReaderTheme: String, CaseIterable, Codable {
+enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
     case light
     case dark
     case sepia
 
+    var id: String { rawValue }
     var displayName: String {
         switch self {
         case .light: return "日间"

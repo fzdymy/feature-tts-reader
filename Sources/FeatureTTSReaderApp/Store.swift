@@ -81,7 +81,7 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.characters = state.characters
                     strong.scriptSegments = state.scriptSegments
                     strong.selectedVoiceCatalog = state.selectedVoiceCatalog
-                    strong.recommendations = state.recommendations
+                    strong.recommendations = state.recommendations ?? []
                     strong.selectedChapterID = state.selectedChapterID
                     strong.statusMessage = state.statusMessage
                     strong.isBusy = state.isBusy
@@ -229,7 +229,9 @@ final class ReaderStore: NSObject, ObservableObject {
                         audioURL: item.audioURL,
                         chapterTitle: item.chapterTitle,
                         chapterIndex: item.chapterIndex,
-                        bookID: UUID(uuidString: item.bookID) ?? UUID()
+                        bookID: UUID(uuidString: item.bookID) ?? UUID(),
+                        segmentIndex: item.segmentIndex,
+                        totalSegments: item.totalSegments
                     )
                 }
             }
@@ -312,8 +314,8 @@ final class ReaderStore: NSObject, ObservableObject {
             currentBookProgress: currentBookProgress,
             readerFontSize: readerFontSize,
             readerLineSpacing: readerLineSpacing,
-            readerParagraphSpacing: readerParagraphSpacing,
             readerTheme: readerTheme,
+            readerParagraphSpacing: readerParagraphSpacing,
             readerFontName: readerFontName,
             customBackgroundImage: customBackgroundImage,
             showChapterTitle: showChapterTitle,
@@ -882,7 +884,9 @@ final class ReaderStore: NSObject, ObservableObject {
                 audioURL: item.audioURL,
                 chapterTitle: item.chapterTitle,
                 chapterIndex: item.chapterIndex,
-                bookID: item.bookID == bookID.uuidString ? bookID : UUID(uuidString: item.bookID) ?? UUID()
+                bookID: item.bookID == bookID.uuidString ? bookID : UUID(uuidString: item.bookID) ?? UUID(),
+                segmentIndex: item.segmentIndex,
+                totalSegments: item.totalSegments
             )
         }
         ttsCurrentIndex = 0
