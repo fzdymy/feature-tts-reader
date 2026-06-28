@@ -315,14 +315,6 @@ final class ReaderStore: NSObject, ObservableObject {
             readerFontSize: readerFontSize,
             readerLineSpacing: readerLineSpacing,
             readerTheme: readerTheme,
-            readerParagraphSpacing: readerParagraphSpacing,
-            readerFontName: readerFontName,
-            customBackgroundImage: customBackgroundImage,
-            showChapterTitle: showChapterTitle,
-            showProgressBar: showProgressBar,
-            showPageNumber: showPageNumber,
-            showTime: showTime,
-            showBattery: showBattery,
             selectedVoiceCatalog: selectedVoiceCatalog,
             defaultVoice: characters.first?.voice ?? "zh-CN-XiaoxiaoNeural",
             defaultRate: characters.first?.rate ?? 0,
@@ -333,12 +325,30 @@ final class ReaderStore: NSObject, ObservableObject {
             lastReadChapterIndexByBook: lastReadChapterIndexByBook,
             defaultSensitivity: defaultSensitivity,
             lastScannedBookText: lastScannedBookText,
-            playTimeoutSeconds: playTimeoutSeconds
+            playTimeoutSeconds: playTimeoutSeconds,
+            readerFontName: readerFontName,
+            readerParagraphSpacing: readerParagraphSpacing,
+            customBackgroundImage: customBackgroundImage,
+            showChapterTitle: showChapterTitle,
+            showProgressBar: showProgressBar,
+            showPageNumber: showPageNumber,
+            showTime: showTime,
+            showBattery: showBattery,
+            ttsQueue: ttsQueue,
+            ttsCurrentIndex: ttsCurrentIndex,
+            ttsIsPlaying: ttsIsPlaying,
+            ttsChapterTitle: ttsChapterTitle,
+            ttsSegmentTitle: ttsSegmentTitle,
+            recommendations: recommendations,
+            statusMessage: statusMessage,
+            isBusy: isBusy,
+            currentPlayingLine: currentPlayingLine,
+            playProgress: playProgress
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         let targetURL = stateFileURL()
         Task.detached {
-            try? data.write(to: targetURL, options: .atomic)
+            try? data.write(to: targetURL, options: Data.WritingOptions.atomic)
         }
         persistLibrary()
     }

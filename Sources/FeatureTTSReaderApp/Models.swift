@@ -178,11 +178,15 @@ struct ReaderState: Codable {
     var ttsChapterTitle: String?
     var ttsSegmentTitle: String?
     var recommendations: [CharacterRecommendation]?
+    var statusMessage: String = "请导入小说或粘贴文本。"
+    var isBusy: Bool = false
+    var currentPlayingLine: String = ""
+    var playProgress: Double = 0.0
 
     private enum CodingKeys: String, CodingKey {
         case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress
     }
 
     init(
@@ -224,7 +228,11 @@ struct ReaderState: Codable {
         ttsIsPlaying: Bool? = nil,
         ttsChapterTitle: String? = nil,
         ttsSegmentTitle: String? = nil,
-        recommendations: [CharacterRecommendation]? = nil
+        recommendations: [CharacterRecommendation]? = nil,
+        statusMessage: String = "请导入小说或粘贴文本。",
+        isBusy: Bool = false,
+        currentPlayingLine: String = "",
+        playProgress: Double = 0.0
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -265,6 +273,10 @@ struct ReaderState: Codable {
         self.ttsChapterTitle = ttsChapterTitle
         self.ttsSegmentTitle = ttsSegmentTitle
         self.recommendations = recommendations
+        self.statusMessage = statusMessage
+        self.isBusy = isBusy
+        self.currentPlayingLine = currentPlayingLine
+        self.playProgress = playProgress
     }
 
     init(from decoder: Decoder) throws {
@@ -300,5 +312,9 @@ struct ReaderState: Codable {
         ttsChapterTitle = try container.decodeIfPresent(String.self, forKey: .ttsChapterTitle)
         ttsSegmentTitle = try container.decodeIfPresent(String.self, forKey: .ttsSegmentTitle)
         recommendations = try container.decodeIfPresent([CharacterRecommendation].self, forKey: .recommendations)
+        statusMessage = try container.decodeIfPresent(String.self, forKey: .statusMessage) ?? "请导入小说或粘贴文本。"
+        isBusy = try container.decodeIfPresent(Bool.self, forKey: .isBusy) ?? false
+        currentPlayingLine = try container.decodeIfPresent(String.self, forKey: .currentPlayingLine) ?? ""
+        playProgress = try container.decodeIfPresent(Double.self, forKey: .playProgress) ?? 0.0
     }
 }
