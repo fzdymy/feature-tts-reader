@@ -827,7 +827,7 @@ struct ReaderSettingsView: View {
 struct FontPickerView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
-    @State private var customFonts: [CustomFont] = []
+    @State private var customFonts: [_CustomFont] = []
     @State private var showingFontImporter = false
     
     private let systemFonts = [
@@ -910,7 +910,7 @@ struct FontPickerView: View {
             customFonts = files.compactMap { url in
                 guard url.pathExtension.lowercased() == "ttf" || url.pathExtension.lowercased() == "otf" else { return nil }
                 let name = url.deletingPathExtension().lastPathComponent
-                return CustomFont(name: name, url: url)
+                return _CustomFont(name: name, url: url)
             }
         }
     }
@@ -955,7 +955,7 @@ struct FontPickerView: View {
     }
 }
 
-struct CustomFont: Identifiable {
+struct _CustomFont: Identifiable {
     let id = UUID()
     let name: String
     let url: URL

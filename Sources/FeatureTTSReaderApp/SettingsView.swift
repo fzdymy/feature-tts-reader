@@ -1,6 +1,58 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Sort Option
+enum SortOption: String, CaseIterable, Identifiable {
+    case recent = "recent"
+    case title = "title"
+    case progress = "progress"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .recent: return "最近阅读"
+        case .title: return "标题"
+        case .progress: return "阅读进度"
+        }
+    }
+}
+
+// MARK: - App Theme
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+}
+
+// MARK: - Bookshelf Layout
+enum BookshelfLayout: String, CaseIterable, Identifiable {
+    case grid = "grid"
+    case list = "list"
+    case compact = "compact"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .grid: return "网格"
+        case .list: return "列表格返回
+        case .compact: return "紧凑"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .grid: return "square.grid.2x2"
+        case .list: return "list.bullet"
+        case .compact: return "rectangle.grid.1x2"
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var testResult: String = ""
@@ -14,41 +66,6 @@ struct SettingsView: View {
     @State private var enableHaptics = true
     @State private var autoSaveInterval: Double = 30
     @State private var maxCacheSize: Double = 500
-
-    enum AppTheme: String, CaseIterable, Identifiable {
-        case system = "system"
-        case light = "light"
-        case dark = "dark"
-        var id: String { rawValue }
-        var name: String {
-            switch self {
-            case .system: return "跟随系统"
-            case .light: return "浅色"
-            case .dark: return "深色"
-            }
-        }
-    }
-
-    enum BookshelfLayout: String, CaseIterable, Identifiable {
-        case grid = "grid"
-        case list = "list"
-        case compact = "compact"
-        var id: String { rawValue }
-        var name: String {
-            switch self {
-            case .grid: return "网格"
-            case .list: return "列表"
-            case .compact: return "紧凑"
-            }
-        }
-        var icon: String {
-            switch self {
-            case .grid: return "square.grid.2x2"
-            case .list: return "list.bullet"
-            case .compact: return "rectangle.grid.1x2"
-            }
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -222,7 +239,7 @@ struct SettingsView: View {
                         ForEach(SortOption.allCases) { option in
                             Text(option.name).tag(option)
                         }
-                    }
+                    )
 
                     Toggle("显示封面", isOn: Binding(
                         get: { store.showBookCover },
@@ -353,6 +370,7 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Helper Methods
     private func loadAppSettings() {
         selectedAppTheme = AppTheme(rawValue: UserDefaults.standard.string(forKey: "appTheme") ?? "system") ?? .system
         selectedBookshelfLayout = BookshelfLayout(rawValue: UserDefaults.standard.string(forKey: "bookshelfLayout") ?? "grid") ?? .grid
@@ -448,7 +466,7 @@ struct SettingsView: View {
                 showTime: store.showTime,
                 showBattery: store.showBattery,
                 selectedVoiceCatalog: store.selectedVoiceCatalog,
-                defaultVoice: store.characters.first?.voice ?? "zh-CN-XiaoxiaoNeuralNeural",
+                defaultVoice: store.characters.first?.voice ?? "zh-CN-XiaoxiaoNeural",
                 defaultRate: store.defaultRate,
                 defaultPitch: store.defaultPitch,
                 defaultStyle: store.defaultStyle,
@@ -493,11 +511,11 @@ struct SettingsView: View {
     }
 }
 
-// Font Manager View
+// MARK: - Font Manager View
 struct FontManagerView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
-    @State private var customFonts: [CustomFont] = []
+    @State private var customFonts: [_CustomFont] = []
     @State private var showingFontImporter = false
 
     private let systemFonts = [
@@ -509,7 +527,7 @@ struct FontManagerView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section(header: Text("系统字体")) {
+                Section(header: Section(header: Text("系统字体")) {
                     ForEach(systemFonts, id: \.self) { font in
                         Button(action: {
                             store.readerFontName = font
@@ -580,7 +598,7 @@ struct FontManagerView: View {
             customFonts = files.compactMap { url in
                 guard url.pathExtension.lowercased() == "ttf" || url.pathExtension.lowercased() == "otf" else { return nil }
                 let name = url.deletingPathExtension().lastPathComponent
-                return CustomFont(name: name, url: url)
+                return _CustomFont(name: name, url: url)
             }
         }
     }
@@ -625,19 +643,117 @@ struct FontManagerView: View {
     }
 }
 
-struct CustomFont: Identifiable {
-    let id = UUID()
-    let name: String
-    let url: URL
-}
-
-// Font Manager for available fonts
+// MARK: - Font Manager
 struct FontManager {
     static let availableFonts = [
         "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
         "Arial", "Helvetica", "Georgia", "Times New Roman",
         "Menlo", "Courier New", "Marker Felt", "Noteworthy"
     ]
+}
+
+// MARK: - App Theme
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+}
+
+// MARK: - Bookshelf Layout
+enum BookshelfLayout: String, CaseIterable, Identifiable {
+    case grid = "grid"
+    case list = "list"
+    case compact = "compact"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .grid: return "网格"
+        case .list: return "列表"
+        case .compact: return "紧凑"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .grid: return "square.grid.2x2"
+        case .list: return "list.bullet"
+        case .compact: return "rectangle.grid.1x2"
+        }
+    }
+}
+
+// MARK: - Sort Option
+enum SortOption: String, CaseIterable, Identifiable {
+    case recent = "recent"
+    case title = "title"
+    case progress = "progress"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .recent: return "最近阅读"
+        case .title: return "标题"
+        case .progress: return "阅读进度"
+        }
+    }
+}
+
+// MARK: - App Theme
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+}
+
+// MARK: - Bookshelf Layout
+enum BookshelfLayout: String, CaseIterable, Identifiable {
+    case grid = "grid"
+    case list = "list"
+    case compact = "compact"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .grid: return "网格"
+        case .list: return "列表"
+        case .compact: return "紧凑"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .grid: return "square.grid.2x2"
+        case .list: return "list.bullet"
+        case .compact: return "rectangle.grid.1x2"
+        }
+    }
+}
+
+// MARK: - Sort Option
+enum SortOption: String, CaseIterable, Identifiable {
+    case recent = "recent"
+    case title = "title"
+    case progress = "progress"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .recent: return "最近阅读"
+        case .title: return "标题"
+        case .progress: return "阅读进度"
+        }
+    }
 }
 
 struct SettingsView_Previews: PreviewProvider {
