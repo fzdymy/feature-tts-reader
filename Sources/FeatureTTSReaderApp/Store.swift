@@ -343,7 +343,8 @@ final class ReaderStore: NSObject, ObservableObject {
             statusMessage: statusMessage,
             isBusy: isBusy,
             currentPlayingLine: currentPlayingLine,
-            playProgress: playProgress
+            playProgress: playProgress,
+            isSpeaking: isSpeaking
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         let targetURL = stateFileURL()

@@ -182,11 +182,12 @@ struct ReaderState: Codable {
     var isBusy: Bool = false
     var currentPlayingLine: String = ""
     var playProgress: Double = 0.0
+    var isSpeaking: Bool = false
 
     private enum CodingKeys: String, CodingKey {
         case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking
     }
 
     init(
@@ -232,7 +233,8 @@ struct ReaderState: Codable {
         statusMessage: String = "请导入小说或粘贴文本。",
         isBusy: Bool = false,
         currentPlayingLine: String = "",
-        playProgress: Double = 0.0
+        playProgress: Double = 0.0,
+        isSpeaking: Bool = false
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -277,6 +279,7 @@ struct ReaderState: Codable {
         self.isBusy = isBusy
         self.currentPlayingLine = currentPlayingLine
         self.playProgress = playProgress
+        self.isSpeaking = isSpeaking
     }
 
     init(from decoder: Decoder) throws {
@@ -316,5 +319,6 @@ struct ReaderState: Codable {
         isBusy = try container.decodeIfPresent(Bool.self, forKey: .isBusy) ?? false
         currentPlayingLine = try container.decodeIfPresent(String.self, forKey: .currentPlayingLine) ?? ""
         playProgress = try container.decodeIfPresent(Double.self, forKey: .playProgress) ?? 0.0
+        isSpeaking = try container.decodeIfPresent(Bool.self, forKey: .isSpeaking) ?? false
     }
 }
