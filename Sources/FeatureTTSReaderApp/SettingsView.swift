@@ -1,15 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - Font Manager
-struct FontManager {
-    static let availableFonts = [
-        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
-        "Arial", "Helvetica", "Georgia", "Times New Roman",
-        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
-    ]
-}
-
 // MARK: - Sort Option
 enum SortOption: String, CaseIterable, Identifiable {
     case recent = "recent"
@@ -46,7 +37,7 @@ enum BookshelfLayout: String, CaseIterable, Identifiable {
     case list = "list"
     case compact = "compact"
     var id: String { rawValue }
- var name: String {
+    var name: String {
         switch self {
         case .grid: return "网格"
         case .list: return "列表"
@@ -466,14 +457,6 @@ struct SettingsView: View {
                 readerFontSize: store.readerFontSize,
                 readerLineSpacing: store.readerLineSpacing,
                 readerTheme: store.readerTheme,
-                readerParagraphSpacing: store.readerParagraphSpacing,
-                readerFontName: store.readerFontName,
-                customBackgroundImage: store.customBackgroundImage,
-                showChapterTitle: store.showChapterTitle,
-                showProgressBar: store.showProgressBar,
-                showPageNumber: store.showPageNumber,
-                showTime: store.showTime,
-                showBattery: store.showBattery,
                 selectedVoiceCatalog: store.selectedVoiceCatalog,
                 defaultVoice: store.characters.first?.voice ?? "zh-CN-XiaoxiaoNeural",
                 defaultRate: store.defaultRate,
@@ -485,6 +468,14 @@ struct SettingsView: View {
                 defaultSensitivity: store.defaultSensitivity,
                 lastScannedBookText: store.lastScannedBookText,
                 playTimeoutSeconds: store.playTimeoutSeconds,
+                readerFontName: store.readerFontName,
+                readerParagraphSpacing: store.readerParagraphSpacing,
+                customBackgroundImage: store.customBackgroundImage,
+                showChapterTitle: store.showChapterTitle,
+                showProgressBar: store.showProgressBar,
+                showPageNumber: store.showPageNumber,
+                showTime: store.showTime,
+                showBattery: store.showBattery,
                 ttsQueue: store.ttsQueue,
                 ttsCurrentIndex: store.ttsCurrentIndex,
                 ttsIsPlaying: store.ttsIsPlaying,
@@ -649,5 +640,72 @@ struct FontManagerView: View {
             try? FileManager.default.removeItem(at: font.url)
         }
         loadCustomFonts()
+    }
+}
+
+// MARK: - Font Manager
+struct FontManager {
+    static let availableFonts = [
+        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
+        "Arial", "Helvetica", "Georgia", "Times New Roman",
+        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
+    ]
+}
+
+// MARK: - App Theme
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+}
+
+// MARK: - Bookshelf Layout
+enum BookshelfLayout: String, CaseIterable, Identifiable {
+    case grid = "grid"
+    case list = "list"
+    case compact = "compact"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .grid: return "网格"
+        case .list: return "列表"
+        case .compact: return "紧凑"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .grid: return "square.grid.2x2"
+        case .list: return "list.bullet"
+        case .compact: return "rectangle.grid.1x2"
+        }
+    }
+}
+
+// MARK: - Sort Option
+enum SortOption: String, CaseIterable, Identifiable {
+    case recent = "recent"
+    case title = "title"
+    case progress = "progress"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .recent: return "最近阅读"
+        case .title: return "标题"
+        case .progress: return "阅读进度"
+        }
+    }
+}
+
+struct SettingsView_Previews: PreviewProvider {
+    static var previews: some View {
+        SettingsView().environmentObject(ReaderStore())
     }
 }

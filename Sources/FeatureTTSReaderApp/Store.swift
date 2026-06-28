@@ -52,6 +52,10 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var showPageNumber: Bool = true
     @Published var showTime: Bool = true
     @Published var showBattery: Bool = true
+    @Published var immersiveMode: Bool = false
+    @Published var enableDoubleTapToSpeak: Bool = true
+    @Published var enableLongPressSelect: Bool = true
+    @Published var keepScreenOn: Bool = false
     @Published var bookmarks: [BookBookmark] = []
     @Published var bookProgressByChapter: [UUID: Double] = [:]
     @Published var lastReadChapterIndexByBook: [UUID: Int] = [:]
