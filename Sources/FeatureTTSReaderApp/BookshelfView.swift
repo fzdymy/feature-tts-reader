@@ -280,13 +280,8 @@ struct BookGridCard: View {
         return 0
     }
 
-    private var lastReadDate: Date? {
-        let chapters = parseChapters(text: book.text)
-        if let chapterID = chapters.first?.id,
-           let index = store.lastReadChapterIndexByBook[book.id] {
-            return book.importedAt
-        }
-        return nil
+    private var chapterCount: Int {
+        parseChapters(text: book.text).count
     }
 
     var body: some View {
@@ -338,7 +333,7 @@ struct BookGridCard: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                Text("\(book.chapters.count) 章 · \(formatDate(book.importedAt))")
+                Text("\(chapterCount) 章 · \(formatDate(book.importedAt))")
                     .font(.caption)
                     .foregroundColor(.secondary)
 
