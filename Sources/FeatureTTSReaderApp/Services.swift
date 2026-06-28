@@ -122,22 +122,6 @@ final class AudioPlaybackController: NSObject, ObservableObject {
     private var nowPlayingInfo: [String: Any] = [:]
     private var remoteCommandCenter = MPRemoteCommandCenter.shared()
 
-    struct TTSQueueItem: Codable, Identifiable {
-        let id = UUID()
-        let segment: ScriptSegment
-        let audioURL: URL
-        let chapterTitle: String
-        let bookTitle: String
-        let bookID: String
-        let chapterIndex: Int
-        let segmentIndex: Int
-        let totalSegments: Int
-
-        enum CodingKeys: String, CodingKey {
-            case segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments
-        }
-    }
-
     override init() {
         super.init()
         setupAudioSession()

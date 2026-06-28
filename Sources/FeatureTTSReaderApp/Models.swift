@@ -131,10 +131,15 @@ struct TTSQueueItem: Identifiable, Codable, Hashable {
     let segment: ScriptSegment
     let audioURL: URL
     let chapterTitle: String
+    let bookTitle: String
+    let bookID: String
     let chapterIndex: Int
-    let bookID: UUID
     let segmentIndex: Int
     let totalSegments: Int
+
+    enum CodingKeys: String, CodingKey {
+        case segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments
+    }
 }
 
 enum ReaderTheme: String, CaseIterable, Codable, Identifiable {

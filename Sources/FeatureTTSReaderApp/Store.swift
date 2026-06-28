@@ -238,18 +238,8 @@ final class ReaderStore: NSObject, ObservableObject {
         audioController.$queue
             .receive(on: RunLoop.main)
             .sink { [weak self] queue in
-                self?.ttsQueue = queue.map { item in
-                    TTSQueueItem(
-                        segment: item.segment,
-                        audioURL: item.audioURL,
-                        chapterTitle: item.chapterTitle,
-                        chapterIndex: item.chapterIndex,
-                        bookID: UUID(uuidString: item.bookID) ?? UUID(),
-                        segmentIndex: item.segmentIndex,
-                        totalSegments: item.totalSegments
-                    )
-}
-    }
+                self?.ttsQueue = queue
+            }
 }
 
     private var cancellables = Set<AnyCancellable>()
@@ -874,7 +864,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let bookID = UUID(uuidString: currentBookID) ?? UUID()
         let chapterIndex = chapters.firstIndex(where: { $0.id == selectedChapterID }) ?? 0
 
-        var queueItems: [AudioPlaybackController.TTSQueueItem] = []
+        var queueItems: [TTSQueueItem] = []
 
         isBusy = true
         playProgress = 0
@@ -896,7 +886,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 audioURL = synthesizedURL
             }
 
-            let queueItem = AudioPlaybackController.TTSQueueItem(
+            let queueItem = TTSQueueItem(
                 segment: segment,
                 audioURL: audioURL,
                 chapterTitle: chapterTitle,
@@ -911,18 +901,7 @@ final class ReaderStore: NSObject, ObservableObject {
             playProgress = Double(index + 1) / Double(segments.count)
         }
 
-        // Update local TTS queue for UI
-        ttsQueue = queueItems.map { item in
-            TTSQueueItem(
-                segment: item.segment,
-                audioURL: item.audioURL,
-                chapterTitle: item.chapterTitle,
-                chapterIndex: item.chapterIndex,
-                bookID: item.bookID == bookID.uuidString ? bookID : UUID(uuidString: item.bookID) ?? UUID(),
-                segmentIndex: item.segmentIndex,
-                totalSegments: item.totalSegments
-            )
-        }
+        ttsQueue = queueItems
         ttsCurrentIndex = 0
         ttsChapterTitle = chapterTitle
         ttsSegmentTitle = queueItems.first?.segment.characterName ?? ""
