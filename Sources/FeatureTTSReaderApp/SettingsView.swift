@@ -53,6 +53,15 @@ enum BookshelfLayout: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Font Manager
+struct FontManager {
+    static let availableFonts = [
+        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
+        "Arial", "Helvetica", "Georgia", "Times New Roman",
+        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
+    ]
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var testResult: String = ""
