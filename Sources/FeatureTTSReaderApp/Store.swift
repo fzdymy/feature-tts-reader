@@ -681,7 +681,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    func parseChapters() {
+    func startParseChapters() {
         // synchronous wrapper kept for compatibility; prefer async version
         Task { await parseChaptersAsync() }
     }

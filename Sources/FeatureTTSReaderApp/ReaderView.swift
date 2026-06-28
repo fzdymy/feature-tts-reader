@@ -44,7 +44,6 @@ struct ReaderView: View {
     @State private var showParagraphMenu: Bool = false
     @State private var selectedParagraph: String = ""
     @State private var paragraphRect: CGRect = .zero
-    @State private var paragraphs: [String] = []
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var useSystemBrightness: Bool = true
     @State private var isImmersive: Bool = false
@@ -118,7 +117,7 @@ struct ReaderView: View {
         .statusBarHidden(isImmersive)
         .onAppear {
             store.selectedChapterID = currentChapter.id
-            store.rememberLastReadChapter(bookID: bookID, currentChapterIndex: currentChapterIndex)
+            store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
             store.saveState()
             reloadParagraphs()
             
@@ -464,7 +463,7 @@ struct ReaderView: View {
         currentChapterIndex -= 1
         reloadParagraphs()
         store.selectedChapterID = prevChapter.id
-        store.rememberLastReadChapter(bookID: bookID, currentChapterIndex: currentChapterIndex)
+        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
         store.saveState()
     }
     
@@ -475,7 +474,7 @@ struct ReaderView: View {
         currentChapterIndex += 1
         reloadParagraphs()
         store.selectedChapterID = nextChapter.id
-        store.rememberLastReadChapter(bookID: bookID, currentChapterIndex: currentChapterIndex)
+        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
         store.saveState()
     }
     
