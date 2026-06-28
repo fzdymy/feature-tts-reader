@@ -37,10 +37,10 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsChapterTitle: String = ""
     @Published var ttsSegmentTitle: String = ""
 
-    // TTS Synthesis Cache
+// TTS Synthesis Cache
     private var ttsCache: [String: URL] = [:]
 
-    private var lastScannedBookText: String = ""
+    @Published var lastScannedBookText: String = ""
     @Published var readerFontSize: Double = 18
     @Published var readerLineSpacing: Double = 8
     @Published var readerParagraphSpacing: Double = 8
@@ -56,6 +56,9 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var bookProgressByChapter: [UUID: Double] = [:]
     @Published var lastReadChapterIndexByBook: [UUID: Int] = [:]
     @Published var defaultSensitivity: Int = 50
+    @Published var defaultRate: Int = 0
+    @Published var defaultPitch: Int = 0
+    @Published var defaultStyle: String = "neutral"
 
     private let audioController = AudioPlaybackController()
     private let persistence = PersistenceController.shared
