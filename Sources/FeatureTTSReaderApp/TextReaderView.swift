@@ -1,6 +1,9 @@
 import SwiftUI
 import UIKit
 
+// DEPRECATED: Replaced by ReaderView.swift. Kept for reference.
+// All chapter navigation now routes to ReaderView via ChapterListView.
+@available(*, deprecated, message: "Use ReaderView instead")
 struct TextReaderView: View {
     @EnvironmentObject private var store: ReaderStore
     let chapter: BookChapter
