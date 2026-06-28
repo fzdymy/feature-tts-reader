@@ -1303,7 +1303,7 @@ await importText(sampleText)
         }
     }
 
-    private func countCharacterAppearances(in text: String) -> [String: Int] {
+    func countCharacterAppearances(in text: String) -> [String: Int] {
         var result: [String: Int] = [:]
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         for profile in characters {
@@ -1313,7 +1313,7 @@ await importText(sampleText)
         return result
     }
 
-    private func defaultVoiceItems() -> [VoiceItem] {
+    func defaultVoiceItems() -> [VoiceItem] {
         VoiceItem.defaultItems()
     }
 
@@ -1426,7 +1426,7 @@ await importText(sampleText)
         return score
     }
 
-    private func loadLocalVoiceCatalog(_ source: VoiceCatalogSource) -> [VoiceItem] {
+    func loadLocalVoiceCatalog(_ source: VoiceCatalogSource) -> [VoiceItem] {
         guard let resourceName = source.resourceName else { return [] }
         guard let url = Bundle.module.url(forResource: resourceName, withExtension: "json") else {
             return defaultVoiceItems()
@@ -1453,7 +1453,7 @@ await importText(sampleText)
         return Array(list.prefix(6))
     }
 
-    private func voiceSourceDescription(_ source: VoiceCatalogSource) -> String {
+    func voiceSourceDescription(_ source: VoiceCatalogSource) -> String {
         switch source {
         case .remote: return "远程服务音色"
         case .chinese35: return "本地 35 种音色"
@@ -1461,7 +1461,7 @@ await importText(sampleText)
         }
     }
 
-    private struct LocalVoiceCatalogItem: Decodable {
+    struct LocalVoiceCatalogItem: Decodable {
         let name: String?
         let display_name: String?
         let local_name: String?
