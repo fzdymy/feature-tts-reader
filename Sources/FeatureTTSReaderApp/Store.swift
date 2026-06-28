@@ -305,6 +305,48 @@ final class ReaderStore: NSObject, ObservableObject {
         loadPersistentLibrary()
     }
 
+    func restoreState(_ state: ReaderState) {
+        bookText = state.bookText
+        chapters = state.chapters
+        characters = state.characters
+        scriptSegments = state.scriptSegments
+        selectedChapterID = state.selectedChapterID
+        apiEndpoint = state.apiEndpoint
+        apiKey = state.apiKey
+        books = state.books
+        currentBookTitle = state.currentBookTitle
+        currentBookID = state.currentBookID
+        currentBookProgress = state.currentBookProgress
+        readerFontSize = state.readerFontSize
+        readerLineSpacing = state.readerLineSpacing
+        readerParagraphSpacing = state.readerParagraphSpacing
+        readerTheme = state.readerTheme
+        readerFontName = state.readerFontName
+        customBackgroundImage = state.customBackgroundImage
+        showChapterTitle = state.showChapterTitle
+        showProgressBar = state.showProgressBar
+        showPageNumber = state.showPageNumber
+        showTime = state.showTime
+        showBattery = state.showBattery
+        showBookCover = state.showBookCover
+        showReadingProgress = state.showReadingProgress
+        bookmarks = state.bookmarks
+        bookProgressByChapter = state.bookProgressByChapter
+        lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
+        selectedVoiceCatalog = state.selectedVoiceCatalog
+        defaultSensitivity = state.defaultSensitivity
+        lastScannedBookText = state.lastScannedBookText
+        playTimeoutSeconds = state.playTimeoutSeconds
+        ttsQueue = state.ttsQueue ?? []
+        ttsCurrentIndex = state.ttsCurrentIndex ?? 0
+        ttsIsPlaying = state.ttsIsPlaying ?? false
+        ttsChapterTitle = state.ttsChapterTitle ?? ""
+        ttsSegmentTitle = state.ttsSegmentTitle ?? ""
+        recommendations = state.recommendations ?? []
+        statusMessage = "数据已恢复。"
+        saveState()
+    }
+
     func saveState() {
         let state = ReaderState(
             bookText: bookText,
@@ -503,6 +545,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
         guard let text = content else {
             statusMessage = "导入失败：无法识别文件编码。"
+            await MainActor.run { isBusy = false }
             return
         }
         let title = url.deletingPathExtension().lastPathComponent
@@ -835,13 +878,11 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func playChapterWithTTS(chapter: BookChapter) async {
-        isBusy = true
         statusMessage = "正在准备朗读章节..."
 
         let segments = await createScriptSegmentsAsync(from: chapter.text)
         guard !segments.isEmpty else {
             statusMessage = "当前章节脚本为空，无法朗读。"
-            isBusy = false
             return
         }
 
@@ -850,6 +891,7 @@ final class ReaderStore: NSObject, ObservableObject {
         } catch {
             statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。"
             await playLocalSpeech(chapter.text)
+            isBusy = false
         }
     }
 

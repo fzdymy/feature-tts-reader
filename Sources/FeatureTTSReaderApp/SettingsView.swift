@@ -53,6 +53,7 @@ struct SettingsView: View {
     @State private var showingFontPicker = false
     @State private var showingBackupOptions = false
     @State private var showingCacheSize = false
+    @State private var showingFileImporter = false
     @State private var cacheSize: String = "计算中..."
     @State private var showAdvancedTTS = false
     @State private var selectedAppTheme: AppTheme = .system
@@ -345,11 +346,14 @@ struct SettingsView: View {
                     title: Text("备份与恢复"),
                     buttons: [
                         .default(Text("导出数据")) { exportData() },
-                        .default(Text("导入数据")) { importData() },
+                        .default(Text("导入数据")) { showingFileImporter = true },
                         .destructive(Text("恢复默认设置")) { resetToDefaults() },
                         .cancel()
                     ]
                 )
+            }
+            .fileImporter(isPresented: $showingFileImporter, allowedContentTypes: [.json]) { result in
+                handleImportResult(result)
             }
             .alert("缓存大小", isPresented: $showingCacheSize) {
                 Button("清理", role: .destructive) { clearCache() }
@@ -497,8 +501,21 @@ struct SettingsView: View {
         }
     }
 
-    private func importData() {
-        // TODO: Implement import using UIDocumentPicker
+    private func handleImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            do {
+                let data = try Data(contentsOf: url)
+                let state = try JSONDecoder().decode(ReaderState.self, from: data)
+                store.restoreState(state)
+                statusMessage = "数据导入成功。"
+            } catch {
+                statusMessage = "导入失败：\(error.localizedDescription)"
+            }
+        case .failure(let error):
+            statusMessage = "导入失败：\(error.localizedDescription)"
+        }
     }
 
     private func resetToDefaults() {
