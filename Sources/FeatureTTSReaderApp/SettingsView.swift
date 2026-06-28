@@ -501,20 +501,19 @@ struct SettingsView: View {
         }
     }
 
-    private func handleImportResult(_ result: Result<[URL], Error>) {
+    private func handleImportResult(_ result: Result<URL, Error>) {
         switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
+        case .success(let url):
             do {
                 let data = try Data(contentsOf: url)
                 let state = try JSONDecoder().decode(ReaderState.self, from: data)
                 store.restoreState(state)
-                statusMessage = "数据导入成功。"
+                store.statusMessage = "数据导入成功。"
             } catch {
-                statusMessage = "导入失败：\(error.localizedDescription)"
+                store.statusMessage = "导入失败：\(error.localizedDescription)"
             }
         case .failure(let error):
-            statusMessage = "导入失败：\(error.localizedDescription)"
+            store.statusMessage = "导入失败：\(error.localizedDescription)"
         }
     }
 
