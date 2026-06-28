@@ -978,9 +978,10 @@ final class ReaderStore: NSObject, ObservableObject {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
                 throw TimeoutError.timedOut
             }
-            let result = try await group.next()!
+let result = try await group.next()!
             group.cancelAll()
-return result
+        }
+        return result
     }
 
     nonisolated func detectNarratorPatterns(in text: String) -> [String: Int] {
