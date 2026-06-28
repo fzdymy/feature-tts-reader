@@ -1001,7 +1001,6 @@ return result
         if narratorIndicators["narrative", default: 0] > narratorIndicators["dialogue", default: 0] * 2 { return true }
         return false
     }
-    }
 
     nonisolated private func extractChapters(from text: String) -> [BookChapter] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -1,6 +1,15 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Font Manager
+struct FontManager {
+    static let availableFonts = [
+        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
+        "Arial", "Helvetica", "Georgia", "Times New Roman",
+        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
+    ]
+}
+
 // MARK: - Sort Option
 enum SortOption: String, CaseIterable, Identifiable {
     case recent = "recent"
@@ -489,7 +498,7 @@ struct SettingsView: View {
                 isSpeaking: store.isSpeaking
             )
             let data = try JSONEncoder().encode(state)
-            try data.write(to: exportURL, options: .atomic)
+            try data.write(to: exportURL, options: Data.WritingOptions.atomic)
 
             let activityVC = UIActivityViewController(activityItems: [exportURL], applicationActivities: nil)
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
