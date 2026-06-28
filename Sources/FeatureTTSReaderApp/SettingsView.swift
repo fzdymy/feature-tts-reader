@@ -56,6 +56,8 @@ struct SettingsView: View {
     @State private var showingFileImporter = false
     @State private var cacheSize: String = "计算中..."
     @State private var showAdvancedTTS = false
+    @State private var localEndpoint: String = ""
+    @State private var localAPIKey: String = ""
     @State private var selectedAppTheme: AppTheme = .system
     @State private var selectedBookshelfLayout: BookshelfLayout = .grid
     @State private var enableHaptics = true
@@ -67,13 +69,22 @@ struct SettingsView: View {
             List {
                 // MARK: - TTS 服务
                 Section(header: Text("TTS 服务设置")) {
-                    TextField("TTS 服务地址，例如 http://127.0.0.1:8080", text: $store.apiEndpoint)
+                    TextField("TTS 服务地址，例如 http://127.0.0.1:8080", text: $localEndpoint)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .submitLabel(.done)
-                    SecureField("API Key（可选）", text: $store.apiKey)
+                        .onSubmit { store.apiEndpoint = localEndpoint }
+                        .onChange(of: localEndpoint) { _ in
+                            // Debounce: sync to store after short delay
+                            Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiEndpoint = localEndpoint }
+                        }
+                    SecureField("API Key（可选）", text: $localAPIKey)
                         .textContentType(.password)
                         .submitLabel(.done)
+                        .onSubmit { store.apiKey = localAPIKey }
+                        .onChange(of: localAPIKey) { _ in
+                            Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiKey = localAPIKey }
+                        }
 
                     Picker("语音目录", selection: $store.selectedVoiceCatalog) {
                         ForEach(VoiceCatalogSource.localCases) { source in
@@ -374,6 +385,8 @@ struct SettingsView: View {
 
     // MARK: - Helper Methods
     private func loadAppSettings() {
+        localEndpoint = store.apiEndpoint
+        localAPIKey = store.apiKey
         selectedAppTheme = AppTheme(rawValue: UserDefaults.standard.string(forKey: "appTheme") ?? "system") ?? .system
         selectedBookshelfLayout = BookshelfLayout(rawValue: UserDefaults.standard.string(forKey: "bookshelfLayout") ?? "grid") ?? .grid
         enableHaptics = UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true

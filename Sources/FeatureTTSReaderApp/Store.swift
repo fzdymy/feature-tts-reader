@@ -37,6 +37,16 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsChapterTitle: String = ""
     @Published var ttsSegmentTitle: String = ""
 
+    // Chapter parse cache keyed by book ID
+    private var bookChaptersCache: [UUID: [BookChapter]] = [:]
+
+    func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
+        if let cached = bookChaptersCache[bookID] { return cached }
+        let parsed = parseChapters(from: text)
+        bookChaptersCache[bookID] = parsed
+        return parsed
+    }
+
 // TTS Synthesis Cache
     private var ttsCache: [String: URL] = [:]
 

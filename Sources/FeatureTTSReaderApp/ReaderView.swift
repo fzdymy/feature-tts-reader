@@ -17,10 +17,19 @@ enum TextAlign: Int, CaseIterable, Identifiable {
 
 struct ReaderView: View {
     @EnvironmentObject private var store: ReaderStore
+    @Environment(\.dismiss) private var dismiss
     let book: Book
-    let chapter: BookChapter
     let bookID: UUID
-    let chapterIndex: Int
+    @State private var currentChapter: BookChapter
+    @State private var currentChapterIndex: Int
+    @State private var paragraphs: [String] = []
+
+    init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
+        self.book = book
+        self.bookID = bookID
+        self._currentChapter = State(initialValue: chapter)
+        self._currentChapterIndex = State(initialValue: chapterIndex)
+    }
     
     @State private var showControls: Bool = true
     @State private var showBookmarks: Bool = false
@@ -64,7 +73,7 @@ struct ReaderView: View {
     }
     
     private var chapterBookmarks: [BookBookmark] {
-        store.bookmarks.filter { $0.chapterID == chapter.id }
+        store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
     
     private var fontBinding: Binding<Double> {
@@ -108,12 +117,10 @@ struct ReaderView: View {
         .navigationBarHidden(isImmersive || !showControls)
         .statusBarHidden(isImmersive)
         .onAppear {
-            store.selectedChapterID = chapter.id
-            store.rememberLastReadChapter(bookID: bookID, chapterIndex: chapterIndex)
+            store.selectedChapterID = currentChapter.id
+            store.rememberLastReadChapter(bookID: bookID, currentChapterIndex: currentChapterIndex)
             store.saveState()
-            paragraphs = chapter.text.components(separatedBy: "\n\n")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            reloadParagraphs()
             
             if let savedBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
                 screenBrightness = savedBrightness
@@ -159,10 +166,17 @@ struct ReaderView: View {
     
     private var readerHeader: some View {
         HStack {
-            Text(chapter.title)
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(textColor.opacity(0.7))
+            }
+            
+            Text(currentChapter.title)
                 .font(.headline)
                 .lineLimit(1)
                 .foregroundColor(textColor)
+                .padding(.leading, 8)
             
             Spacer()
             
@@ -368,7 +382,7 @@ struct ReaderView: View {
                     } else {
                         isSpeaking = true
                         Task {
-                            await store.playChapterWithTTS(chapter: chapter)
+                            await store.playChapterWithTTS(chapter: currentChapter)
                             await MainActor.run { isSpeaking = false }
                         }
                     }
@@ -444,19 +458,31 @@ struct ReaderView: View {
     }
     
     private func previousChapter() {
-        guard chapterIndex > 0,
-              let prevChapter = store.chapters[safe: chapterIndex - 1] else { return }
+        guard currentChapterIndex > 0,
+              let prevChapter = store.chapters[safe: currentChapterIndex - 1] else { return }
+        currentChapter = prevChapter
+        currentChapterIndex -= 1
+        reloadParagraphs()
         store.selectedChapterID = prevChapter.id
-        store.rememberLastReadChapter(bookID: bookID, chapterIndex: chapterIndex - 1)
+        store.rememberLastReadChapter(bookID: bookID, currentChapterIndex: currentChapterIndex)
         store.saveState()
     }
     
     private func nextChapter() {
-        guard chapterIndex < store.chapters.count - 1,
-              let nextChapter = store.chapters[safe: chapterIndex + 1] else { return }
+        guard currentChapterIndex < store.chapters.count - 1,
+              let nextChapter = store.chapters[safe: currentChapterIndex + 1] else { return }
+        currentChapter = nextChapter
+        currentChapterIndex += 1
+        reloadParagraphs()
         store.selectedChapterID = nextChapter.id
-        store.rememberLastReadChapter(bookID: bookID, chapterIndex: chapterIndex + 1)
+        store.rememberLastReadChapter(bookID: bookID, currentChapterIndex: currentChapterIndex)
         store.saveState()
+    }
+    
+    private func reloadParagraphs() {
+        paragraphs = currentChapter.text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
     
     private func nextTheme(_ current: ReaderTheme) -> ReaderTheme {
@@ -1100,7 +1126,7 @@ struct VisualEffectView: UIViewRepresentable {
 struct ReaderView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationStack {
-            ReaderView(book: Book(id: UUID(), title: "测试书籍", text: "内容", importedAt: Date()),
+             ReaderView(book: Book(id: UUID(), title: "测试书籍", text: "内容", importedAt: Date()),
                        chapter: BookChapter(id: UUID(), title: "第一章", text: "测试内容\n\n第二段"),
                        bookID: UUID(), chapterIndex: 0)
                 .environmentObject(ReaderStore())

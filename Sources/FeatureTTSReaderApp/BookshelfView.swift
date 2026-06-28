@@ -619,10 +619,7 @@ struct BookDetailView: View {
                 Text("确定要删除《\(book.title)》吗？此操作不可撤销。")
             }
             .onAppear {
-                Task {
-                    let parsed = await Task.detached { parseChapters(text: book.text) }.value
-                    chapters = parsed
-                }
+                chapters = store.chaptersForBook(book.id, text: book.text)
             }
         }
     }
