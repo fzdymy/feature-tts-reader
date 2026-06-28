@@ -1040,7 +1040,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return splitIntoPseudoChapters(trimmed)
     }
 
-    func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
+    nonisolated func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
         let pageSize = 5000
         var chapters: [BookChapter] = []
         var startIndex = text.startIndex
@@ -1265,7 +1265,7 @@ await importText(sampleText)
         }
     }
 
-    func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
+    nonisolated func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
         for profile in characters {
             if line.contains(profile.name) {
                 return profile.name

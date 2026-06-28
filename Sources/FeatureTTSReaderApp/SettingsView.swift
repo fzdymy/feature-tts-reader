@@ -78,7 +78,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 // MARK: - TTS 服务
                 Section(header: Text("TTS 服务设置")) {
                     TextField("TTS 服务地址，例如 http://127.0.0.1:8080", text: $store.apiEndpoint)
