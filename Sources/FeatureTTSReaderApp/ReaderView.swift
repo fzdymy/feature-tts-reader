@@ -144,6 +144,7 @@ struct ReaderView: View {
         }
         .onTapGesture(count: 2) {
             if !selectedParagraph.isEmpty {
+                HapticManager.impact(.medium)
                 isSpeaking = true
                 Task {
                     await store.playFromParagraph(selectedParagraph)
@@ -220,13 +221,15 @@ struct ReaderView: View {
                     .onPreferenceChange(ParagraphFrameKey.self) { frames in
                         paragraphFrames = frames.map { $0.value }
                     }
-                    .onTapGesture { withAnimation { showControls.toggle() } }
+                    .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
                     .gesture(
                         DragGesture()
                             .onEnded { value in
                                 if value.translation.width > 50 {
+                                    HapticManager.impact(.light)
                                     previousChapter()
                                 } else if value.translation.width < -50 {
+                                    HapticManager.impact(.light)
                                     nextChapter()
                                 }
                             }
@@ -244,13 +247,15 @@ struct ReaderView: View {
                     pageCount: $pageCount,
                     geometry: geometry
                 )
-                .onTapGesture { withAnimation { showControls.toggle() } }
+                .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
                 .gesture(
                     DragGesture()
                         .onEnded { value in
                             if value.translation.width > 50 && currentPage > 0 {
+                                HapticManager.impact(.light)
                                 currentPage -= 1
                             } else if value.translation.width < -50 && currentPage < pageCount - 1 {
+                                HapticManager.impact(.light)
                                 currentPage += 1
                             }
                         }
@@ -267,7 +272,7 @@ struct ReaderView: View {
                     pageCount: $pageCount,
                     geometry: geometry
                 )
-                .onTapGesture { withAnimation { showControls.toggle() } }
+                .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
             }
         }
     }

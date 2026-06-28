@@ -198,6 +198,9 @@ struct SettingsView: View {
                 // MARK: - 交互设置
                 Section(header: Text("交互设置")) {
                     Toggle("启用触觉反馈", isOn: $enableHaptics)
+                        .onChange(of: enableHaptics) { _ in
+                            if enableHaptics { HapticManager.impact(.light) }
+                        }
                     Toggle("双击朗读", isOn: Binding(
                         get: { store.enableDoubleTapToSpeak },
                         set: { store.enableDoubleTapToSpeak = $0; store.saveState() }

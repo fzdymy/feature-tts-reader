@@ -1,4 +1,23 @@
 import Foundation
+import UIKit
+
+// MARK: - Haptic Feedback
+enum HapticManager {
+    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        guard UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true else { return }
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    }
+
+    static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        guard UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(type)
+    }
+
+    static func selection() {
+        guard UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+}
 
 extension String {
     func regexGroups(pattern: String) -> [[String]] {
