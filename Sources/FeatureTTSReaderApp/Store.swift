@@ -1471,8 +1471,7 @@ await importText(sampleText)
         let styleList: [String]?
     }
 }
-}
-
+    
 private class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate {
     weak var owner: ReaderStore?
 
