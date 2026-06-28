@@ -333,6 +333,7 @@ struct SettingsView: View {
                         store.saveSettings()
                         store.saveState()
                         saveAppSettings()
+                        store.restartAutoSaveTimer()
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .foregroundColor(.blue)

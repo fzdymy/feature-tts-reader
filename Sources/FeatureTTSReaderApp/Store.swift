@@ -72,6 +72,7 @@ final class ReaderStore: NSObject, ObservableObject {
     private let speechSynthesizer = AVSpeechSynthesizer()
     private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
     private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
+    private var autoSaveTimer: Timer?
 
     override init() {
         super.init()
@@ -81,6 +82,7 @@ final class ReaderStore: NSObject, ObservableObject {
         setupRemoteCommands()
         observeAudioController()
         audioController.restorePlaybackState()
+        startAutoSaveTimer()
 
         // Load state off the main actor to avoid blocking UI on startup
         Task.detached { [weak self] in
@@ -254,6 +256,18 @@ final class ReaderStore: NSObject, ObservableObject {
         UserDefaults.standard.set(apiKey, forKey: "ReaderStore.apiKey")
         // also persist to state file so settings survive app restarts
         saveState()
+    }
+
+    func restartAutoSaveTimer() {
+        autoSaveTimer?.invalidate()
+        let interval = UserDefaults.standard.object(forKey: "autoSaveInterval") as? Double ?? 30
+        autoSaveTimer = Timer.scheduledTimer(withTimeInterval: max(interval, 10), repeats: true) { [weak self] _ in
+            self?.saveState()
+        }
+    }
+
+    private func startAutoSaveTimer() {
+        restartAutoSaveTimer()
     }
 
     func loadState() {
