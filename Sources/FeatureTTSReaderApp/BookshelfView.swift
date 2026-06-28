@@ -42,9 +42,9 @@ struct BookshelfView: View {
         case .title:
             return filtered.sorted { $0.title < $1.title }
         case .progress:
-            return filtered.sorted {
-                let p1 = store.bookProgressByChapter[$0.chapters.first?.id ?? UUID()] ?? 0
-                let p2 = store.bookProgressByChapter[$1.chapters.first?.id ?? UUID()] ?? 0
+            return filtered.sorted { (b1: Book, b2: Book) in
+                let p1 = store.currentBookID == b1.id.uuidString ? store.currentBookProgress : 0
+                let p2 = store.currentBookID == b2.id.uuidString ? store.currentBookProgress : 0
                 return p1 > p2
             }
         }
@@ -221,8 +221,11 @@ struct BookshelfView: View {
                     .swipeActions(edge: .leading) {
                         Button {
                             if let index = store.books.firstIndex(where: { $0.id == book.id }) {
-                                let progress = store.bookProgressByChapter[book.chapters.first?.id ?? UUID()] ?? 0
-                                store.setChapterProgress(book.chapters.first?.id ?? UUID(), percent: min(max(progress + 0.1, 0), 1))
+                                let chapters = parseChapters(text: book.text)
+                                let progress = chapters.first.flatMap { store.bookProgressByChapter[$0.id] } ?? 0
+                                if let chapterID = chapters.first?.id {
+                                    store.setChapterProgress(chapterID, percent: min(max(progress + 0.1, 0), 1))
+                                }
                             }
                         } label: {
                             Label("进度+10%", systemImage: "forward")
@@ -270,14 +273,16 @@ struct BookGridCard: View {
     let book: Book
 
     private var progress: Double {
-        if let chapterID = book.chapters.first?.id {
+        let chapters = parseChapters(text: book.text)
+        if let chapterID = chapters.first?.id {
             return store.bookProgressByChapter[chapterID] ?? 0
         }
         return 0
     }
 
     private var lastReadDate: Date? {
-        if let chapterID = book.chapters.first?.id,
+        let chapters = parseChapters(text: book.text)
+        if let chapterID = chapters.first?.id,
            let index = store.lastReadChapterIndexByBook[book.id] {
             return book.importedAt
         }
@@ -364,10 +369,15 @@ struct BookListRow: View {
     let book: Book
 
     private var progress: Double {
-        if let chapterID = book.chapters.first?.id {
+        let chapters = parseChapters(text: book.text)
+        if let chapterID = chapters.first?.id {
             return store.bookProgressByChapter[chapterID] ?? 0
         }
         return 0
+    }
+
+    private var chapterCount: Int {
+        parseChapters(text: book.text).count
     }
 
     var body: some View {
@@ -387,7 +397,7 @@ struct BookListRow: View {
                     .font(.headline)
                     .lineLimit(1)
 
-                Text("\(book.chapters.count) 章 · \(formatDate(book.importedAt))")
+                Text("\(chapterCount) 章 · \(formatDate(book.importedAt))")
                     .font(.caption)
                     .foregroundColor(.secondary)
 

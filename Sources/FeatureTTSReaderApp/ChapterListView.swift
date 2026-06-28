@@ -15,7 +15,7 @@ struct ChapterListView: View {
             } else {
                 ForEach(store.chapters) { chapter in
                     let chapterIndex = store.chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
-                    NavigationLink(destination: ReaderDetailView(book: currentBook, chapter: chapter, bookID: currentBook.id, chapterIndex: chapterIndex).environmentObject(store)) {
+                    NavigationLink(destination: ReaderView(book: currentBook, chapter: chapter, bookID: currentBook.id, chapterIndex: chapterIndex).environmentObject(store)) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(chapter.title)
                                 .font(.headline)
