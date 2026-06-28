@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct SettingsView: View {
+// MARK: - App Theme
 enum AppTheme: String, CaseIterable, Identifiable {
     case system = "system"
     case light = "light"

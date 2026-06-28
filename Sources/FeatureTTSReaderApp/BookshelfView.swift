@@ -16,8 +16,6 @@ struct BookshelfView: View {
         var icon: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
         var name: String { self == .grid ? "网格" : "列表" }
     }
-        }
-    }
 
     private var filteredBooks: [Book] {
         let books = store.books
