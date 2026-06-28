@@ -981,7 +981,7 @@ final class ReaderStore: NSObject, ObservableObject {
 return result
     }
 
-    nonisolated private func detectNarratorPatterns(in text: String) -> [String: Int] {
+    nonisolated func detectNarratorPatterns(in text: String) -> [String: Int] {
         var patterns: [String: Int] = [:]
         let lines = text.components(separatedBy: .newlines)
         for line in lines {
@@ -993,7 +993,7 @@ return result
         return patterns
     }
 
-    nonisolated private func isLikelyNarrator(name: String, context: String, narratorIndicators: [String: Int]) -> Bool {
+    nonisolated func isLikelyNarrator(name: String, context: String, narratorIndicators: [String: Int]) -> Bool {
         if name.contains("旁白") || name.contains("叙述") { return true }
         if narratorIndicators["narrative", default: 0] > narratorIndicators["dialogue", default: 0] * 2 { return true }
         return false
