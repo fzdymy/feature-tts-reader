@@ -867,7 +867,7 @@ final class ReaderStore: NSObject, ObservableObject {
         for (index, segment) in segments.enumerated() {
             currentPlayingLine = segment.characterName
             statusMessage = "正在合成：\(segment.characterName) (\(index + 1)/\(segments.count))"
-            let content = "\(segment.characterName)：\(character)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
+            let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
 
             // Generate cache key
             let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(segment.style):\(content.hashValue)"
