@@ -239,10 +239,9 @@ final class ReaderStore: NSObject, ObservableObject {
                         segmentIndex: item.segmentIndex,
                         totalSegments: item.totalSegments
                     )
-                }
-            }
-            .store(in: &cancellables)
+}
     }
+}
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -1002,7 +1001,7 @@ return result
         return false
     }
 
-    nonisolated func extractChapters(from text: String) -> [BookChapter] {
+    func extractChapters(from text: String) -> [BookChapter] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -1040,7 +1039,7 @@ return result
         return splitIntoPseudoChapters(trimmed)
     }
 
-    nonisolated func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
+    func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
         let pageSize = 5000
         var chapters: [BookChapter] = []
         var startIndex = text.startIndex
@@ -1069,7 +1068,7 @@ return result
     }
 
 
-    nonisolated func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) -> [CharacterProfile] {
+    func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) -> [CharacterProfile] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var names = OrderedSet<String>()
 
@@ -1175,7 +1174,7 @@ return result
         return result
     }
 
-    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
+    func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         for paragraph in paragraphs {
@@ -1265,7 +1264,7 @@ await importText(sampleText)
         }
     }
 
-    nonisolated func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
+    func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
         for profile in characters {
             if line.contains(profile.name) {
                 return profile.name
