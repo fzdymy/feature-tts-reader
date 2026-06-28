@@ -22,11 +22,16 @@ struct ReaderView: View {
     let bookID: UUID
     @State private var currentChapter: BookChapter
     @State private var currentChapterIndex: Int
+    @State private var bookChapters: [BookChapter] = []
     @State private var paragraphs: [String] = []
 
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
         self.book = book
         self.bookID = bookID
+        let paras = chapter.text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self._paragraphs = State(initialValue: paras)
         self._currentChapter = State(initialValue: chapter)
         self._currentChapterIndex = State(initialValue: chapterIndex)
     }
@@ -119,7 +124,7 @@ struct ReaderView: View {
             store.selectedChapterID = currentChapter.id
             store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
             store.saveState()
-            reloadParagraphs()
+            bookChapters = store.chaptersForBook(bookID, text: book.text)
             
             if let savedBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
                 screenBrightness = savedBrightness
@@ -147,19 +152,6 @@ struct ReaderView: View {
             ChapterListView()
                 .environmentObject(store)
                 .presentationDetents([.large])
-        }
-        .onTapGesture(count: 2) {
-            if !selectedParagraph.isEmpty {
-                HapticManager.impact(.medium)
-                isSpeaking = true
-                Task {
-                    await store.playFromParagraph(selectedParagraph)
-                    await MainActor.run { isSpeaking = false }
-                }
-            }
-        }
-        .onLongPressGesture(minimumDuration: 0.5) {
-            showParagraphMenu = true
         }
     }
     
@@ -458,7 +450,7 @@ struct ReaderView: View {
     
     private func previousChapter() {
         guard currentChapterIndex > 0,
-              let prevChapter = store.chapters[safe: currentChapterIndex - 1] else { return }
+              let prevChapter = bookChapters[safe: currentChapterIndex - 1] else { return }
         currentChapter = prevChapter
         currentChapterIndex -= 1
         reloadParagraphs()
@@ -468,8 +460,8 @@ struct ReaderView: View {
     }
     
     private func nextChapter() {
-        guard currentChapterIndex < store.chapters.count - 1,
-              let nextChapter = store.chapters[safe: currentChapterIndex + 1] else { return }
+        guard currentChapterIndex < bookChapters.count - 1,
+              let nextChapter = bookChapters[safe: currentChapterIndex + 1] else { return }
         currentChapter = nextChapter
         currentChapterIndex += 1
         reloadParagraphs()

@@ -58,6 +58,8 @@ struct SettingsView: View {
     @State private var showAdvancedTTS = false
     @State private var localEndpoint: String = ""
     @State private var localAPIKey: String = ""
+    @State private var endpointTask: Task<Void, Never>?
+    @State private var apiKeyTask: Task<Void, Never>?
     @State private var selectedAppTheme: AppTheme = .system
     @State private var selectedBookshelfLayout: BookshelfLayout = .grid
     @State private var enableHaptics = true
@@ -75,15 +77,16 @@ struct SettingsView: View {
                         .submitLabel(.done)
                         .onSubmit { store.apiEndpoint = localEndpoint }
                         .onChange(of: localEndpoint) { _ in
-                            // Debounce: sync to store after short delay
-                            Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiEndpoint = localEndpoint }
+                            endpointTask?.cancel()
+                            endpointTask = Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiEndpoint = localEndpoint }
                         }
                     SecureField("API Key（可选）", text: $localAPIKey)
                         .textContentType(.password)
                         .submitLabel(.done)
                         .onSubmit { store.apiKey = localAPIKey }
                         .onChange(of: localAPIKey) { _ in
-                            Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiKey = localAPIKey }
+                            apiKeyTask?.cancel()
+                            apiKeyTask = Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiKey = localAPIKey }
                         }
 
                     Picker("语音目录", selection: $store.selectedVoiceCatalog) {

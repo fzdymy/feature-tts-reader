@@ -207,7 +207,7 @@ struct BookshelfView: View {
                     .swipeActions(edge: .leading) {
                         Button {
                             if let index = store.books.firstIndex(where: { $0.id == book.id }) {
-                                let chapters = parseChapters(text: book.text)
+                                let chapters = store.chaptersForBook(book.id, text: book.text)
                                 let progress = chapters.first.flatMap { store.bookProgressByChapter[$0.id] } ?? 0
                                 if let chapterID = chapters.first?.id {
                                     store.setChapterProgress(chapterID, percent: min(max(progress + 0.1, 0), 1))
@@ -259,7 +259,7 @@ struct BookGridCard: View {
     let book: Book
 
     private var progress: Double {
-        let chapters = parseChapters(text: book.text)
+        let chapters = store.chaptersForBook(book.id, text: book.text)
         if let chapterID = chapters.first?.id {
             return store.bookProgressByChapter[chapterID] ?? 0
         }
@@ -267,7 +267,7 @@ struct BookGridCard: View {
     }
 
     private var chapterCount: Int {
-        parseChapters(text: book.text).count
+        store.chaptersForBook(book.id, text: book.text).count
     }
 
     var body: some View {
@@ -350,7 +350,7 @@ struct BookListRow: View {
     let book: Book
 
     private var progress: Double {
-        let chapters = parseChapters(text: book.text)
+        let chapters = store.chaptersForBook(book.id, text: book.text)
         if let chapterID = chapters.first?.id {
             return store.bookProgressByChapter[chapterID] ?? 0
         }
@@ -358,7 +358,7 @@ struct BookListRow: View {
     }
 
     private var chapterCount: Int {
-        parseChapters(text: book.text).count
+        store.chaptersForBook(book.id, text: book.text).count
     }
 
     var body: some View {
@@ -620,6 +620,10 @@ struct BookDetailView: View {
             }
             .onAppear {
                 chapters = store.chaptersForBook(book.id, text: book.text)
+                store.chapters = chapters
+                store.bookText = book.text
+                store.currentBookID = book.id.uuidString
+                store.currentBookTitle = book.title
             }
         }
     }
