@@ -52,6 +52,8 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var showPageNumber: Bool = true
     @Published var showTime: Bool = true
     @Published var showBattery: Bool = true
+    @Published var showBookCover: Bool = true
+    @Published var showReadingProgress: Bool = true
     @Published var immersiveMode: Bool = false
     @Published var enableDoubleTapToSpeak: Bool = true
     @Published var enableLongPressSelect: Bool = true
@@ -116,6 +118,8 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.showPageNumber = state.showPageNumber
                     strong.showTime = state.showTime
                     strong.showBattery = state.showBattery
+                    strong.showBookCover = state.showBookCover
+                    strong.showReadingProgress = state.showReadingProgress
                     strong.bookmarks = state.bookmarks
                     strong.bookProgressByChapter = state.bookProgressByChapter
                     strong.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
@@ -290,6 +294,8 @@ final class ReaderStore: NSObject, ObservableObject {
         showPageNumber = state.showPageNumber
         showTime = state.showTime
         showBattery = state.showBattery
+        showBookCover = state.showBookCover
+        showReadingProgress = state.showReadingProgress
         bookmarks = state.bookmarks
         bookProgressByChapter = state.bookProgressByChapter
         lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
@@ -344,6 +350,8 @@ final class ReaderStore: NSObject, ObservableObject {
             showPageNumber: showPageNumber,
             showTime: showTime,
             showBattery: showBattery,
+            showBookCover: showBookCover,
+            showReadingProgress: showReadingProgress,
             ttsQueue: ttsQueue,
             ttsCurrentIndex: ttsCurrentIndex,
             ttsIsPlaying: ttsIsPlaying,

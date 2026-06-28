@@ -470,6 +470,8 @@ struct SettingsView: View {
                 showPageNumber: store.showPageNumber,
                 showTime: store.showTime,
                 showBattery: store.showBattery,
+                showBookCover: store.showBookCover,
+                showReadingProgress: store.showReadingProgress,
                 ttsQueue: store.ttsQueue,
                 ttsCurrentIndex: store.ttsCurrentIndex,
                 ttsIsPlaying: store.ttsIsPlaying,

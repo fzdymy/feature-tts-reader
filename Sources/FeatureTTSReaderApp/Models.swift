@@ -203,6 +203,8 @@ struct ReaderState: Codable {
     var showPageNumber: Bool = true
     var showTime: Bool = true
     var showBattery: Bool = true
+    var showBookCover: Bool = true
+    var showReadingProgress: Bool = true
     var ttsQueue: [TTSQueueItem]?
     var ttsCurrentIndex: Int?
     var ttsIsPlaying: Bool?
@@ -218,7 +220,7 @@ struct ReaderState: Codable {
     private enum CodingKeys: String, CodingKey {
         case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking
     }
 
     init(
@@ -255,6 +257,8 @@ struct ReaderState: Codable {
         showPageNumber: Bool = true,
         showTime: Bool = true,
         showBattery: Bool = true,
+        showBookCover: Bool = true,
+        showReadingProgress: Bool = true,
         ttsQueue: [TTSQueueItem]? = nil,
         ttsCurrentIndex: Int? = nil,
         ttsIsPlaying: Bool? = nil,
@@ -300,6 +304,8 @@ struct ReaderState: Codable {
         self.showPageNumber = showPageNumber
         self.showTime = showTime
         self.showBattery = showBattery
+        self.showBookCover = showBookCover
+        self.showReadingProgress = showReadingProgress
         self.ttsQueue = ttsQueue
         self.ttsCurrentIndex = ttsCurrentIndex
         self.ttsIsPlaying = ttsIsPlaying
