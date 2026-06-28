@@ -11,7 +11,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var characters: [CharacterProfile] = []
     @Published var scriptSegments: [ScriptSegment] = []
     @Published var voices: [VoiceItem] = []
-    @Published var selectedVoiceCatalog: VoiceCatalogSource = .remote
+    @Published var selectedVoiceCatalog: VoiceCatalogSource = .chinese35
     @Published var recommendations: [CharacterRecommendation] = []
     @Published var selectedChapterID: UUID?
     @Published var statusMessage: String = "请导入小说或粘贴文本。"
@@ -136,6 +136,13 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.ttsChapterTitle = state.ttsChapterTitle ?? ""
                     strong.ttsSegmentTitle = state.ttsSegmentTitle ?? ""
                 }
+                // Load local voice catalog on startup (not on MainActor)
+                if state.selectedVoiceCatalog != .remote {
+                    let voices = await strong.loadLocalVoiceCatalog(state.selectedVoiceCatalog)
+                    await MainActor.run {
+                        self?.voices = voices
+                    }
+                }
             } else {
                 await MainActor.run {
                     self?.loadPersistentLibrary()
@@ -216,20 +223,6 @@ final class ReaderStore: NSObject, ObservableObject {
             }
             .store(in: &cancellables)
 
-        audioController.$currentTime
-            .receive(on: RunLoop.main)
-            .sink { [weak self] time in
-                self?.ttsCurrentTime = time
-            }
-            .store(in: &cancellables)
-
-        audioController.$currentDuration
-            .receive(on: RunLoop.main)
-            .sink { [weak self] duration in
-                self?.ttsDuration = duration
-            }
-            .store(in: &cancellables)
-
         audioController.$currentTitle
             .receive(on: RunLoop.main)
             .sink { [weak self] title in
@@ -242,9 +235,11 @@ final class ReaderStore: NSObject, ObservableObject {
             .sink { [weak self] queue in
                 self?.ttsQueue = queue
             }
+            .store(in: &cancellables)
 }
 
     private var cancellables = Set<AnyCancellable>()
+    private var playbackContinuationCancellable: AnyCancellable?
 
     func loadSettings() {
         apiEndpoint = UserDefaults.standard.string(forKey: "ReaderStore.apiEndpoint") ?? apiEndpoint
@@ -309,7 +304,7 @@ final class ReaderStore: NSObject, ObservableObject {
         playTimeoutSeconds = state.playTimeoutSeconds
 
         if selectedVoiceCatalog != .remote {
-            voices = loadLocalVoiceCatalog(selectedVoiceCatalog)
+            self.voices = VoiceItem.defaultItems()
         }
 
         if !bookText.isEmpty && lastScannedBookText.isEmpty {
@@ -772,7 +767,7 @@ final class ReaderStore: NSObject, ObservableObject {
     func refreshVoices() async {
         isBusy = true
         if selectedVoiceCatalog != .remote {
-            voices = loadLocalVoiceCatalog(selectedVoiceCatalog)
+            voices = await loadLocalVoiceCatalog(selectedVoiceCatalog)
             statusMessage = "已加载本地音色目录：\(selectedVoiceCatalog.displayName)，共 \(voices.count) 个音色。"
             updateRecommendations()
             saveState()
@@ -966,22 +961,21 @@ final class ReaderStore: NSObject, ObservableObject {
         // Play via audio controller
         audioController.playQueue(queueItems)
 
-        // Update play progress based on audio controller
         await MainActor.run {
             isSpeaking = true
         }
 
-        // Wait for playback to complete or be interrupted
-        while audioController.isPlaying && !queueItems.isEmpty {
-            try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-            await MainActor.run {
-                ttsCurrentTime = audioController.currentProgress * (audioController.currentDuration)
-                ttsDuration = audioController.currentDuration
-                ttsCurrentIndex = audioController.currentIndex
-                ttsSegmentTitle = audioController.currentTitle
-                playProgress = Double(audioController.currentIndex + 1) / Double(queueItems.count)
-            }
+        // Wait for playback to complete via Combine publisher (no polling)
+        await withCheckedContinuation { [weak self] (cont: CheckedContinuation<Void, Never>) in
+            let c = self?.audioController.$isPlaying
+                .dropFirst()
+                .filter { !$0 }
+                .sink { _ in
+                    cont.resume()
+                }
+            self?.playbackContinuationCancellable = c
         }
+        playbackContinuationCancellable = nil
 
         await MainActor.run {
             isSpeaking = false
@@ -1474,25 +1468,26 @@ await importText(sampleText)
         return score
     }
 
-    func loadLocalVoiceCatalog(_ source: VoiceCatalogSource) -> [VoiceItem] {
+    func loadLocalVoiceCatalog(_ source: VoiceCatalogSource) async -> [VoiceItem] {
         guard let resourceName = source.resourceName else { return [] }
-        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "json") else {
-            return defaultVoiceItems()
-        }
-
-        do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            let raw = try decoder.decode([LocalVoiceCatalogItem].self, from: data)
-            return raw.compactMap { item in
-                let voiceID = item.short_name ?? item.name ?? item.local_name ?? item.display_name
-                guard let id = voiceID else { return nil }
-                let title = item.display_name ?? item.local_name ?? item.name ?? id
-                return VoiceItem(id: id, name: title, locale: item.locale ?? "zh-CN", styleList: item.style_list ?? item.styleList)
+        return await Task.detached { () -> [VoiceItem] in
+            guard let url = Bundle.module.url(forResource: resourceName, withExtension: "json") else {
+                return VoiceItem.defaultItems()
             }
-        } catch {
-            return defaultVoiceItems()
-        }
+            do {
+                let data = try Data(contentsOf: url)
+                let decoder = JSONDecoder()
+                let raw = try decoder.decode([LocalVoiceCatalogItem].self, from: data)
+                return raw.compactMap { item in
+                    let voiceID = item.short_name ?? item.name ?? item.local_name ?? item.display_name
+                    guard let id = voiceID else { return nil }
+                    let title = item.display_name ?? item.local_name ?? item.name ?? id
+                    return VoiceItem(id: id, name: title, locale: item.locale ?? "zh-CN", styleList: item.style_list ?? item.styleList)
+                }
+            } catch {
+                return VoiceItem.defaultItems()
+            }
+        }.value
     }
 
     nonisolated func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {

@@ -115,6 +115,10 @@ enum VoiceCatalogSource: String, CaseIterable, Codable, Identifiable {
         case .fullChinese: return "full_chinese_voices"
         }
     }
+
+    static var localCases: [VoiceCatalogSource] {
+        [.chinese35, .fullChinese]
+    }
 }
 
 struct BookBookmark: Identifiable, Hashable, Codable {

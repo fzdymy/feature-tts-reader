@@ -76,13 +76,13 @@ struct SettingsView: View {
                         .submitLabel(.done)
 
                     Picker("语音目录", selection: $store.selectedVoiceCatalog) {
-                        ForEach(VoiceCatalogSource.allCases) { source in
+                        ForEach(VoiceCatalogSource.localCases) { source in
                             Text(source.displayName).tag(source)
                         }
                     }
                     .pickerStyle(.menu)
                     .onChange(of: store.selectedVoiceCatalog) { _ in
-                        Task { await store.refreshVoices() }
+                        Task { try? await Task.sleep(nanoseconds: 100_000_000); await store.refreshVoices() }
                     }
 
                     HStack {

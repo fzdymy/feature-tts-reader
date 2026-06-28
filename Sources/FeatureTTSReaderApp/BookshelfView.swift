@@ -410,6 +410,9 @@ struct BookDetailView: View {
     let book: Book
     @State private var chapters: [BookChapter] = []
     @State private var showDeleteAlert = false
+    @State private var showReader = false
+    @State private var readerChapter: BookChapter?
+    @State private var readerChapterIndex: Int = 0
 
     private var totalProgress: Double {
         guard !chapters.isEmpty else { return 0 }
@@ -484,14 +487,15 @@ struct BookDetailView: View {
                 // Actions
                 Section {
                     Button(action: {
-                        if let chapter = chapters.first,
-                           let index = chapters.firstIndex(where: { $0.id == chapter.id }) {
-                            store.selectedChapterID = chapter.id
-                            store.currentBookID = book.id.uuidString
-                            store.currentBookTitle = book.title
-                            store.bookText = book.text
-                            dismiss()
-                        }
+                        guard let chapter = chapters.first else { return }
+                        let index = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
+                        store.selectedChapterID = chapter.id
+                        store.currentBookID = book.id.uuidString
+                        store.currentBookTitle = book.title
+                        store.bookText = book.text
+                        readerChapter = chapter
+                        readerChapterIndex = index
+                        showReader = true
                     }) {
                         HStack {
                             Image(systemName: readChapters > 0 ? "bookmark.fill" : "book.fill")
@@ -505,6 +509,16 @@ struct BookDetailView: View {
                         }
                     }
                     .foregroundColor(.blue)
+                    .fullScreenCover(isPresented: $showReader) {
+                        if let chapter = readerChapter {
+                            ReaderView(
+                                book: book,
+                                chapter: chapter,
+                                bookID: book.id,
+                                chapterIndex: readerChapterIndex
+                            ).environmentObject(store)
+                        }
+                    }
 
                     NavigationLink(destination: ChapterListView()
                         .environmentObject(store)
