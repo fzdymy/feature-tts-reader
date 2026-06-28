@@ -1002,7 +1002,7 @@ return result
         return false
     }
 
-    nonisolated private func extractChapters(from text: String) -> [BookChapter] {
+    nonisolated func extractChapters(from text: String) -> [BookChapter] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -1040,7 +1040,7 @@ return result
         return splitIntoPseudoChapters(trimmed)
     }
 
-    nonisolated private func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
+    nonisolated func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
         let pageSize = 5000
         var chapters: [BookChapter] = []
         var startIndex = text.startIndex
@@ -1069,7 +1069,7 @@ return result
     }
 
 
-    nonisolated private func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) -> [CharacterProfile] {
+    nonisolated func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) -> [CharacterProfile] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var names = OrderedSet<String>()
 
@@ -1175,7 +1175,7 @@ return result
         return result
     }
 
-    nonisolated private func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
+    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         for paragraph in paragraphs {
@@ -1265,7 +1265,7 @@ await importText(sampleText)
         }
     }
 
-    nonisolated private func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
+    nonisolated func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
         for profile in characters {
             if line.contains(profile.name) {
                 return profile.name
@@ -1317,7 +1317,7 @@ await importText(sampleText)
         VoiceItem.defaultItems()
     }
 
-    nonisolated private func detectGender(in context: String) -> String {
+    nonisolated func detectGender(in context: String) -> String {
         let lower = context
         if lower.contains("小姐") || lower.contains("姑娘") || lower.contains("她") || lower.contains("母亲") || lower.contains("姐姐") || lower.contains("妹妹") || lower.contains("老婆") || lower.contains("太太") {
             return "女性"
@@ -1328,7 +1328,7 @@ await importText(sampleText)
         return "未知"
     }
 
-    nonisolated private func detectAge(in context: String) -> String {
+    nonisolated func detectAge(in context: String) -> String {
         if context.contains("少年") || context.contains("小孩") || context.contains("稚") || context.contains("孩子") {
             return "少年"
         }
@@ -1347,7 +1347,7 @@ await importText(sampleText)
         return "未知"
     }
 
-    nonisolated private func detectTone(in context: String) -> String {
+    nonisolated func detectTone(in context: String) -> String {
         if context.contains("！") || context.contains("怒") || context.contains("大声") || context.contains("愤") {
             return "激昂"
         }
@@ -1363,7 +1363,7 @@ await importText(sampleText)
         return "平稳"
     }
 
-    nonisolated private func styleFromTone(_ tone: String) -> String {
+    nonisolated func styleFromTone(_ tone: String) -> String {
         switch tone {
         case "激昂": return "angry"
         case "疑问": return "neutral"
@@ -1373,7 +1373,7 @@ await importText(sampleText)
         }
     }
 
-    nonisolated private func defaultVoice(for gender: String, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
+    nonisolated func defaultVoice(for gender: String, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
         let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
         
         // For narrator, prefer neutral, clear voices
@@ -1389,7 +1389,7 @@ await importText(sampleText)
         return best?.id ?? "zh-CN-XiaoxiaoNeural"
     }
 
-    nonisolated private func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
+    nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
         var score = 0
         let lowerID = voice.id.lowercased()
         let lowerName = voice.name.lowercased()
@@ -1447,7 +1447,7 @@ await importText(sampleText)
         }
     }
 
-    nonisolated private func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
+    nonisolated func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
         var list = voiceOptions
         list.sort { voiceMatchScore($0, for: profile) > voiceMatchScore($1, for: profile) }
         return Array(list.prefix(6))
