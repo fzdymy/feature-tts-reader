@@ -37,10 +37,10 @@ enum BookshelfLayout: String, CaseIterable, Identifiable {
     case list = "list"
     case compact = "compact"
     var id: String { rawValue }
-    var name: String {
+ var name: String {
         switch self {
         case .grid: return "网格"
-        case .list: return "列表格返回
+        case .list: return "列表"
         case .compact: return "紧凑"
         }
     }
@@ -239,7 +239,7 @@ struct SettingsView: View {
                         ForEach(SortOption.allCases) { option in
                             Text(option.name).tag(option)
                         }
-                    )
+                    }
 
                     Toggle("显示封面", isOn: Binding(
                         get: { store.showBookCover },
@@ -527,7 +527,7 @@ struct FontManagerView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section(header: Section(header: Text("系统字体")) {
+                Section(header: Text("系统字体")) {
                     ForEach(systemFonts, id: \.self) { font in
                         Button(action: {
                             store.readerFontName = font
@@ -650,58 +650,6 @@ struct FontManager {
         "Arial", "Helvetica", "Georgia", "Times New Roman",
         "Menlo", "Courier New", "Marker Felt", "Noteworthy"
     ]
-}
-
-// MARK: - App Theme
-enum AppTheme: String, CaseIterable, Identifiable {
-    case system = "system"
-    case light = "light"
-    case dark = "dark"
-    var id: String { rawValue }
-    var name: String {
-        switch self {
-        case .system: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
-        }
-    }
-}
-
-// MARK: - Bookshelf Layout
-enum BookshelfLayout: String, CaseIterable, Identifiable {
-    case grid = "grid"
-    case list = "list"
-    case compact = "compact"
-    var id: String { rawValue }
-    var name: String {
-        switch self {
-        case .grid: return "网格"
-        case .list: return "列表"
-        case .compact: return "紧凑"
-        }
-    }
-    var icon: String {
-        switch self {
-        case .grid: return "square.grid.2x2"
-        case .list: return "list.bullet"
-        case .compact: return "rectangle.grid.1x2"
-        }
-    }
-}
-
-// MARK: - Sort Option
-enum SortOption: String, CaseIterable, Identifiable {
-    case recent = "recent"
-    case title = "title"
-    case progress = "progress"
-    var id: String { rawValue }
-    var name: String {
-        switch self {
-        case .recent: return "最近阅读"
-        case .title: return "标题"
-        case .progress: return "阅读进度"
-        }
-    }
 }
 
 // MARK: - App Theme
