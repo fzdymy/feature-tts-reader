@@ -1002,7 +1002,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return false
     }
 
-    func extractChapters(from text: String) -> [BookChapter] {
+    nonisolated func extractChapters(from text: String) -> [BookChapter] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -1175,7 +1175,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return result
     }
 
-    func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
+    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         for paragraph in paragraphs {
