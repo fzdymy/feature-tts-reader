@@ -36,9 +36,25 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
     var pitch: Int
     var style: String
     var sensitivity: Int
+    var isNarrator: Bool = false
+    var role: CharacterRole = .character
 
     var info: String {
         [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+enum CharacterRole: String, Codable, CaseIterable {
+    case narrator = "narrator"
+    case character = "character"
+    case unknown = "unknown"
+
+    var displayName: String {
+        switch self {
+        case .narrator: return "旁白"
+        case .character: return "角色"
+        case .unknown: return "未知"
+        }
     }
 }
 

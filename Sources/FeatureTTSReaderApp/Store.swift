@@ -37,6 +37,9 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsChapterTitle: String = ""
     @Published var ttsSegmentTitle: String = ""
 
+    // TTS Synthesis Cache
+    private var ttsCache: [String: URL] = [:]
+
     private var lastScannedBookText: String = ""
     @Published var readerFontSize: Double = 18
     @Published var readerLineSpacing: Double = 8
@@ -648,7 +651,7 @@ final class ReaderStore: NSObject, ObservableObject {
         await MainActor.run {
             var final = inferred
             if final.isEmpty {
-                final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
                 statusMessage = "未识别到明确人物，已创建默认叙述者。"
             } else {
                 final = final.map { profile in
@@ -864,28 +867,33 @@ final class ReaderStore: NSObject, ObservableObject {
         for (index, segment) in segments.enumerated() {
             currentPlayingLine = segment.characterName
             statusMessage = "正在合成：\(segment.characterName) (\(index + 1)/\(segments.count))"
-            let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
+            let content = "\(segment.characterName)：\(character)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
 
-            do {
-                let audioURL = try await client.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
+            // Generate cache key
+            let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(segment.style):\(content.hashValue)"
 
-                let queueItem = AudioPlaybackController.TTSQueueItem(
-                    segment: segment,
-                    audioURL: audioURL,
-                    chapterTitle: chapterTitle,
-                    bookTitle: bookTitle,
-                    bookID: bookID.uuidString,
-                    chapterIndex: chapterIndex,
-                    segmentIndex: index,
-                    totalSegments: segments.count
-                )
-                queueItems.append(queueItem)
-
-                playProgress = Double(index + 1) / Double(segments.count)
-            } catch {
-                isBusy = false
-                throw error
+            let audioURL: URL
+            if let cachedURL = ttsCache[cacheKey] {
+                audioURL = cachedURL
+            } else {
+                let synthesizedURL = try await client.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
+                ttsCache[cacheKey] = synthesizedURL
+                audioURL = synthesizedURL
             }
+
+            let queueItem = AudioPlaybackController.TTSQueueItem(
+                segment: segment,
+                audioURL: audioURL,
+                chapterTitle: chapterTitle,
+                bookTitle: bookTitle,
+                bookID: bookID.uuidString,
+                chapterIndex: chapterIndex,
+                segmentIndex: index,
+                totalSegments: segments.count
+            )
+            queueItems.append(queueItem)
+
+            playProgress = Double(index + 1) / Double(segments.count)
         }
 
         // Update local TTS queue for UI
@@ -970,8 +978,26 @@ final class ReaderStore: NSObject, ObservableObject {
             }
             let result = try await group.next()!
             group.cancelAll()
-            return result
+return result
+    }
+
+    nonisolated private func detectNarratorPatterns(in text: String) -> [String: Int] {
+        var patterns: [String: Int] = [:]
+        let lines = text.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("第") && trimmed.contains("章") { patterns["chapter", default: 0] += 1 }
+            if trimmed.hasPrefix("“") || trimmed.hasPrefix("「") { patterns["dialogue", default: 0] += 1 }
+            if trimmed.hasSuffix("。") && !trimmed.contains("说") && !trimmed.contains("道") { patterns["narrative", default: 0] += 1 }
         }
+        return patterns
+    }
+
+    nonisolated private func isLikelyNarrator(name: String, context: String, narratorIndicators: [String: Int]) -> Bool {
+        if name.contains("旁白") || name.contains("叙述") { return true }
+        if narratorIndicators["narrative", default: 0] > narratorIndicators["dialogue", default: 0] * 2 { return true }
+        return false
+    }
     }
 
     nonisolated private func extractChapters(from text: String) -> [BookChapter] {
@@ -1069,6 +1095,9 @@ final class ReaderStore: NSObject, ObservableObject {
             }
         }
 
+        // Analyze narrator patterns - text that is not dialogue
+        let narratorIndicators = detectNarratorPatterns(in: raw)
+
         var result: [CharacterProfile] = []
         for name in names.prefix(8) {
             let context = raw.contextAround(name, radius: 120)
@@ -1076,18 +1105,69 @@ final class ReaderStore: NSObject, ObservableObject {
             let age = detectAge(in: context)
             let tone = detectTone(in: context)
             let style = styleFromTone(tone)
+
+            // Detect if this is likely a narrator
+            let isNarrator = isLikelyNarrator(name: name, context: context, narratorIndicators: narratorIndicators)
+            let role: CharacterRole = isNarrator ? .narrator : .character
+
+            // For narrator, use a neutral voice; for characters, assign based on gender/tone
+            let assignedVoice: String
+            if isNarrator {
+                assignedVoice = defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices)
+            } else {
+                assignedVoice = defaultVoice(for: gender, tone: tone, voices: voices)
+            }
+
             result.append(CharacterProfile(
                 id: UUID(),
                 name: name,
                 gender: gender,
                 age: age,
                 tone: tone,
-                voice: defaultVoice(for: gender, tone: tone, voices: voices),
+                voice: assignedVoice,
                 rate: style == "cheerful" ? 10 : style == "sad" ? -10 : 0,
                 pitch: style == "cheerful" ? 10 : style == "sad" ? -5 : 0,
                 style: style,
-                sensitivity: defaultSensitivity
+                sensitivity: defaultSensitivity,
+                isNarrator: isNarrator,
+                role: role
             ))
+        }
+
+        // If no characters found, add a default narrator
+        if result.isEmpty {
+            result.append(CharacterProfile(
+                id: UUID(),
+                name: "旁白",
+                gender: "未知",
+                age: "未知",
+                tone: "平稳",
+                voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
+                rate: 0,
+                pitch: 0,
+                style: "neutral",
+                sensitivity: defaultSensitivity,
+                isNarrator: true,
+                role: .narrator
+            ))
+        }
+
+        // Ensure at least one narrator exists
+        if !result.contains(where: { $0.isNarrator }) {
+            result.insert(CharacterProfile(
+                id: UUID(),
+                name: "旁白",
+                gender: "未知",
+                age: "未知",
+                tone: "平稳",
+                voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
+                rate: 0,
+                pitch: 0,
+                style: "neutral",
+                sensitivity: defaultSensitivity,
+                isNarrator: true,
+                role: .narrator
+            ), at: 0)
         }
 
         return result
@@ -1291,9 +1371,18 @@ await importText(sampleText)
         }
     }
 
-    nonisolated private func defaultVoice(for gender: String, tone: String, name: String? = nil, voices: [VoiceItem]) -> String {
+    nonisolated private func defaultVoice(for gender: String, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
         let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
-        let profile = CharacterProfile(id: UUID(), name: name ?? "叙述者", gender: gender, age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: 50)
+        
+        // For narrator, prefer neutral, clear voices
+        if role == "旁白" || role == "narrator" {
+            let narratorVoices = options.filter { $0.id.contains("Xiaoxiao") || $0.id.contains("Yunjian") || $0.id.contains("Yunxi") }
+            let profile = CharacterProfile(id: UUID(), name: name ?? "旁白", gender: "未知", age: "未知", tone: "平稳", voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: 50, isNarrator: true, role: .narrator)
+            let best = (narratorVoices.isEmpty ? options : narratorVoices).max(by: { voiceMatchScore($0, for: profile) < voiceMatchScore($1, for: profile) })
+            return best?.id ?? "zh-CN-XiaoxiaoNeural"
+        }
+        
+        let profile = CharacterProfile(id: UUID(), name: name ?? "叙述者", gender: gender, age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: 50, isNarrator: false, role: .character)
         let best = options.max(by: { voiceMatchScore($0, for: profile) < voiceMatchScore($1, for: profile) })
         return best?.id ?? "zh-CN-XiaoxiaoNeural"
     }
