@@ -135,10 +135,11 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.ttsIsPlaying = state.ttsIsPlaying ?? false
                     strong.ttsChapterTitle = state.ttsChapterTitle ?? ""
                     strong.ttsSegmentTitle = state.ttsSegmentTitle ?? ""
-                    // Load local voice catalog on startup
-                    if state.selectedVoiceCatalog != .remote {
-                        let loaded = await strong.loadLocalVoiceCatalog(state.selectedVoiceCatalog)
-                        strong.voices = loaded
+                }
+                // Load local voice catalog on startup (outside MainActor.run to allow await)
+                if state.selectedVoiceCatalog != .remote {
+                    if let catalog = await self?.loadLocalVoiceCatalog(state.selectedVoiceCatalog) {
+                        await MainActor.run { self?.voices = catalog }
                     }
                 }
             } else {
