@@ -259,44 +259,45 @@ struct ReaderView: View {
                                 }
                         )
                     }
-            case .horizontal:
-                HorizontalPageView(
-                    paragraphs: paragraphs,
-                    fontSize: store.readerFontSize,
-                    lineSpacing: store.readerLineSpacing,
-                    paragraphSpacing: store.readerParagraphSpacing,
-                    textColor: textColor,
-                    backgroundColor: backgroundColor,
-                    currentPage: $currentPage,
-                    pageCount: $pageCount,
-                    geometry: geometry
-                )
-                .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
-                .gesture(
-                    DragGesture()
-                        .onEnded { value in
-                            if value.translation.width > 50 && currentPage > 0 {
-                                HapticManager.impact(.light)
-                                currentPage -= 1
-                            } else if value.translation.width < -50 && currentPage < pageCount - 1 {
-                                HapticManager.impact(.light)
-                                currentPage += 1
+                case .horizontal:
+                    HorizontalPageView(
+                        paragraphs: paragraphs,
+                        fontSize: store.readerFontSize,
+                        lineSpacing: store.readerLineSpacing,
+                        paragraphSpacing: store.readerParagraphSpacing,
+                        textColor: textColor,
+                        backgroundColor: backgroundColor,
+                        currentPage: $currentPage,
+                        pageCount: $pageCount,
+                        geometry: geometry
+                    )
+                    .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
+                    .gesture(
+                        DragGesture()
+                            .onEnded { value in
+                                if value.translation.width > 50 && currentPage > 0 {
+                                    HapticManager.impact(.light)
+                                    currentPage -= 1
+                                } else if value.translation.width < -50 && currentPage < pageCount - 1 {
+                                    HapticManager.impact(.light)
+                                    currentPage += 1
+                                }
                             }
-                        }
-                )
-            case .vertical:
-                VerticalPageView(
-                    paragraphs: paragraphs,
-                    fontSize: store.readerFontSize,
-                    lineSpacing: store.readerLineSpacing,
-                    paragraphSpacing: store.readerParagraphSpacing,
-                    textColor: textColor,
-                    backgroundColor: backgroundColor,
-                    currentPage: $currentPage,
-                    pageCount: $pageCount,
-                    geometry: geometry
-                )
-                .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
+                    )
+                case .vertical:
+                    VerticalPageView(
+                        paragraphs: paragraphs,
+                        fontSize: store.readerFontSize,
+                        lineSpacing: store.readerLineSpacing,
+                        paragraphSpacing: store.readerParagraphSpacing,
+                        textColor: textColor,
+                        backgroundColor: backgroundColor,
+                        currentPage: $currentPage,
+                        pageCount: $pageCount,
+                        geometry: geometry
+                    )
+                    .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
+                }
             }
         }
     }
