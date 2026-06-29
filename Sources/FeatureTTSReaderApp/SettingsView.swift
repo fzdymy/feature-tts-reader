@@ -616,13 +616,11 @@ struct FontManagerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
+                    Button("完成") {
                         store.apiEndpoint = localEndpoint
                         store.apiKey = localAPIKey
                         store.saveState()
+                        dismiss()
                     }
                 }
             }
