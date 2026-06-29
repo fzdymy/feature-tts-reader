@@ -125,6 +125,7 @@ struct ReaderView: View {
             store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
             store.saveState()
             bookChapters = store.chaptersForBook(bookID, text: book.text)
+            UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
             
             if let savedBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
                 screenBrightness = savedBrightness
@@ -134,6 +135,7 @@ struct ReaderView: View {
         }
         .onDisappear {
             store.saveState()
+            UIApplication.shared.isIdleTimerDisabled = false
             if !useSystemBrightness {
                 UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
             }
@@ -290,6 +292,7 @@ struct ReaderView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .id(index)
             .onTapGesture(count: 2) {
+                guard store.enableDoubleTapToSpeak else { return }
                 selectedParagraph = para
                 isSpeaking = true
                 Task {
@@ -298,6 +301,7 @@ struct ReaderView: View {
                 }
             }
             .onLongPressGesture(minimumDuration: 0.5) {
+                guard store.enableLongPressSelect else { return }
                 selectedParagraph = para
                 showParagraphMenu = true
             }
@@ -786,6 +790,8 @@ struct ReaderSettingsView: View {
                     Toggle("屏幕常亮", isOn: $keepScreenOn)
                         .onChange(of: keepScreenOn) { newValue in
                             UIApplication.shared.isIdleTimerDisabled = newValue
+                            store.keepScreenOn = newValue
+                            store.saveState()
                         }
                 }
                 
@@ -826,7 +832,7 @@ struct ReaderSettingsView: View {
             .onAppear {
                 useSystemBrightness = UserDefaults.standard.object(forKey: "useSystemBrightness") as? Bool ?? true
                 customBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? Double ?? 0.5
-                keepScreenOn = UIApplication.shared.isIdleTimerDisabled
+                keepScreenOn = store.keepScreenOn
                 pageMode = PageMode(rawValue: UserDefaults.standard.string(forKey: "pageMode") ?? "scroll") ?? .scroll
                 firstLineIndent = UserDefaults.standard.object(forKey: "firstLineIndent") as? Double ?? 0
                 textAlignment = TextAlign(rawValue: UserDefaults.standard.integer(forKey: "textAlignment")) ?? .leading

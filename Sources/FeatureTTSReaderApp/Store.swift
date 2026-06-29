@@ -47,8 +47,9 @@ final class ReaderStore: NSObject, ObservableObject {
         return parsed
     }
 
-// TTS Synthesis Cache
+// TTS Synthesis Cache with size limit
     private var ttsCache: [String: URL] = [:]
+    private let ttsCacheMaxSize = 200
 
     @Published var lastScannedBookText: String = ""
     @Published var readerFontSize: Double = 18
@@ -925,41 +926,70 @@ final class ReaderStore: NSObject, ObservableObject {
         let bookID = UUID(uuidString: currentBookID) ?? UUID()
         let chapterIndex = chapters.firstIndex(where: { $0.id == selectedChapterID }) ?? 0
 
-        var queueItems: [TTSQueueItem] = []
-
         isBusy = true
         playProgress = 0
 
-        for (index, segment) in segments.enumerated() {
-            currentPlayingLine = segment.characterName
-            statusMessage = "正在合成：\(segment.characterName) (\(index + 1)/\(segments.count))"
-            let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
+        // Use a single client for all requests
+        let ttsClient = client
 
-            // Generate cache key
-            let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(segment.style):\(content.hashValue)"
-
+        // Synthesize all segments concurrently with a task group
+        struct SynthesizedSegment {
+            let index: Int
+            let segment: ScriptSegment
             let audioURL: URL
-            if let cachedURL = ttsCache[cacheKey] {
-                audioURL = cachedURL
-            } else {
-                let synthesizedURL = try await client.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
-                ttsCache[cacheKey] = synthesizedURL
-                audioURL = synthesizedURL
+        }
+
+        var synthesized: [SynthesizedSegment] = []
+        try await withThrowingTaskGroup(of: (Int, ScriptSegment, URL).self) { group in
+            for (index, segment) in segments.enumerated() {
+                let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
+                let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(segment.style):\(content.hashValue)"
+
+                if let cachedURL = ttsCache[cacheKey] {
+                    synthesized.append(SynthesizedSegment(index: index, segment: segment, audioURL: cachedURL))
+                    continue
+                }
+
+                _ = group.addTaskUnlessCancelled {
+                    let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
+                    return (index, segment, url)
+                }
             }
 
+            var completed = 0
+            let total = segments.count
+            for try await (idx, seg, url) in group {
+                let key = "\(seg.voice):\(seg.rate):\(seg.pitch):\(seg.style):\(seg.text.hashValue)"
+                ttsCache[key] = url
+                synthesized.append(SynthesizedSegment(index: idx, segment: seg, audioURL: url))
+                // evict oldest if over limit
+                if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first {
+                    ttsCache.removeValue(forKey: stale)
+                }
+                completed += 1
+                statusMessage = "正在合成：\(seg.characterName) (\(completed)/\(total))"
+                playProgress = Double(completed) / Double(total)
+            }
+        }
+
+        // Sort by original index
+        synthesized.sort { $0.index < $1.index }
+
+        var queueItems: [TTSQueueItem] = []
+        for (index, syn) in synthesized.enumerated() {
+            let seg = syn.segment
+            currentPlayingLine = seg.characterName
             let queueItem = TTSQueueItem(
-                segment: segment,
-                audioURL: audioURL,
+                segment: seg,
+                audioURL: syn.audioURL,
                 chapterTitle: chapterTitle,
                 bookTitle: bookTitle,
                 bookID: bookID.uuidString,
                 chapterIndex: chapterIndex,
                 segmentIndex: index,
-                totalSegments: segments.count
+                totalSegments: synthesized.count
             )
             queueItems.append(queueItem)
-
-            playProgress = Double(index + 1) / Double(segments.count)
         }
 
         ttsQueue = queueItems

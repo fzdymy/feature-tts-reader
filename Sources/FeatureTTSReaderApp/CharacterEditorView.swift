@@ -53,16 +53,14 @@ struct CharacterEditorView: View {
                         Text("重置为推荐音色")
                     }
                     Button(action: {
-                        // apply first suggested voice to all characters (quick mapping)
-                        for rec in store.recommendations {
-                            if let v = rec.suggestedVoices.first?.id, let idx = store.characters.firstIndex(where: { $0.id == rec.profile.id }) {
-                                store.characters[idx].voice = v
+                        // apply first suggested voice to current character only (local edit)
+                        if let rec = store.recommendations.first(where: { $0.profile.id == profile.id }) {
+                            if let v = rec.suggestedVoices.first?.id {
+                                profile.voice = v
                             }
                         }
-                        store.updateRecommendations()
-                        store.saveState()
                     }) {
-                        Text("为所有角色应用推荐音色")
+                        Text("应用推荐音色")
                     }
                 }
                 Section(header: Text("试听")) {
