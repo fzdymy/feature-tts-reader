@@ -558,7 +558,7 @@ struct HorizontalPageView: View {
         
         for para in paragraphs {
             let paraHeight = estimatedLineHeight * CGFloat(max(1, para.count / 20)) + paragraphSpacing
-            if currentHeight + paraHeight > pageHeight && !result.last!.isEmpty {
+            if currentHeight + paraHeight > pageHeight && !(result.last?.isEmpty ?? true) {
                 result.append([])
                 currentHeight = 0
             }
@@ -614,7 +614,7 @@ struct VerticalPageView: View {
         
         for para in paragraphs {
             let paraHeight = estimatedLineHeight * CGFloat(max(1, para.count / 20)) + paragraphSpacing
-            if currentHeight + paraHeight > pageHeight && !result.last!.isEmpty {
+            if currentHeight + paraHeight > pageHeight && !(result.last?.isEmpty ?? true) {
                 result.append([])
                 currentHeight = 0
             }
@@ -847,6 +847,8 @@ struct ReaderSettingsView: View {
                 UserDefaults.standard.set(textAlignment.rawValue, forKey: "textAlignment")
                 UserDefaults.standard.set(enableKerning, forKey: "enableKerning")
                 UserDefaults.standard.set(enableHyphenation, forKey: "enableHyphenation")
+                store.keepScreenOn = keepScreenOn
+                store.saveState()
             }
         }
     }

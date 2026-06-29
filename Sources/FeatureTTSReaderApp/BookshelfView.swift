@@ -348,10 +348,6 @@ struct BookGridCard: View {
     }
 }
 
-struct SpacerStack: View {
-    var body: some View { Spacer() }
-}
-
 struct BookListRow: View {
     @EnvironmentObject private var store: ReaderStore
     let book: Book

@@ -1306,7 +1306,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     // Quick E2E test helper: import sample text, build script for first chapter and synthesize first segment
     func runQuickE2ETest(sampleText: String) async -> String {
-await importText(sampleText)
+        await importText(sampleText)
         await buildScript(for: false)
         guard let first = scriptSegments.first else { return "脚本为空，无法测试。" }
         do {
