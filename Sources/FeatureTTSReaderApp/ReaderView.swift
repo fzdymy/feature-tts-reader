@@ -32,6 +32,7 @@ struct ReaderView: View {
     @State private var isLoadingNext = false
     @State private var isLoadingPrev = false
     @State private var currentTime = Date()
+    @State private var fontVersion = 0
     @State private var batteryLevel: Int = 100
     @State private var currentPage: Int = 1
     @State private var totalPages: Int = 1
@@ -128,64 +129,80 @@ struct ReaderView: View {
     var body: some View {
         ZStack {
             if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage)
-                    .resizable().scaledToFill().ignoresSafeArea()
+                Image(uiImage: uiImage).resizable().scaledToFill().ignoresSafeArea()
             } else {
                 backgroundColor.ignoresSafeArea()
             }
 
-            VStack(spacing: 0) {
-                if !isImmersive, store.showChapterTitle { readerHeader }
-
-                if !isImmersive, store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery { readerStatusBar }
-
-                if paragraphItems.isEmpty {
-                    Spacer()
-                    emptyState
-                    Spacer()
-                } else {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            if hasPrevChapter {
-                                Color.clear.frame(height: 1)
-                                    .onAppear { prependPreviousChapter() }
-                            }
-                            LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
-                                ForEach(paragraphItems) { item in
-                                    paragraphView(item.text)
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            if hasNextChapter {
-                                Color.clear.frame(height: 1)
-                                    .onAppear { appendNextChapter() }
+            if paragraphItems.isEmpty {
+                VStack { Spacer(); emptyState; Spacer() }
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if hasPrevChapter {
+                            Color.clear.frame(height: 1).onAppear { prependPreviousChapter() }
+                        }
+                        LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
+                            ForEach(paragraphItems) { item in
+                                paragraphView(item.text)
                             }
                         }
+                        .padding(.horizontal, 20).padding(.vertical, 12)
+                        if hasNextChapter {
+                            Color.clear.frame(height: 1).onAppear { appendNextChapter() }
+                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        withAnimation { isImmersive.toggle() }
-                    })
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 30)
-                            .onEnded { value in
-                                let h = value.translation.width
-                                guard abs(h) > 80, abs(value.translation.height) < abs(h) * 0.5 else { return }
-                                HapticManager.impact(.light)
-                                if h > 0 { previousChapter() } else { nextChapter() }
-                            }
-                    )
                 }
+                .id(fontVersion)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .simultaneousGesture(TapGesture().onEnded {
+                    withAnimation { isImmersive.toggle() }
+                })
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 30)
+                        .onEnded { value in
+                            let h = value.translation.width
+                            guard abs(h) > 80, abs(value.translation.height) < abs(h) * 0.5 else { return }
+                            HapticManager.impact(.light)
+                            if h > 0 { previousChapter() } else { nextChapter() }
+                        }
+                )
+            }
 
+            if isImmersive, store.showChapterTitle {
+                VStack {
+                    HStack {
+                        Text(currentChapter.title)
+                            .font(.caption)
+                            .foregroundColor(textColor.opacity(0.6))
+                            .lineLimit(1)
+                            .padding(.horizontal, 16).padding(.vertical, 6)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+            }
+
+            VStack {
+                if !isImmersive, store.showChapterTitle { readerHeader }
+                Spacer()
+            }
+
+            VStack {
+                Spacer()
+                if isImmersive, store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
+                    readerStatusBar
+                }
                 if !isImmersive { controlBar }
             }
-            .environment(\.font, Font.custom(store.readerFontName, size: store.readerFontSize))
         }
+        .environment(\.font, Font.custom(store.readerFontName, size: store.readerFontSize))
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(isImmersive)
         .statusBarHidden(isImmersive)
+        .onReceive(store.$readerFontName) { _ in fontVersion += 1 }
+        .onReceive(store.$readerFontSize) { _ in fontVersion += 1 }
         .onReceive(timer) { _ in
             currentTime = Date(); updateBatteryLevel()
         }
