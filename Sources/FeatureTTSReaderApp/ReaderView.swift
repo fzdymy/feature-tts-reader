@@ -220,7 +220,16 @@ struct ReaderView: View {
             FontPickerView().environmentObject(store).presentationDetents([.medium])
         }
         .sheet(isPresented: $showTOC) {
-            ChapterListView().environmentObject(store).presentationDetents([.large])
+            ChapterListView(currentChapterID: currentChapter.id) { chapter, index in
+                currentChapter = chapter
+                currentChapterIndex = index
+                reloadParagraphs()
+                store.selectedChapterID = chapter.id
+                store.rememberLastReadChapter(bookID: bookID, chapterIndex: index)
+                chapterTopID = UUID()
+            }
+            .environmentObject(store)
+            .presentationDetents([.large])
         }
     }
 
@@ -302,6 +311,9 @@ struct ReaderView: View {
                     Image(systemName: "chevron.left").font(.title2)
                 }
                 .disabled(currentChapterIndex <= 0)
+                Button(action: { showTOC = true }) {
+                    Image(systemName: "list.bullet").font(.title2)
+                }
                 Button(action: { showBookmarks.toggle() }) {
                     Image(systemName: chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill").font(.title2)
                 }
