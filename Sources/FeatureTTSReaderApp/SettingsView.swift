@@ -60,6 +60,10 @@ struct SettingsView: View {
     @State private var localAPIKey: String = ""
     @State private var endpointTask: Task<Void, Never>?
     @State private var apiKeyTask: Task<Void, Never>?
+    @State private var showTestAlert = false
+    @State private var testAlertTitle = ""
+    @State private var testAlertMessage = ""
+    @State private var testSuccess = false
     @State private var selectedAppTheme: AppTheme = .system
     @State private var selectedBookshelfLayout: BookshelfLayout = .grid
     @State private var enableHaptics = true
@@ -90,7 +94,7 @@ struct SettingsView: View {
                         }
 
                     Picker("音色库", selection: $store.selectedVoiceCatalog) {
-                        ForEach(VoiceCatalogSource.localCases) { source in
+                        ForEach(VoiceCatalogSource.allCases) { source in
                             Text(source.displayName).tag(source)
                         }
                     }
@@ -98,7 +102,7 @@ struct SettingsView: View {
                     .onChange(of: store.selectedVoiceCatalog) { _ in
                         Task { try? await Task.sleep(nanoseconds: 100_000_000); await store.refreshVoices() }
                     }
-                    Text("选择「本地 35 种音色」或「本地 full 音色」作为角色配音候选列表")
+                    Text("选择音色库：远程服务从 TTS API 获取，本地音色从内置 json 加载")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -114,9 +118,38 @@ struct SettingsView: View {
 
                     Button("测试连接") {
                         Task {
-                            testResult = "测试中..."
-                            testResult = await store.testTTSConnection()
+                            let result1 = await store.testTTSConnection()
+                            testResult = result1
+                            testAlertTitle = "TTS 服务测试"
+                            if result1.contains("失败") || result1.contains("无效") || result1.contains("错误") {
+                                testAlertMessage = "连通测试失败。\n\n请检查服务地址和 API Key 是否正确，\n并确保服务端已启动。"
+                                testSuccess = false
+                            } else {
+                                testAlertMessage = "连通成功！\n\n正在尝试合成测试..."
+                                let result2 = await store.testTTSSynthesize()
+                                testResult = result2
+                                if result2.contains("失败") {
+                                    testAlertMessage = "连通成功，但合成测试失败：\n\(result2)"
+                                    testSuccess = false
+                                } else {
+                                    testAlertMessage = "连通成功！\n\n合成测试通过！\n\(result2)\n\n点击「播放」试听测试音频。"
+                                    testSuccess = true
+                                }
+                            }
+                            showTestAlert = true
                         }
+                    }
+                    .alert(testAlertTitle, isPresented: $showTestAlert) {
+                        if testSuccess, let url = store.ttsTestAudioURL {
+                            Button("播放") {
+                                Task { await store.audioController.playFilesAndWait([url]) }
+                            }
+                            Button("取消", role: .cancel) { }
+                        } else {
+                            Button("确定", role: .cancel) { }
+                        }
+                    } message: {
+                        Text(testAlertMessage)
                     }
                     if !testResult.isEmpty {
                         Text(testResult).font(.caption).foregroundColor(.secondary)

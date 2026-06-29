@@ -195,6 +195,8 @@ struct BookshelfView: View {
             ForEach(filteredBooks) { book in
                 BookListRow(book: book)
                     .environmentObject(store)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedBook = book }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             if let index = store.books.firstIndex(where: { $0.id == book.id }) {

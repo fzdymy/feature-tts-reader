@@ -71,7 +71,7 @@ struct ContentView: View {
                 .textContentType(.password)
                 .submitLabel(.done)
             Picker("语音目录", selection: $store.selectedVoiceCatalog) {
-                ForEach(VoiceCatalogSource.localCases) { source in
+                ForEach(VoiceCatalogSource.allCases) { source in
                     Text(source.displayName).tag(source)
                 }
             }

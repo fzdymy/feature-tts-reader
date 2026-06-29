@@ -69,6 +69,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var enableDoubleTapToSpeak: Bool = true
     @Published var enableLongPressSelect: Bool = true
     @Published var keepScreenOn: Bool = false
+    @Published var ttsTestAudioURL: URL? = nil
     @Published var bookmarks: [BookBookmark] = []
     @Published var bookProgressByChapter: [UUID: Double] = [:]
     @Published var lastReadChapterIndexByBook: [UUID: Int] = [:]
@@ -458,16 +459,26 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func testTTSConnection() async -> String {
         guard let url = URL(string: apiEndpoint) else { return "无效的 TTS 服务地址。" }
+        let client = TTSHttpClient(baseURL: url, apiKey: apiKey.isEmpty ? nil : apiKey)
         do {
-            let client = TTSHttpClient(baseURL: url, apiKey: apiKey.isEmpty ? nil : apiKey)
             let voices = try await client.fetchVoiceList()
             return "连通成功，发现 \(voices.count) 个音色。"
-        } catch let urlError as URLError {
-            return "网络错误：\(urlError.localizedDescription)"
-        } catch let ns as NSError {
-            return "服务错误：\(ns.localizedDescription) (code: \(ns.code))"
         } catch {
-            return "未知错误：\(error.localizedDescription)"
+            return "获取音色失败：\(error.localizedDescription)"
+        }
+    }
+
+    func testTTSSynthesize() async -> String {
+        guard let url = URL(string: apiEndpoint) else { return "无效的 TTS 服务地址。" }
+        let client = TTSHttpClient(baseURL: url, apiKey: apiKey.isEmpty ? nil : apiKey)
+        let testText = "这是个多角色语音阅读器！"
+        let testVoice = voices.first?.id ?? "zh-CN-XiaoxiaoNeural"
+        do {
+            let audioURL = try await client.synthesizeAudio(text: testText, voice: testVoice, rate: 0, pitch: 0, style: "neutral")
+            await MainActor.run { ttsTestAudioURL = audioURL }
+            return "合成成功！文件大小：\(String(format: "%.1f", Double((try? Data(contentsOf: audioURL).count) ?? 0) / 1024)) KB"
+        } catch {
+            return "合成测试失败：\(error.localizedDescription)"
         }
     }
 
@@ -776,6 +787,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func refreshVoices() async {
+        guard !isBusy else { return }
         isBusy = true
         if selectedVoiceCatalog != .remote {
             voices = await loadLocalVoiceCatalog(selectedVoiceCatalog)
