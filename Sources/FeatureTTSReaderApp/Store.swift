@@ -1139,6 +1139,13 @@ final class ReaderStore: NSObject, ObservableObject {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var names = OrderedSet<String>()
 
+        // NER-based name extraction (NaturalLanguage or Core ML)
+        let ner = NERProcessor()
+        let nerNames = ner.extractPersonNames(from: raw)
+        for name in nerNames {
+            names.append(name)
+        }
+
         let namePatterns = [
             "([\\p{Han}]{2,4})(?=先生|小姐|姑娘|公子|师父|师傅|少爷|哥|姐|太太|夫人)",
             "([\\p{Han}]{2,4})(?=笑道|说道|问道|喊道|低声说|轻声说|轻声道|说道|道)",
@@ -1334,7 +1341,13 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
-        // Priority 1: Named "Name：" or "Name:" or "Name " at start of line
+        let names = characters.map(\.name)
+        // Priority 0: NER-based speaker detection
+        let ner = NERProcessor()
+        if let nerSpeaker = ner.detectSpeaker(from: line, knownCharacters: names) {
+            return nerSpeaker
+        }
+        // Priority 1: Named "Name：" or "Name:" at start of line
         if let groups = line.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
             return groups[1]
         }
