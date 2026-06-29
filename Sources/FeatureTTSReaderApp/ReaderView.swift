@@ -932,7 +932,7 @@ struct FontPickerView: View {
     }
     
     private func loadCustomFonts() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         if let files = try? FileManager.default.contentsOfDirectory(at: fontsDir, includingPropertiesForKeys: nil) {
             customFonts = files.compactMap { url in
@@ -945,7 +945,7 @@ struct FontPickerView: View {
     
     private func handleFontImport(_ result: Result<[URL], Error>) {
         guard let urls = try? result.get() else { return }
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         try? FileManager.default.createDirectory(at: fontsDir, withIntermediateDirectories: true)
         
@@ -973,7 +973,7 @@ struct FontPickerView: View {
     }
     
     private func removeCustomFonts(at offsets: IndexSet) {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         for index in offsets {
             let font = customFonts[index]

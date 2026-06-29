@@ -7,7 +7,7 @@ struct DocumentImporter: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onImport: onImport) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let types = [UTType.plainText, UTType(filenameExtension: "txt")!]
+        let types = [UTType.plainText, (UTType(filenameExtension: "txt") ?? .plainText)]
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.delegate = context.coordinator
         return picker

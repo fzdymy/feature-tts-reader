@@ -17,6 +17,13 @@ struct BookshelfView: View {
         var name: String { self == .grid ? "网格" : "列表" }
     }
 
+    private func totalProgress(for book: Book) -> Double {
+        let chapters = store.chaptersForBook(book.id, text: book.text)
+        guard !chapters.isEmpty else { return 0 }
+        let sum = chapters.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) }
+        return sum / Double(chapters.count)
+    }
+
     private var filteredBooks: [Book] {
         let books = store.books
         let filtered = searchText.isEmpty ? books : books.filter {
@@ -29,8 +36,8 @@ struct BookshelfView: View {
             return filtered.sorted { $0.title < $1.title }
         case .progress:
             return filtered.sorted { (b1: Book, b2: Book) in
-                let p1 = store.currentBookID == b1.id.uuidString ? store.currentBookProgress : 0
-                let p2 = store.currentBookID == b2.id.uuidString ? store.currentBookProgress : 0
+                let p1 = totalProgress(for: b1)
+                let p2 = totalProgress(for: b2)
                 return p1 > p2
             }
         }

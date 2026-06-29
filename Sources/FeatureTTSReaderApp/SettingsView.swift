@@ -419,7 +419,7 @@ struct SettingsView: View {
     private func calculateCacheSize() async {
         let urls = [
             FileManager.default.temporaryDirectory,
-            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         ]
         var totalSize: Int64 = 0
         for url in urls {
@@ -443,7 +443,7 @@ struct SettingsView: View {
     private func clearCache() {
         let urls = [
             FileManager.default.temporaryDirectory,
-            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         ]
         for url in urls {
             if let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) {
@@ -456,7 +456,7 @@ struct SettingsView: View {
     }
 
     private func exportData() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let exportURL = docs.appendingPathComponent("tts-reader-backup-\(Date().timeIntervalSince1970).json")
 
         do {
@@ -624,7 +624,7 @@ struct FontManagerView: View {
     }
 
     private func loadCustomFonts() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         if let files = try? FileManager.default.contentsOfDirectory(at: fontsDir, includingPropertiesForKeys: nil) {
             customFonts = files.compactMap { url in
@@ -637,7 +637,7 @@ struct FontManagerView: View {
 
     private func handleFontImport(_ result: Result<[URL], Error>) {
         guard let urls = try? result.get() else { return }
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         try? FileManager.default.createDirectory(at: fontsDir, withIntermediateDirectories: true)
 
@@ -665,7 +665,7 @@ struct FontManagerView: View {
     }
 
     private func removeCustomFonts(at offsets: IndexSet) {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         for index in offsets {
             let font = customFonts[index]
