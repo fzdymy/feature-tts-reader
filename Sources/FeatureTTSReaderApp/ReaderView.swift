@@ -150,6 +150,12 @@ struct ReaderView: View {
         .navigationBarHidden(isImmersive || !showControls)
         .statusBarHidden(isImmersive)
         .onAppear {
+            if currentChapter.text.isEmpty {
+                if let cached = store.chaptersForBookCached(bookID), currentChapterIndex < cached.count {
+                    currentChapter = cached[currentChapterIndex]
+                    paragraphs = Self.splitParagraphs(currentChapter.text)
+                }
+            }
             store.selectedChapterID = currentChapter.id
             store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
@@ -158,7 +164,6 @@ struct ReaderView: View {
                 useSystemBrightness = false
                 UIScreen.main.brightness = savedBrightness
             }
-            _ = store.chaptersForBook(bookID, text: book.text)
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false

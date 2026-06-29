@@ -415,10 +415,14 @@ struct BookDetailView: View {
     let book: Book
     @State private var chapters: [BookChapter] = []
     @State private var showDeleteAlert = false
-    @State private var showReader = false
-    @State private var readerChapter: BookChapter?
-    @State private var readerChapterIndex: Int = 0
+    @State private var readerNavigation: ReaderNavigation?
     @State private var showCharacterEditor = false
+
+    struct ReaderNavigation: Identifiable {
+        let id = UUID()
+        let chapter: BookChapter
+        let chapterIndex: Int
+    }
 
     private var totalProgress: Double {
         guard !chapters.isEmpty else { return 0 }
@@ -496,10 +500,10 @@ struct BookDetailView: View {
                         guard !chapters.isEmpty else { return }
                         let index = store.lastReadChapterIndexByBook[book.id] ?? 0
                         let safeIndex = min(index, chapters.count - 1)
-                        let chapter = chapters[safeIndex]
-                        readerChapter = chapter
-                        readerChapterIndex = safeIndex
-                        showReader = true
+                        readerNavigation = ReaderNavigation(
+                            chapter: chapters[safeIndex],
+                            chapterIndex: safeIndex
+                        )
                     }) {
                         HStack {
                             Image(systemName: readChapters > 0 ? "bookmark.fill" : "book.fill")
@@ -513,15 +517,13 @@ struct BookDetailView: View {
                         }
                     }
                     .foregroundColor(.blue)
-                    .fullScreenCover(isPresented: $showReader) {
-                        if let chapter = readerChapter {
-                            ReaderView(
-                                book: book,
-                                chapter: chapter,
-                                bookID: book.id,
-                                chapterIndex: readerChapterIndex
-                            ).environmentObject(store)
-                        }
+                    .fullScreenCover(item: $readerNavigation) { nav in
+                        ReaderView(
+                            book: book,
+                            chapter: nav.chapter,
+                            bookID: book.id,
+                            chapterIndex: nav.chapterIndex
+                        ).environmentObject(store)
                     }
 
                     NavigationLink(destination: ChapterListView()
@@ -537,7 +539,6 @@ struct BookDetailView: View {
                     }
 
                     Button(action: {
-                        store.bookText = book.text
                         store.currentBookID = book.id.uuidString
                         store.currentBookTitle = book.title
                         showCharacterEditor = true
@@ -636,12 +637,18 @@ struct BookDetailView: View {
                 Text("确定要删除《\(book.title)》吗？此操作不可撤销。")
             }
             .onAppear {
-                let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
-                chapters = store.chaptersForBook(book.id, text: text)
-                store.chapters = chapters
-                store.bookText = text
-                store.currentBookID = book.id.uuidString
-                store.currentBookTitle = book.title
+                Task {
+                    let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+                    guard !text.isEmpty else {
+                        store.statusMessage = "文本文件不存在，请重新导入。"
+                        return
+                    }
+                    chapters = store.chaptersForBook(book.id, text: text)
+                    store.chapters = chapters
+                    store.bookText = text
+                    store.currentBookID = book.id.uuidString
+                    store.currentBookTitle = book.title
+                }
             }
         }
     }
