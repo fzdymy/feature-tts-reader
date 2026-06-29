@@ -47,6 +47,10 @@ final class ReaderStore: NSObject, ObservableObject {
         return parsed
     }
 
+    func chaptersForBookCached(_ bookID: UUID) -> [BookChapter]? {
+        bookChaptersCache[bookID]
+    }
+
 // TTS Synthesis Cache with size limit
     private var ttsCache: [String: URL] = [:]
     private let ttsCacheMaxSize = 200
@@ -512,8 +516,6 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func rememberLastReadChapter(bookID: UUID, chapterIndex: Int) {
         lastReadChapterIndexByBook[bookID] = chapterIndex
-        persistence.saveLastReadChapterIndexMap(lastReadChapterIndexByBook)
-        saveState()
     }
 
     func lastReadChapterIndex(for bookID: UUID) -> Int? {
