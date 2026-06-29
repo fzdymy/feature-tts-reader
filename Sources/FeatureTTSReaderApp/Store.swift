@@ -1139,12 +1139,9 @@ final class ReaderStore: NSObject, ObservableObject {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var names = OrderedSet<String>()
 
-        // NER-based name extraction (NaturalLanguage or Core ML)
-        let ner = NERProcessor()
-        let nerNames = ner.extractPersonNames(from: raw)
-        for name in nerNames {
-            names.append(name)
-        }
+        let analyzer = CharacterAnalyzer()
+        let mlNames = analyzer.extractNames(from: raw)
+        for n in mlNames { names.append(n) }
 
         let namePatterns = [
             "([\\p{Han}]{2,4})(?=先生|小姐|姑娘|公子|师父|师傅|少爷|哥|姐|太太|夫人)",
@@ -1176,33 +1173,29 @@ final class ReaderStore: NSObject, ObservableObject {
         var result: [CharacterProfile] = []
         for name in names.prefix(8) {
             let context = raw.contextAround(name, radius: 120)
-            let gender = detectGender(in: context)
-            let age = detectAge(in: context)
-            let tone = detectTone(in: context)
-            let style = styleFromTone(tone)
+            let attrs = analyzer.analyzeAttributes(for: name, context: context)
 
             // Detect if this is likely a narrator
             let isNarrator = isLikelyNarrator(name: name, context: context, narratorIndicators: narratorIndicators)
             let role: CharacterRole = isNarrator ? .narrator : .character
 
-            // For narrator, use a neutral voice; for characters, assign based on gender/tone
             let assignedVoice: String
             if isNarrator {
                 assignedVoice = defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices)
             } else {
-                assignedVoice = defaultVoice(for: gender, tone: tone, voices: voices)
+                assignedVoice = defaultVoice(for: attrs.gender, tone: attrs.baseTone, voices: voices)
             }
 
             result.append(CharacterProfile(
                 id: UUID(),
                 name: name,
-                gender: gender,
-                age: age,
-                tone: tone,
+                gender: attrs.gender,
+                age: attrs.age,
+                tone: attrs.baseTone,
                 voice: assignedVoice,
-                rate: style == "cheerful" ? 10 : style == "sad" ? -10 : 0,
-                pitch: style == "cheerful" ? 10 : style == "sad" ? -5 : 0,
-                style: style,
+                rate: attrs.baseRate,
+                pitch: attrs.basePitch,
+                style: attrs.baseStyle,
                 sensitivity: defaultSensitivity,
                 isNarrator: isNarrator,
                 role: role
@@ -1256,42 +1249,30 @@ final class ReaderStore: NSObject, ObservableObject {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
             let lines = trimmed.chunked(into: 900)
             for line in lines {
+                let analyzer = CharacterAnalyzer()
                 let speaker = detectSpeaker(in: line, characters: characters) ?? lastSpeaker ?? characters.first?.name ?? "叙述者"
                 lastSpeaker = speaker
                 let matchedProfile = characters.first(where: { line.contains($0.name) })
                 let speakerProfile = matchedProfile ?? characters.first(where: { $0.name == speaker })
-                let tone = detectTone(in: line)
-                var profile = speakerProfile ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+                let toneResult = analyzer.analyzeSentenceTone(line)
+                var profile = speakerProfile ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: toneResult.style, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
                 if profile.voice.isEmpty {
-                    profile.voice = defaultVoice(for: profile.gender, tone: tone, name: profile.name, voices: voices)
+                    profile.voice = defaultVoice(for: profile.gender, tone: toneResult.style, name: profile.name, voices: voices)
                 }
 
-                // detect tone for this line and derive style/pitch adjustments
-                let dynamicStyle = styleFromTone(tone)
-                let tonePitchBase: Int
-                switch dynamicStyle {
-                case "cheerful": tonePitchBase = 8
-                case "angry": tonePitchBase = 10
-                case "sad": tonePitchBase = -6
-                default: tonePitchBase = 0
-                }
-
-                // determine sensitivity: use character-specific if set (>0), otherwise fall back to global default
                 let sensitivityValue = (profile.sensitivity > 0) ? profile.sensitivity : defaultSensitivity
-                // sensitivity scales how strongly this character follows detected tone
-                let sensitivityFactor = Double(max(0, min(sensitivityValue, 100))) / 50.0 // 50 -> 1.0
-                let scaledPitchAdjustment = Int(Double(tonePitchBase) * sensitivityFactor)
+                let sensitivityFactor = Double(max(0, min(sensitivityValue, 100))) / 50.0
+                let scaledPitchAdjustment = Int(Double(toneResult.pitchAdjust) * sensitivityFactor)
 
-                // If profile has a non-neutral custom style, honor it; otherwise prefer detected style when sensitivity high
                 let finalStyle: String
                 if profile.style != "neutral" {
                     finalStyle = profile.style
                 } else {
-                    finalStyle = sensitivityFactor >= 0.6 ? dynamicStyle : "neutral"
+                    finalStyle = sensitivityFactor >= 0.6 ? toneResult.style : "neutral"
                 }
 
                 let finalPitch = profile.pitch + scaledPitchAdjustment
-                let finalRate = profile.rate
+                let finalRate = profile.rate + (sensitivityValue > 50 ? toneResult.rateAdjust : 0)
 
                 segments.append(ScriptSegment(
                     id: UUID(),
@@ -1342,10 +1323,9 @@ final class ReaderStore: NSObject, ObservableObject {
 
     nonisolated func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
         let names = characters.map(\.name)
-        // Priority 0: NER-based speaker detection
-        let ner = NERProcessor()
-        if let nerSpeaker = ner.detectSpeaker(from: line, knownCharacters: names) {
-            return nerSpeaker
+        let analyzer = CharacterAnalyzer()
+        if let speaker = analyzer.inferSpeaker(from: line, knownCharacters: names) {
+            return speaker
         }
         // Priority 1: Named "Name：" or "Name:" at start of line
         if let groups = line.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
