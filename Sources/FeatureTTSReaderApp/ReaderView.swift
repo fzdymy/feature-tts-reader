@@ -34,7 +34,6 @@ struct ReaderView: View {
     @State private var currentTime = Date()
     @State private var fontVersion = 0
     @State private var batteryLevel: Int = 100
-    @State private var sentinelVersion = 0
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
@@ -113,18 +112,6 @@ struct ReaderView: View {
         store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
 
-    private var hasNextChapter: Bool {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              let last = paragraphItems.last?.chapterIndex else { return false }
-        return last + 1 < chapters.count
-    }
-
-    private var hasPrevChapter: Bool {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              let first = paragraphItems.first?.chapterIndex else { return false }
-        return first > 0
-    }
-
     var body: some View {
         ZStack {
             if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
@@ -137,22 +124,20 @@ struct ReaderView: View {
                 VStack { Spacer(); emptyState; Spacer() }
             } else {
                 ScrollView {
-                    VStack(spacing: 0) {
-                        if hasPrevChapter {
-                            Color.clear.frame(height: 1).id("prev-\(sentinelVersion)")
-                                .onAppear { prependPreviousChapter() }
-                        }
-                        LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
-                            ForEach(paragraphItems, id: \.id) { item in
-                                paragraphView(item.text)
-                            }
-                        }
-                        .padding(.horizontal, 20).padding(.vertical, 12)
-                        if hasNextChapter {
-                            Color.clear.frame(height: 1).id("next-\(sentinelVersion)")
-                                .onAppear { appendNextChapter() }
+                    LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
+                        ForEach(paragraphItems) { item in
+                            paragraphView(item.text)
+                                .onAppear {
+                                    if item.id == paragraphItems.last?.id {
+                                        appendNextChapter()
+                                    }
+                                    if item.id == paragraphItems.first?.id {
+                                        prependPreviousChapter()
+                                    }
+                                }
                         }
                     }
+                    .padding(.horizontal, 20).padding(.vertical, 12)
                 }
                 .id(fontVersion)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -402,13 +387,12 @@ struct ReaderView: View {
     private func reloadParagraphs() {
         let paras = Self.splitParagraphs(currentChapter.text)
         paragraphItems = paras.map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
-        sentinelVersion += 1
     }
 
     private func appendNextChapter() {
         guard !isLoadingNext else { return }
         isLoadingNext = true
-        defer { isLoadingNext = false; sentinelVersion += 1 }
+        defer { isLoadingNext = false }
         guard let chapters = store.chaptersForBookCached(bookID),
               let lastLoaded = paragraphItems.last?.chapterIndex,
               lastLoaded + 1 < chapters.count else { return }
@@ -423,7 +407,7 @@ struct ReaderView: View {
     private func prependPreviousChapter() {
         guard !isLoadingPrev else { return }
         isLoadingPrev = true
-        defer { isLoadingPrev = false; sentinelVersion += 1 }
+        defer { isLoadingPrev = false }
         guard let chapters = store.chaptersForBookCached(bookID),
               let firstLoaded = paragraphItems.first?.chapterIndex,
               firstLoaded > 0 else { return }
