@@ -455,11 +455,6 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    /// Load book text from file by book ID (public helper)
-    func loadBookTextFromFile(bookID: UUID) -> String? {
-        loadBookTextFromFile(bookID: bookID)
-    }
-
     func saveState() {
         saveAllTextsToFiles()
         let state = ReaderState(
