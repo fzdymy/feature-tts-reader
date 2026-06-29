@@ -89,7 +89,7 @@ struct SettingsView: View {
                             apiKeyTask = Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiKey = localAPIKey }
                         }
 
-                    Picker("语音目录", selection: $store.selectedVoiceCatalog) {
+                    Picker("音色列表", selection: $store.selectedVoiceCatalog) {
                         ForEach(VoiceCatalogSource.localCases) { source in
                             Text(source.displayName).tag(source)
                         }
@@ -101,7 +101,7 @@ struct SettingsView: View {
 
                     HStack {
                         Button(action: { Task { await store.refreshVoices() } }) {
-                            Label("刷新语音列表", systemImage: "arrow.clockwise")
+                            Label("刷新音色列表", systemImage: "arrow.clockwise")
                         }
                         Spacer()
                         if store.isBusy {
@@ -613,8 +613,17 @@ struct FontManagerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    Button("关闭") { dismiss() }
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        store.saveSettings()
+                        store.saveState()
+                        saveAppSettings()
+                        store.restartAutoSaveTimer()
+                    }
+                }
+            }
             }
             .fileImporter(isPresented: $showingFontImporter, allowedContentTypes: [.font], allowsMultipleSelection: true) { result in
                 handleFontImport(result)
