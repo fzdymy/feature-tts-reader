@@ -34,8 +34,7 @@ struct ReaderView: View {
     @State private var currentTime = Date()
     @State private var fontVersion = 0
     @State private var batteryLevel: Int = 100
-    @State private var currentPage: Int = 1
-    @State private var totalPages: Int = 1
+    @State private var sentinelVersion = 0
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
@@ -114,16 +113,16 @@ struct ReaderView: View {
         store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
 
-    private var hasPrevChapter: Bool {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              let first = paragraphItems.first?.chapterIndex else { return false }
-        return first > 0
-    }
-
     private var hasNextChapter: Bool {
         guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
               let last = paragraphItems.last?.chapterIndex else { return false }
         return last + 1 < chapters.count
+    }
+
+    private var hasPrevChapter: Bool {
+        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
+              let first = paragraphItems.first?.chapterIndex else { return false }
+        return first > 0
     }
 
     var body: some View {
@@ -140,16 +139,18 @@ struct ReaderView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         if hasPrevChapter {
-                            Color.clear.frame(height: 1).onAppear { prependPreviousChapter() }
+                            Color.clear.frame(height: 1).id("prev-\(sentinelVersion)")
+                                .onAppear { prependPreviousChapter() }
                         }
                         LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
-                            ForEach(paragraphItems) { item in
+                            ForEach(paragraphItems, id: \.id) { item in
                                 paragraphView(item.text)
                             }
                         }
                         .padding(.horizontal, 20).padding(.vertical, 12)
                         if hasNextChapter {
-                            Color.clear.frame(height: 1).onAppear { appendNextChapter() }
+                            Color.clear.frame(height: 1).id("next-\(sentinelVersion)")
+                                .onAppear { appendNextChapter() }
                         }
                     }
                 }
@@ -261,17 +262,23 @@ struct ReaderView: View {
         .overlay(Divider(), alignment: .bottom)
     }
 
+    private var readPercent: Double {
+        guard !paragraphItems.isEmpty else { return 0 }
+        let readEnd = paragraphItems.last?.chapterIndex ?? 0
+        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty else { return 0 }
+        return min(Double(readEnd + 1) / Double(chapters.count), 1)
+    }
+
     private var readerStatusBar: some View {
         HStack(spacing: 8) {
             if store.showProgressBar {
-                let progress = totalPages > 0 ? min(Double(currentPage) / Double(totalPages), 1) : 0
-                ProgressView(value: progress)
+                ProgressView(value: readPercent)
                     .tint(textColor.opacity(0.5))
                     .scaleEffect(y: 0.4)
                     .frame(maxWidth: 80)
             }
             if store.showPageNumber {
-                Text("\(currentPage)/\(totalPages)")
+                Text("\(Int(readPercent * 100))%")
                     .font(.caption2).foregroundColor(textColor.opacity(0.5))
             }
             Spacer()
@@ -290,7 +297,6 @@ struct ReaderView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 4)
         .background(backgroundColor.opacity(0.9))
-        .overlay(Divider(), alignment: .bottom)
     }
 
     private var batteryIcon: String {
@@ -396,13 +402,13 @@ struct ReaderView: View {
     private func reloadParagraphs() {
         let paras = Self.splitParagraphs(currentChapter.text)
         paragraphItems = paras.map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
-        updatePageInfo()
+        sentinelVersion += 1
     }
 
     private func appendNextChapter() {
         guard !isLoadingNext else { return }
         isLoadingNext = true
-        defer { isLoadingNext = false }
+        defer { isLoadingNext = false; sentinelVersion += 1 }
         guard let chapters = store.chaptersForBookCached(bookID),
               let lastLoaded = paragraphItems.last?.chapterIndex,
               lastLoaded + 1 < chapters.count else { return }
@@ -412,13 +418,12 @@ struct ReaderView: View {
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
         currentChapterIndex = lastLoaded + 1
         currentChapter = next
-        updatePageInfo()
     }
 
     private func prependPreviousChapter() {
         guard !isLoadingPrev else { return }
         isLoadingPrev = true
-        defer { isLoadingPrev = false }
+        defer { isLoadingPrev = false; sentinelVersion += 1 }
         guard let chapters = store.chaptersForBookCached(bookID),
               let firstLoaded = paragraphItems.first?.chapterIndex,
               firstLoaded > 0 else { return }
@@ -429,15 +434,6 @@ struct ReaderView: View {
         paragraphItems.insert(contentsOf: newItems, at: 0)
         currentChapterIndex = firstLoaded - 1
         currentChapter = prev
-        updatePageInfo()
-    }
-
-    private func updatePageInfo() {
-        let totalChars = paragraphItems.reduce(0) { $0 + $1.text.count }
-        let charsPerPage = 500
-        totalPages = max(1, (totalChars / charsPerPage) + 1)
-        let progress = max(0, min(1, Double(currentChapterIndex) / Double(max(store.chaptersForBookCached(bookID)?.count ?? 1, 1))))
-        currentPage = max(1, Int(Double(totalPages) * progress) + 1)
     }
 
     private func updateBatteryLevel() {
