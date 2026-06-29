@@ -173,6 +173,7 @@ struct ReaderView: View {
 
                 if !isImmersive { controlBar }
             }
+            .environment(\.font, Font.custom(store.readerFontName, size: store.readerFontSize))
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -443,7 +444,6 @@ struct ReaderView: View {
 
     private func paragraphView(_ para: String) -> some View {
         Text("\u{3000}\u{3000}" + para)
-            .font(.custom(store.readerFontName, size: store.readerFontSize))
             .foregroundColor(textColor)
             .lineSpacing(store.readerLineSpacing + 2)
             .environment(\.locale, Locale(identifier: "zh_CN"))
