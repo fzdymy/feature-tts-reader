@@ -130,12 +130,14 @@ struct ReaderView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .onTapGesture { withAnimation { showControls.toggle() } }
-                        .gesture(
-                            DragGesture()
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 30)
                                 .onEnded { value in
-                                    guard abs(value.translation.width) > 60 else { return }
+                                    let h = value.translation.width
+                                    let v = abs(value.translation.height)
+                                    guard abs(h) > 80, v < abs(h) * 0.5 else { return }
                                     HapticManager.impact(.light)
-                                    if value.translation.width > 0 { previousChapter() }
+                                    if h > 0 { previousChapter() }
                                     else { nextChapter() }
                                 }
                         )
@@ -318,13 +320,11 @@ struct ReaderView: View {
     }
 
     private func paragraphView(_ para: String, index: Int) -> some View {
-        let indent = store.readerFontSize * 2
-        return Text(para)
+        Text("\u{3000}\u{3000}" + para)
             .font(.custom(store.readerFontName, size: store.readerFontSize))
             .foregroundColor(textColor)
             .lineSpacing(store.readerLineSpacing + 2)
             .environment(\.locale, Locale(identifier: "zh_CN"))
-            .padding(.leading, index == 0 && currentChapterIndex == 0 && paragraphs.count > 0 ? 0 : indent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .id(index)
             .onTapGesture(count: 2) {
