@@ -31,8 +31,6 @@ struct ReaderView: View {
     @State private var paragraphItems: [ParagraphItem] = []
     @State private var isLoadingNext = false
     @State private var isLoadingPrev = false
-    @State private var scrollOffset: CGFloat = 0
-    @State private var contentHeight: CGFloat = 0
     @State private var currentTime = Date()
     @State private var batteryLevel: Int = 100
     @State private var currentPage: Int = 1
@@ -115,6 +113,18 @@ struct ReaderView: View {
         store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
 
+    private var hasPrevChapter: Bool {
+        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
+              let first = paragraphItems.first?.chapterIndex else { return false }
+        return first > 0
+    }
+
+    private var hasNextChapter: Bool {
+        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
+              let last = paragraphItems.last?.chapterIndex else { return false }
+        return last + 1 < chapters.count
+    }
+
     var body: some View {
         ZStack {
             if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
@@ -134,41 +144,38 @@ struct ReaderView: View {
                     emptyState
                     Spacer()
                 } else {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                Color.clear.frame(height: 1).id("top")
-                                LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
-                                    ForEach(paragraphItems) { item in
-                                        paragraphView(item.text)
-                                            .id(item.id)
-                                            .onAppear { onParagraphAppear(item) }
-                                    }
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
-                                Color.clear.frame(height: 1).id("bottom")
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            if hasPrevChapter {
+                                Color.clear.frame(height: 1)
+                                    .onAppear { prependPreviousChapter() }
                             }
-                            .background(GeometryReader { geo in
-                                let frame = geo.frame(in: .named("scroll"))
-                                Color.clear
-                                    .preference(key: ReaderScrollOffset.self, value: frame.minY)
-                                    .preference(key: ReaderContentHeight.self, value: geo.size.height)
-                            })
-                        }
-                        .coordinateSpace(name: "scroll")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onTapGesture { withAnimation { isImmersive.toggle() } }
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 30)
-                                .onEnded { value in
-                                    let h = value.translation.width
-                                    guard abs(h) > 80, abs(value.translation.height) < abs(h) * 0.5 else { return }
-                                    HapticManager.impact(.light)
-                                    if h > 0 { previousChapter() } else { nextChapter() }
+                            LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
+                                ForEach(paragraphItems) { item in
+                                    paragraphView(item.text)
                                 }
-                        )
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            if hasNextChapter {
+                                Color.clear.frame(height: 1)
+                                    .onAppear { appendNextChapter() }
+                            }
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        withAnimation { isImmersive.toggle() }
+                    })
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 30)
+                            .onEnded { value in
+                                let h = value.translation.width
+                                guard abs(h) > 80, abs(value.translation.height) < abs(h) * 0.5 else { return }
+                                HapticManager.impact(.light)
+                                if h > 0 { previousChapter() } else { nextChapter() }
+                            }
+                    )
                 }
 
                 if !isImmersive { controlBar }
@@ -179,8 +186,6 @@ struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(isImmersive)
         .statusBarHidden(isImmersive)
-        .onPreferenceChange(ReaderScrollOffset.self) { scrollOffset = $0 }
-        .onPreferenceChange(ReaderContentHeight.self) { contentHeight = $0 }
         .onReceive(timer) { _ in
             currentTime = Date(); updateBatteryLevel()
         }
@@ -374,12 +379,6 @@ struct ReaderView: View {
     private func reloadParagraphs() {
         let paras = Self.splitParagraphs(currentChapter.text)
         paragraphItems = paras.map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
-    }
-
-    private func onParagraphAppear(_ item: ParagraphItem) {
-        let idx = paragraphItems.firstIndex { $0.id == item.id } ?? 0
-        if idx >= paragraphItems.count - 3 { appendNextChapter() }
-        if idx <= 2 { prependPreviousChapter() }
         updatePageInfo()
     }
 
@@ -392,9 +391,11 @@ struct ReaderView: View {
               lastLoaded + 1 < chapters.count else { return }
         let next = chapters[lastLoaded + 1]
         let paras = Self.splitParagraphs(next.text)
+        guard !paras.isEmpty else { return }
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
         currentChapterIndex = lastLoaded + 1
         currentChapter = next
+        updatePageInfo()
     }
 
     private func prependPreviousChapter() {
@@ -406,10 +407,12 @@ struct ReaderView: View {
               firstLoaded > 0 else { return }
         let prev = chapters[firstLoaded - 1]
         let paras = Self.splitParagraphs(prev.text)
+        guard !paras.isEmpty else { return }
         let newItems = paras.map { ParagraphItem(text: $0, chapterIndex: firstLoaded - 1) }
         paragraphItems.insert(contentsOf: newItems, at: 0)
         currentChapterIndex = firstLoaded - 1
         currentChapter = prev
+        updatePageInfo()
     }
 
     private func updatePageInfo() {
@@ -612,16 +615,6 @@ struct ContentHeightKey: PreferenceKey {
 }
 
 struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-struct ReaderScrollOffset: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-struct ReaderContentHeight: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
