@@ -70,7 +70,6 @@ struct ReaderView: View {
         return result.isEmpty ? [trimmed] : result
     }
 
-    @State private var showControls: Bool = true
     @State private var showBookmarks: Bool = false
     @State private var showSettings: Bool = false
     @State private var showFontPicker: Bool = false
@@ -111,7 +110,7 @@ struct ReaderView: View {
             }
 
             VStack(spacing: 0) {
-                if !isImmersive { readerHeader }
+                if !isImmersive, store.showChapterTitle { readerHeader }
 
                 if paragraphs.isEmpty {
                     Spacer()
@@ -129,27 +128,30 @@ struct ReaderView: View {
                             .padding(.vertical, 12)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onTapGesture { withAnimation { showControls.toggle() } }
+                        .onTapGesture { withAnimation { isImmersive.toggle() } }
                         .simultaneousGesture(
                             DragGesture(minimumDistance: 30)
                                 .onEnded { value in
                                     let h = value.translation.width
-                                    let v = abs(value.translation.height)
-                                    guard abs(h) > 80, v < abs(h) * 0.5 else { return }
-                                    HapticManager.impact(.light)
-                                    if h > 0 { previousChapter() }
-                                    else { nextChapter() }
+                                    let v = value.translation.height
+                                    if abs(h) > 80, abs(v) < abs(h) * 0.5 {
+                                        HapticManager.impact(.light)
+                                        if h > 0 { previousChapter() } else { nextChapter() }
+                                    } else if abs(v) > 120, abs(h) < abs(v) * 0.3 {
+                                        HapticManager.impact(.light)
+                                        if v > 0 { previousChapter() } else { nextChapter() }
+                                    }
                                 }
                         )
                     }
                 }
 
-                controlBar
+                if !isImmersive { controlBar }
             }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(isImmersive || !showControls)
+        .navigationBarHidden(isImmersive)
         .statusBarHidden(isImmersive)
         .onAppear {
             if currentChapter.text.isEmpty {
@@ -624,10 +626,6 @@ struct ReaderSettingsView: View {
 
                 Section(header: Text("阅读界面显示")) {
                     Toggle("显示章节标题", isOn: Binding(get: { store.showChapterTitle }, set: { store.showChapterTitle = $0 }))
-                    Toggle("显示进度条", isOn: Binding(get: { store.showProgressBar }, set: { store.showProgressBar = $0 }))
-                    Toggle("显示页码", isOn: Binding(get: { store.showPageNumber }, set: { store.showPageNumber = $0 }))
-                    Toggle("显示时间", isOn: Binding(get: { store.showTime }, set: { store.showTime = $0 }))
-                    Toggle("显示电池", isOn: Binding(get: { store.showBattery }, set: { store.showBattery = $0 }))
                 }
 
                 Section {
