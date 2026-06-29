@@ -31,6 +31,7 @@ struct ReaderView: View {
     @State private var paragraphItems: [ParagraphItem] = []
     @State private var isLoadingNext = false
     @State private var isLoadingPrev = false
+    @State private var suppressAutoLoad = false
     @State private var currentTime = Date()
     @State private var fontVersion = 0
     @State private var batteryLevel: Int = 100
@@ -131,6 +132,7 @@ struct ReaderView: View {
                             ForEach(paragraphItems) { item in
                                 paragraphView(item.text)
                                     .onAppear {
+                                        guard !suppressAutoLoad else { return }
                                         if item.id == paragraphItems.last?.id {
                                             appendNextChapter()
                                         }
@@ -221,12 +223,14 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showTOC) {
             ChapterListView(currentChapterID: currentChapter.id) { chapter, index in
+                suppressAutoLoad = true
                 currentChapter = chapter
                 currentChapterIndex = index
                 reloadParagraphs()
                 store.selectedChapterID = chapter.id
                 store.rememberLastReadChapter(bookID: bookID, chapterIndex: index)
                 chapterTopID = UUID()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
             }
             .environmentObject(store)
             .presentationDetents([.large])
@@ -385,23 +389,27 @@ struct ReaderView: View {
     private func previousChapter() {
         guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
               currentChapterIndex > 0 else { return }
+        suppressAutoLoad = true
         currentChapterIndex -= 1
         currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
         chapterTopID = UUID()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
     }
 
     private func nextChapter() {
         guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
               currentChapterIndex < chapters.count - 1 else { return }
+        suppressAutoLoad = true
         currentChapterIndex += 1
         currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
         chapterTopID = UUID()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
     }
 
     private func reloadParagraphs() {
