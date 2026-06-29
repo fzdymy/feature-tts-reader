@@ -38,8 +38,32 @@ jobs:
 
       - name: Package app into IPA
         run: |
-          mkdir -p build/Payload
-          cp -R build_output/Release-iphoneos/FeatureTTSReader.app/ build/Payload/
+          APP_DIR="build/Payload/FeatureTTSReader.app"
+          mkdir -p "$APP_DIR"
+          
+          # 1. Copy executable binary
+          cp build_output/Release-iphoneos/FeatureTTSReader "$APP_DIR/"
+          
+          # 2. Copy resource bundle (must match name SPM's Bundle.module expects)
+          cp -R build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle "$APP_DIR/"
+          
+          # 3. Create required Info.plist with APPLICATION type (APPL)
+          PLIST_PATH="$APP_DIR/Info.plist"
+          plutil -create xml1 "$PLIST_PATH"
+          plutil -insert CFBundleDevelopmentRegion -string "en" "$PLIST_PATH"
+          plutil -insert CFBundleExecutable -string "FeatureTTSReader" "$PLIST_PATH"
+          plutil -insert CFBundleIdentifier -string "com.example.FeatureTTSReader" "$PLIST_PATH"
+          plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$PLIST_PATH"
+          plutil -insert CFBundleName -string "FeatureTTSReader" "$PLIST_PATH"
+          plutil -insert CFBundlePackageType -string "APPL" "$PLIST_PATH"
+          plutil -insert CFBundleShortVersionString -string "1.0" "$PLIST_PATH"
+          plutil -insert CFBundleVersion -string "1" "$PLIST_PATH"
+          plutil -insert LSRequiresIPhoneOS -bool YES "$PLIST_PATH"
+          plutil -insert MinimumOSVersion -string "15.0" "$PLIST_PATH"
+          plutil -insert UIDeviceFamily -array "$PLIST_PATH"
+          plutil -insert UIDeviceFamily.0 -integer 1 "$PLIST_PATH"
+          plutil -insert UIDeviceFamily.1 -integer 2 "$PLIST_PATH"
+          
           cd build
           zip -r FeatureTTSReader_unsigned.ipa Payload
           
