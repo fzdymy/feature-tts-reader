@@ -38,9 +38,8 @@ jobs:
 
       - name: Package app into IPA
         run: |
-          # Copy the entire .app bundle (includes executable, Info.plist, resource bundles)
+          mkdir -p build/Payload
           cp -R build_output/Release-iphoneos/FeatureTTSReader.app/ build/Payload/
-          
           cd build
           zip -r FeatureTTSReader_unsigned.ipa Payload
           
