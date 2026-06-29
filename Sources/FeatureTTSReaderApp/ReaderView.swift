@@ -27,12 +27,47 @@ struct ReaderView: View {
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
         self.book = book
         self.bookID = bookID
-        let paras = chapter.text.components(separatedBy: "\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let paras = Self.splitParagraphs(chapter.text)
         self._paragraphs = State(initialValue: paras)
         self._currentChapter = State(initialValue: chapter)
         self._currentChapterIndex = State(initialValue: chapterIndex)
+    }
+
+    static func splitParagraphs(_ text: String) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let byDoubleNewline = trimmed.components(separatedBy: "\n\n")
+            .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).count > 1 }
+
+        if byDoubleNewline.count >= 2 && byDoubleNewline.allSatisfy({ $0.count < 2000 }) {
+            return byDoubleNewline.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+
+        let byNewline = trimmed.components(separatedBy: "\n")
+            .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).count > 1 }
+
+        if byNewline.count >= 2 && byNewline.allSatisfy({ $0.count < 2000 }) {
+            return byNewline.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+
+        let chunkSize = 800
+        var result: [String] = []
+        var start = trimmed.startIndex
+        while start < trimmed.endIndex {
+            let end = trimmed.index(start, offsetBy: chunkSize, limitedBy: trimmed.endIndex) ?? trimmed.endIndex
+            var split = end
+            if end < trimmed.endIndex {
+                let segment = trimmed[start..<end]
+                if let punct = segment.lastIndex(where: { "。！？!?".contains($0) }) {
+                    split = trimmed.index(after: punct)
+                }
+            }
+            let chunk = String(trimmed[start..<split]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !chunk.isEmpty { result.append(chunk) }
+            start = split
+        }
+        return result.isEmpty ? [trimmed] : result
     }
 
     @State private var showControls: Bool = true
@@ -85,51 +120,22 @@ struct ReaderView: View {
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            VStack(alignment: .leading, spacing: store.readerParagraphSpacing) {
+                            LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
                                 ForEach(paragraphs.indices, id: \.self) { index in
-                                    Text(paragraphs[index])
-                                        .font(.custom(store.readerFontName, size: store.readerFontSize))
-                                        .foregroundColor(textColor)
-                                        .lineSpacing(store.readerLineSpacing)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .id(index)
-                                        .onTapGesture(count: 2) {
-                                            guard store.enableDoubleTapToSpeak else { return }
-                                            isSpeaking = true
-                                            Task {
-                                                await store.playFromParagraph(paragraphs[index])
-                                                isSpeaking = false
-                                            }
-                                        }
-                                        .contextMenu {
-                                            Button(action: { UIPasteboard.general.string = paragraphs[index]; store.statusMessage = "已复制到剪贴板" }) {
-                                                Label("复制", systemImage: "doc.on.doc")
-                                            }
-                                            Button(action: { addBookmarkForParagraph(paragraphs[index]) }) {
-                                                Label("书签", systemImage: "bookmark")
-                                            }
-                                            Button(action: {
-                                                isSpeaking = true
-                                                Task { await store.playFromParagraph(paragraphs[index]); isSpeaking = false }
-                                            }) {
-                                                Label(isSpeaking ? "停止朗读" : "从这里朗读", systemImage: isSpeaking ? "stop.fill" : "play.fill")
-                                            }
-                                            Button(action: shareText(paragraphs[index])) {
-                                                Label("分享", systemImage: "square.and.arrow.up")
-                                            }
-                                        }
+                                    paragraphView(paragraphs[index], index: index)
                                 }
                             }
-                            .padding()
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .onTapGesture { withAnimation { showControls.toggle() } }
                         .gesture(
                             DragGesture()
                                 .onEnded { value in
-                                    guard value.translation.width > 50 || value.translation.width < -50 else { return }
+                                    guard abs(value.translation.width) > 60 else { return }
                                     HapticManager.impact(.light)
-                                    if value.translation.width > 50 { previousChapter() }
+                                    if value.translation.width > 0 { previousChapter() }
                                     else { nextChapter() }
                                 }
                         )
@@ -152,6 +158,7 @@ struct ReaderView: View {
                 useSystemBrightness = false
                 UIScreen.main.brightness = savedBrightness
             }
+            _ = store.chaptersForBook(bookID, text: book.text)
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
@@ -264,8 +271,8 @@ struct ReaderView: View {
     }
 
     private func previousChapter() {
-        let chapters = store.chaptersForBookCached(bookID) ?? store.chapters
-        guard !chapters.isEmpty, currentChapterIndex > 0, currentChapterIndex - 1 < chapters.count else { return }
+        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
+              currentChapterIndex > 0, currentChapterIndex - 1 < chapters.count else { return }
         let prev = chapters[currentChapterIndex - 1]
         currentChapter = prev
         currentChapterIndex -= 1
@@ -275,8 +282,8 @@ struct ReaderView: View {
     }
 
     private func nextChapter() {
-        let chapters = store.chaptersForBookCached(bookID) ?? store.chapters
-        guard !chapters.isEmpty, currentChapterIndex < chapters.count - 1 else { return }
+        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
+              currentChapterIndex < chapters.count - 1 else { return }
         let next = chapters[currentChapterIndex + 1]
         currentChapter = next
         currentChapterIndex += 1
@@ -286,9 +293,7 @@ struct ReaderView: View {
     }
 
     private func reloadParagraphs() {
-        paragraphs = currentChapter.text.components(separatedBy: "\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        paragraphs = Self.splitParagraphs(currentChapter.text)
     }
 
     private func nextTheme(_ current: ReaderTheme) -> ReaderTheme {
@@ -305,6 +310,37 @@ struct ReaderView: View {
         case .sepia: return "circle.lefthalf.filled"
         case .dark: return "moon.fill"
         }
+    }
+
+    private func paragraphView(_ para: String, index: Int) -> some View {
+        let indent = store.readerFontSize * 2
+        return Text(para)
+            .font(.custom(store.readerFontName, size: store.readerFontSize))
+            .foregroundColor(textColor)
+            .lineSpacing(store.readerLineSpacing + 2)
+            .environment(\.locale, Locale(identifier: "zh_CN"))
+            .padding(.leading, index == 0 && currentChapterIndex == 0 && paragraphs.count > 0 ? 0 : indent)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .id(index)
+            .onTapGesture(count: 2) {
+                guard store.enableDoubleTapToSpeak else { return }
+                isSpeaking = true
+                Task { await store.playFromParagraph(para); isSpeaking = false }
+            }
+            .contextMenu {
+                Button(action: { UIPasteboard.general.string = para; store.statusMessage = "已复制到剪贴板" }) {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+                Button(action: { addBookmarkForParagraph(para) }) {
+                    Label("书签", systemImage: "bookmark")
+                }
+                Button(action: { isSpeaking = true; Task { await store.playFromParagraph(para); isSpeaking = false } }) {
+                    Label(isSpeaking ? "停止朗读" : "从这里朗读", systemImage: isSpeaking ? "stop.fill" : "play.fill")
+                }
+                Button(action: shareText(para)) {
+                    Label("分享", systemImage: "square.and.arrow.up")
+                }
+            }
     }
 
     private func addBookmarkForParagraph(_ text: String) {
