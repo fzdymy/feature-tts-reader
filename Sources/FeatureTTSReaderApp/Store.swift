@@ -1232,11 +1232,13 @@ final class ReaderStore: NSObject, ObservableObject {
     nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
+        var lastSpeaker: String? = nil
         for paragraph in paragraphs {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
             let lines = trimmed.chunked(into: 900)
             for line in lines {
-                let speaker = detectSpeaker(in: line, characters: characters) ?? characters.first?.name ?? "叙述者"
+                let speaker = detectSpeaker(in: line, characters: characters) ?? lastSpeaker ?? characters.first?.name ?? "叙述者"
+                lastSpeaker = speaker
                 let matchedProfile = characters.first(where: { line.contains($0.name) })
                 let speakerProfile = matchedProfile ?? characters.first(where: { $0.name == speaker })
                 let tone = detectTone(in: line)
@@ -1320,21 +1322,29 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
+        // Priority 1: Named "Name：" or "Name:" or "Name " at start of line
+        if let groups = line.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
+            return groups[1]
+        }
+        // Priority 2: Character name + speech verb (笑道/说道/问道/喊道/…)
+        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4})(?=笑道|说道|问道|喊道|叫道|喝道|骂道|答道|回答|解释说|解释道|忽然道|低声道|轻声道|怒道|笑道|叹道|哭道|骂道|喝道|厉声道|正色道)"), groups.count > 1 {
+            return groups[1]
+        }
+        // Priority 3: "Name：" before a Chinese quote
+        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4})[：:][「『“‘]"), groups.count > 1 {
+            return groups[1]
+        }
+        // Priority 4: Any known character name appearing at line start
+        for profile in characters {
+            if line.hasPrefix(profile.name) {
+                return profile.name
+            }
+        }
+        // Priority 5: Any known character name appearing anywhere in line (weak)
         for profile in characters {
             if line.contains(profile.name) {
                 return profile.name
             }
-        }
-        // detect patterns like: 小明说道："..." or 小芳："..."
-        if let matched = line.firstMatch(regex: "^([\\p{Han}]{1,4})[：: ]")?.first {
-            return matched
-        }
-        if let inQuote = line.firstMatch(regex: "([\\p{Han}]{1,4})(?=笑道|说道|问道|喊道|低声说|轻声说|轻声道|说道|道)")?.first {
-            return inQuote
-        }
-        // detect quoted dialogue with preceding speaker on previous line like: 小明：\n"..."
-        if let prevSpeaker = line.firstMatch(regex: "(?m)([\\p{Han}]{1,4})[：:][\r\n]+\")")?.first {
-            return prevSpeaker
         }
         return nil
     }
@@ -1372,30 +1382,30 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func detectGender(in context: String) -> String {
-        let lower = context
-        if lower.contains("小姐") || lower.contains("姑娘") || lower.contains("她") || lower.contains("母亲") || lower.contains("姐姐") || lower.contains("妹妹") || lower.contains("老婆") || lower.contains("太太") {
+        let ctx = context
+        if ctx.contains("小姐") || ctx.contains("姑娘") || ctx.contains("她") || ctx.contains("母亲") || ctx.contains("姐姐") || ctx.contains("妹妹") || ctx.contains("老婆") || ctx.contains("太太") || ctx.contains("闺女") || ctx.contains("妇人") || ctx.contains("婶婶") || ctx.contains("奶奶") || ctx.contains("姥姥") || ctx.contains("女士") || ctx.contains("女儿") {
             return "女性"
         }
-        if lower.contains("先生") || lower.contains("公子") || lower.contains("他") || lower.contains("哥哥") || lower.contains("弟弟") || lower.contains("丈夫") || lower.contains("先生") {
+        if ctx.contains("先生") || ctx.contains("公子") || ctx.contains("哥哥") || ctx.contains("弟弟") || ctx.contains("丈夫") || ctx.contains("小伙") || ctx.contains("大叔") || ctx.contains("大爷") || ctx.contains("伯伯") || ctx.contains("叔叔") || ctx.contains("少爷") || ctx.contains("儿子") || ctx.contains("他") {
             return "男性"
         }
         return "未知"
     }
 
     nonisolated func detectAge(in context: String) -> String {
-        if context.contains("少年") || context.contains("小孩") || context.contains("稚") || context.contains("孩子") {
+        if context.contains("小孩") || context.contains("稚") || context.contains("孩子") || context.contains("孩童") || context.contains("幼") || context.contains("小儿") {
             return "少年"
         }
-        if context.contains("少女") || context.contains("小姐") || context.contains("姑娘") {
+        if context.contains("少女") || context.contains("小姐") || context.contains("姑娘") || context.contains("女童") {
             return "少女"
         }
-        if context.contains("青年") || context.contains("年轻") || context.contains("少") {
+        if context.contains("少年") || context.contains("青年") || context.contains("年轻") || context.contains("小伙") || (context.contains("少") && !context.contains("多少") && !context.contains("不少")) {
             return "青年"
         }
         if context.contains("中年") || context.contains("师傅") || context.contains("大人") {
             return "中年"
         }
-        if context.contains("老") || context.contains("年迈") || context.contains("老太") || context.contains("老人") {
+        if context.contains("年迈") || context.contains("老太") || context.contains("老人") || context.contains("老翁") || context.contains("老者") || context.contains("老年") {
             return "年长"
         }
         return "未知"

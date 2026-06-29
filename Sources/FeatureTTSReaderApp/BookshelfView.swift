@@ -491,14 +491,12 @@ struct BookDetailView: View {
                 // Actions
                 Section {
                     Button(action: {
-                        guard let chapter = chapters.first else { return }
-                        let index = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
-                        store.selectedChapterID = chapter.id
-                        store.currentBookID = book.id.uuidString
-                        store.currentBookTitle = book.title
-                        store.bookText = book.text
+                        guard !chapters.isEmpty else { return }
+                        let index = store.lastReadChapterIndexByBook[book.id] ?? 0
+                        let safeIndex = min(index, chapters.count - 1)
+                        let chapter = chapters[safeIndex]
                         readerChapter = chapter
-                        readerChapterIndex = index
+                        readerChapterIndex = safeIndex
                         showReader = true
                     }) {
                         HStack {

@@ -188,61 +188,77 @@ struct ReaderView: View {
     
     private var readerContent: some View {
         GeometryReader { geometry in
-            switch pageMode {
-            case .scroll:
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: store.readerParagraphSpacing) {
-                            ForEach(paragraphs.indices, id: \.self) { index in
-                                paragraphView(paragraphs[index], index: index)
-                                    .id(index)
-                                    .background(GeometryReader { geo in
-                                        Color.clear.preference(key: ParagraphFrameKey.self, value: [index: geo.frame(in: .named("scroll"))])
-                                    })
-                            }
-                        }
-                        .padding()
-                        .id("content")
-                        .background(GeometryReader { geo in
-                            Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
-                        })
-                        Spacer().frame(height: 100)
-                        Color.clear.frame(height: 1).background(GeometryReader { geo in
-                            Color.clear.preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scroll")).minY)
-                        })
-                    }
-                    .coordinateSpace(name: "scroll")
-                    .onPreferenceChange(ContentHeightKey.self) { height in
-                        contentHeight = height
-                    }
-                    .onPreferenceChange(ScrollOffsetKey.self) { minY in
-                        DispatchQueue.main.async {
-                            let contentH = max(contentHeight, geometry.size.height)
-                            let offset = -minY
-                            let percent = max(0, min(1, Double(offset / max(200, contentH))))
-                            scrollProgress = percent * 100
-                            if let chapterID = store.selectedChapterID {
-                                store.setChapterProgress(chapterID, percent: percent)
-                            }
-                        }
-                    }
-                    .onPreferenceChange(ParagraphFrameKey.self) { frames in
-                        paragraphFrames = frames.map { $0.value }
-                    }
-                    .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
-                    .gesture(
-                        DragGesture()
-                            .onEnded { value in
-                                if value.translation.width > 50 {
-                                    HapticManager.impact(.light)
-                                    previousChapter()
-                                } else if value.translation.width < -50 {
-                                    HapticManager.impact(.light)
-                                    nextChapter()
+            if paragraphs.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image(systemName: "text.page.slash")
+                        .font(.system(size: 48))
+                        .foregroundColor(textColor.opacity(0.3))
+                    Text("暂无内容")
+                        .font(.title3)
+                        .foregroundColor(textColor.opacity(0.5))
+                    Text("请检查章节内容是否为空")
+                        .font(.caption)
+                        .foregroundColor(textColor.opacity(0.3))
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                switch pageMode {
+                case .scroll:
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: store.readerParagraphSpacing) {
+                                ForEach(paragraphs.indices, id: \.self) { index in
+                                    paragraphView(paragraphs[index], index: index)
+                                        .id(index)
+                                        .background(GeometryReader { geo in
+                                            Color.clear.preference(key: ParagraphFrameKey.self, value: [index: geo.frame(in: .named("scroll"))])
+                                        })
                                 }
                             }
-                    )
-                }
+                            .padding()
+                            .id("content")
+                            .background(GeometryReader { geo in
+                                Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                            })
+                            Spacer().frame(height: 100)
+                            Color.clear.frame(height: 1).background(GeometryReader { geo in
+                                Color.clear.preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scroll")).minY)
+                            })
+                        }
+                        .coordinateSpace(name: "scroll")
+                        .onPreferenceChange(ContentHeightKey.self) { height in
+                            contentHeight = height
+                        }
+                        .onPreferenceChange(ScrollOffsetKey.self) { minY in
+                            DispatchQueue.main.async {
+                                let contentH = max(contentHeight, geometry.size.height)
+                                let offset = -minY
+                                let percent = max(0, min(1, Double(offset / max(200, contentH))))
+                                scrollProgress = percent * 100
+                                if let chapterID = store.selectedChapterID {
+                                    store.setChapterProgress(chapterID, percent: percent)
+                                }
+                            }
+                        }
+                        .onPreferenceChange(ParagraphFrameKey.self) { frames in
+                            paragraphFrames = frames.map { $0.value }
+                        }
+                        .onTapGesture { HapticManager.impact(.light); withAnimation { showControls.toggle() } }
+                        .gesture(
+                            DragGesture()
+                                .onEnded { value in
+                                    if value.translation.width > 50 {
+                                        HapticManager.impact(.light)
+                                        previousChapter()
+                                    } else if value.translation.width < -50 {
+                                        HapticManager.impact(.light)
+                                        nextChapter()
+                                    }
+                                }
+                        )
+                    }
             case .horizontal:
                 HorizontalPageView(
                     paragraphs: paragraphs,
