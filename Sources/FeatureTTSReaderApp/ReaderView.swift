@@ -15,6 +15,12 @@ enum TextAlign: Int, CaseIterable, Identifiable {
     }
 }
 
+struct ParagraphItem: Identifiable {
+    let id = UUID()
+    let text: String
+    let chapterIndex: Int
+}
+
 struct ReaderView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
@@ -22,13 +28,22 @@ struct ReaderView: View {
     let bookID: UUID
     @State private var currentChapter: BookChapter
     @State private var currentChapterIndex: Int
-    @State private var paragraphs: [String] = []
+    @State private var paragraphItems: [ParagraphItem] = []
+    @State private var isLoadingNext = false
+    @State private var isLoadingPrev = false
+    @State private var scrollOffset: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var currentTime = Date()
+    @State private var batteryLevel: Int = 100
+    @State private var currentPage: Int = 1
+    @State private var totalPages: Int = 1
+    private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
         self.book = book
         self.bookID = bookID
         let paras = Self.splitParagraphs(chapter.text)
-        self._paragraphs = State(initialValue: paras)
+        self._paragraphItems = State(initialValue: paras.map { ParagraphItem(text: $0, chapterIndex: chapterIndex) })
         self._currentChapter = State(initialValue: chapter)
         self._currentChapterIndex = State(initialValue: chapterIndex)
     }
@@ -112,35 +127,45 @@ struct ReaderView: View {
             VStack(spacing: 0) {
                 if !isImmersive, store.showChapterTitle { readerHeader }
 
-                if paragraphs.isEmpty {
+                if !isImmersive, store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery { readerStatusBar }
+
+                if paragraphItems.isEmpty {
                     Spacer()
                     emptyState
                     Spacer()
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
-                                ForEach(paragraphs.indices, id: \.self) { index in
-                                    paragraphView(paragraphs[index], index: index)
+                            VStack(spacing: 0) {
+                                Color.clear.frame(height: 1).id("top")
+                                LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
+                                    ForEach(paragraphItems) { item in
+                                        paragraphView(item.text)
+                                            .id(item.id)
+                                            .onAppear { onParagraphAppear(item) }
+                                    }
                                 }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                                Color.clear.frame(height: 1).id("bottom")
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
+                            .background(GeometryReader { geo in
+                                let frame = geo.frame(in: .named("scroll"))
+                                Color.clear
+                                    .preference(key: ReaderScrollOffset.self, value: frame.minY)
+                                    .preference(key: ReaderContentHeight.self, value: geo.size.height)
+                            })
                         }
+                        .coordinateSpace(name: "scroll")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .onTapGesture { withAnimation { isImmersive.toggle() } }
                         .simultaneousGesture(
                             DragGesture(minimumDistance: 30)
                                 .onEnded { value in
                                     let h = value.translation.width
-                                    let v = value.translation.height
-                                    if abs(h) > 80, abs(v) < abs(h) * 0.5 {
-                                        HapticManager.impact(.light)
-                                        if h > 0 { previousChapter() } else { nextChapter() }
-                                    } else if abs(v) > 120, abs(h) < abs(v) * 0.3 {
-                                        HapticManager.impact(.light)
-                                        if v > 0 { previousChapter() } else { nextChapter() }
-                                    }
+                                    guard abs(h) > 80, abs(value.translation.height) < abs(h) * 0.5 else { return }
+                                    HapticManager.impact(.light)
+                                    if h > 0 { previousChapter() } else { nextChapter() }
                                 }
                         )
                     }
@@ -153,13 +178,19 @@ struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(isImmersive)
         .statusBarHidden(isImmersive)
+        .onPreferenceChange(ReaderScrollOffset.self) { scrollOffset = $0 }
+        .onPreferenceChange(ReaderContentHeight.self) { contentHeight = $0 }
+        .onReceive(timer) { _ in
+            currentTime = Date(); updateBatteryLevel()
+        }
         .onAppear {
             if currentChapter.text.isEmpty {
                 if let cached = store.chaptersForBookCached(bookID), currentChapterIndex < cached.count {
                     currentChapter = cached[currentChapterIndex]
-                    paragraphs = Self.splitParagraphs(currentChapter.text)
+                    paragraphItems = Self.splitParagraphs(currentChapter.text).map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
                 }
             }
+            updateBatteryLevel()
             store.selectedChapterID = currentChapter.id
             store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
@@ -205,6 +236,46 @@ struct ReaderView: View {
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(backgroundColor.opacity(0.9))
         .overlay(Divider(), alignment: .bottom)
+    }
+
+    private var readerStatusBar: some View {
+        HStack(spacing: 8) {
+            if store.showProgressBar {
+                let progress = totalPages > 0 ? min(Double(currentPage) / Double(totalPages), 1) : 0
+                ProgressView(value: progress)
+                    .tint(textColor.opacity(0.5))
+                    .scaleEffect(y: 0.4)
+                    .frame(maxWidth: 80)
+            }
+            if store.showPageNumber {
+                Text("\(currentPage)/\(totalPages)")
+                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
+            }
+            Spacer()
+            if store.showTime {
+                Text(currentTime, style: .time)
+                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
+            }
+            if store.showBattery, batteryLevel >= 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: batteryIcon)
+                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
+                    Text("\(batteryLevel)%")
+                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .background(backgroundColor.opacity(0.9))
+        .overlay(Divider(), alignment: .bottom)
+    }
+
+    private var batteryIcon: String {
+        if batteryLevel > 90 { return "battery.100" }
+        if batteryLevel > 60 { return "battery.75" }
+        if batteryLevel > 30 { return "battery.50" }
+        if batteryLevel > 10 { return "battery.25" }
+        return "battery.0"
     }
 
     private var controlBar: some View {
@@ -281,28 +352,77 @@ struct ReaderView: View {
 
     private func previousChapter() {
         guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              currentChapterIndex > 0, currentChapterIndex - 1 < chapters.count else { return }
-        let prev = chapters[currentChapterIndex - 1]
-        currentChapter = prev
+              currentChapterIndex > 0 else { return }
         currentChapterIndex -= 1
+        currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
-        store.selectedChapterID = prev.id
+        store.selectedChapterID = currentChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
     }
 
     private func nextChapter() {
         guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
               currentChapterIndex < chapters.count - 1 else { return }
-        let next = chapters[currentChapterIndex + 1]
-        currentChapter = next
         currentChapterIndex += 1
+        currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
-        store.selectedChapterID = next.id
+        store.selectedChapterID = currentChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
     }
 
     private func reloadParagraphs() {
-        paragraphs = Self.splitParagraphs(currentChapter.text)
+        let paras = Self.splitParagraphs(currentChapter.text)
+        paragraphItems = paras.map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
+    }
+
+    private func onParagraphAppear(_ item: ParagraphItem) {
+        let idx = paragraphItems.firstIndex { $0.id == item.id } ?? 0
+        if idx >= paragraphItems.count - 3 { appendNextChapter() }
+        if idx <= 2 { prependPreviousChapter() }
+        updatePageInfo()
+    }
+
+    private func appendNextChapter() {
+        guard !isLoadingNext else { return }
+        isLoadingNext = true
+        defer { isLoadingNext = false }
+        guard let chapters = store.chaptersForBookCached(bookID),
+              let lastLoaded = paragraphItems.last?.chapterIndex,
+              lastLoaded + 1 < chapters.count else { return }
+        let next = chapters[lastLoaded + 1]
+        let paras = Self.splitParagraphs(next.text)
+        paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
+        currentChapterIndex = lastLoaded + 1
+        currentChapter = next
+    }
+
+    private func prependPreviousChapter() {
+        guard !isLoadingPrev else { return }
+        isLoadingPrev = true
+        defer { isLoadingPrev = false }
+        guard let chapters = store.chaptersForBookCached(bookID),
+              let firstLoaded = paragraphItems.first?.chapterIndex,
+              firstLoaded > 0 else { return }
+        let prev = chapters[firstLoaded - 1]
+        let paras = Self.splitParagraphs(prev.text)
+        let newItems = paras.map { ParagraphItem(text: $0, chapterIndex: firstLoaded - 1) }
+        paragraphItems.insert(contentsOf: newItems, at: 0)
+        currentChapterIndex = firstLoaded - 1
+        currentChapter = prev
+    }
+
+    private func updatePageInfo() {
+        let totalChars = paragraphItems.reduce(0) { $0 + $1.text.count }
+        let charsPerPage = 500
+        totalPages = max(1, (totalChars / charsPerPage) + 1)
+        let progress = max(0, min(1, Double(currentChapterIndex) / Double(max(store.chaptersForBookCached(bookID)?.count ?? 1, 1))))
+        currentPage = max(1, Int(Double(totalPages) * progress) + 1)
+    }
+
+    private func updateBatteryLevel() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let level = UIDevice.current.batteryLevel
+        batteryLevel = level >= 0 ? Int(level * 100) : -1
     }
 
     private func nextTheme(_ current: ReaderTheme) -> ReaderTheme {
@@ -321,14 +441,13 @@ struct ReaderView: View {
         }
     }
 
-    private func paragraphView(_ para: String, index: Int) -> some View {
+    private func paragraphView(_ para: String) -> some View {
         Text("\u{3000}\u{3000}" + para)
             .font(.custom(store.readerFontName, size: store.readerFontSize))
             .foregroundColor(textColor)
             .lineSpacing(store.readerLineSpacing + 2)
             .environment(\.locale, Locale(identifier: "zh_CN"))
             .frame(maxWidth: .infinity, alignment: .leading)
-            .id(index)
             .onTapGesture(count: 2) {
                 guard store.enableDoubleTapToSpeak else { return }
                 isSpeaking = true
@@ -497,6 +616,16 @@ struct ScrollOffsetKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
+struct ReaderScrollOffset: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+struct ReaderContentHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct ParagraphFrameKey: PreferenceKey {
     static var defaultValue: [Int: CGRect] = [:]
     static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
@@ -626,6 +755,10 @@ struct ReaderSettingsView: View {
 
                 Section(header: Text("阅读界面显示")) {
                     Toggle("显示章节标题", isOn: Binding(get: { store.showChapterTitle }, set: { store.showChapterTitle = $0 }))
+                    Toggle("显示进度条", isOn: Binding(get: { store.showProgressBar }, set: { store.showProgressBar = $0 }))
+                    Toggle("显示页码", isOn: Binding(get: { store.showPageNumber }, set: { store.showPageNumber = $0 }))
+                    Toggle("显示时间", isOn: Binding(get: { store.showTime }, set: { store.showTime = $0 }))
+                    Toggle("显示电池", isOn: Binding(get: { store.showBattery }, set: { store.showBattery = $0 }))
                 }
 
                 Section {
