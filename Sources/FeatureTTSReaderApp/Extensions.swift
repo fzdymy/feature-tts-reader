@@ -38,13 +38,13 @@ extension String {
     }
 
     func chunked(into length: Int) -> [String] {
-        guard length > 0 else { return [self] }
+        guard length > 0, length < utf16.count else { return [self] }
         var chunks: [String] = []
-        var current = self
-        while !current.isEmpty {
-            let endIndex = current.index(current.startIndex, offsetBy: min(length, current.count))
-            chunks.append(String(current[current.startIndex..<endIndex]))
-            current = String(current[endIndex...])
+        var start = startIndex
+        while start < endIndex {
+            let end = index(start, offsetBy: length, limitedBy: endIndex) ?? endIndex
+            chunks.append(String(self[start..<end]))
+            start = end
         }
         return chunks
     }
