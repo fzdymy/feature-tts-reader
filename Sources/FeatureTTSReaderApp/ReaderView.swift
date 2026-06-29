@@ -34,6 +34,7 @@ struct ReaderView: View {
     @State private var currentTime = Date()
     @State private var fontVersion = 0
     @State private var batteryLevel: Int = 100
+    @State private var chapterTopID = UUID()
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
@@ -123,36 +124,33 @@ struct ReaderView: View {
             if paragraphItems.isEmpty {
                 VStack { Spacer(); emptyState; Spacer() }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
-                        ForEach(paragraphItems) { item in
-                            paragraphView(item.text)
-                                .onAppear {
-                                    if item.id == paragraphItems.last?.id {
-                                        appendNextChapter()
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
+                            Color.clear.frame(height: 0).id("chapter-top")
+                            ForEach(paragraphItems) { item in
+                                paragraphView(item.text)
+                                    .onAppear {
+                                        if item.id == paragraphItems.last?.id {
+                                            appendNextChapter()
+                                        }
+                                        if item.id == paragraphItems.first?.id {
+                                            prependPreviousChapter()
+                                        }
                                     }
-                                    if item.id == paragraphItems.first?.id {
-                                        prependPreviousChapter()
-                                    }
-                                }
+                            }
                         }
+                        .padding(.horizontal, 20).padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 20).padding(.vertical, 12)
+                    .id(fontVersion)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        withAnimation { isImmersive.toggle() }
+                    })
+                    .onChange(of: chapterTopID) { _ in
+                        proxy.scrollTo("chapter-top", anchor: .top)
+                    }
                 }
-                .id(fontVersion)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .simultaneousGesture(TapGesture().onEnded {
-                    withAnimation { isImmersive.toggle() }
-                })
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 30)
-                        .onEnded { value in
-                            let h = value.translation.width
-                            guard abs(h) > 80, abs(value.translation.height) < abs(h) * 0.5 else { return }
-                            HapticManager.impact(.light)
-                            if h > 0 { previousChapter() } else { nextChapter() }
-                        }
-                )
             }
 
             if isImmersive, store.showChapterTitle {
@@ -300,6 +298,10 @@ struct ReaderView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             HStack(spacing: 12) {
+                Button(action: previousChapter) {
+                    Image(systemName: "chevron.left").font(.title2)
+                }
+                .disabled(currentChapterIndex <= 0)
                 Button(action: { showBookmarks.toggle() }) {
                     Image(systemName: chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill").font(.title2)
                 }
@@ -321,6 +323,10 @@ struct ReaderView: View {
                 }) {
                     Image(systemName: isSpeaking ? "pause.fill" : "play.fill").font(.title2)
                 }
+                Button(action: nextChapter) {
+                    Image(systemName: "chevron.right").font(.title2)
+                }
+                .disabled(currentChapterIndex >= (store.chaptersForBookCached(bookID)?.count ?? 1) - 1)
             }
             .padding(.vertical, 8).padding(.horizontal, 12)
             .foregroundColor(textColor)
@@ -372,6 +378,7 @@ struct ReaderView: View {
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
+        chapterTopID = UUID()
     }
 
     private func nextChapter() {
@@ -382,6 +389,7 @@ struct ReaderView: View {
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
+        chapterTopID = UUID()
     }
 
     private func reloadParagraphs() {
