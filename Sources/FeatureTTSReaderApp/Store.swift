@@ -79,7 +79,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var defaultStyle: String = "neutral"
     @Published var defaultSortOption: SortOption = .recent
 
-    private let audioController = AudioPlaybackController()
+    let audioController = AudioPlaybackController()
     private let persistence = PersistenceController.shared
     private let speechSynthesizer = AVSpeechSynthesizer()
     private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
