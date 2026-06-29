@@ -42,8 +42,11 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
         if let cached = bookChaptersCache[bookID] { return cached }
+        guard !text.isEmpty else { return [] }
         let parsed = extractChapters(from: text)
-        bookChaptersCache[bookID] = parsed
+        if !parsed.isEmpty {
+            bookChaptersCache[bookID] = parsed
+        }
         return parsed
     }
 
@@ -418,7 +421,7 @@ final class ReaderStore: NSObject, ObservableObject {
         try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private func loadBookTextFromFile(bookID: UUID) -> String? {
+    func loadBookTextFromFile(bookID: UUID) -> String? {
         let url = textFileURL(forBookID: bookID)
         return try? String(contentsOf: url, encoding: .utf8)
     }
@@ -439,11 +442,22 @@ final class ReaderStore: NSObject, ObservableObject {
             bookText = loadBookTextFromFile(bookID: id) ?? ""
             lastScannedBookText = bookText
         }
+        var changed = false
         for i in books.indices {
-            if let text = loadBookTextFromFile(bookID: books[i].id) {
+            if let text = loadBookTextFromFile(bookID: books[i].id), books[i].text != text {
                 books[i].text = text
+                changed = true
             }
         }
+        if changed {
+            let snapshot = books
+            books = snapshot
+        }
+    }
+
+    /// Load book text from file by book ID (public helper)
+    func loadBookTextFromFile(bookID: UUID) -> String? {
+        loadBookTextFromFile(bookID: bookID)
     }
 
     func saveState() {

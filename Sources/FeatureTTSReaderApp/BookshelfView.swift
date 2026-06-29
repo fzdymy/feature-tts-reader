@@ -636,9 +636,10 @@ struct BookDetailView: View {
                 Text("确定要删除《\(book.title)》吗？此操作不可撤销。")
             }
             .onAppear {
-                chapters = store.chaptersForBook(book.id, text: book.text)
+                let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+                chapters = store.chaptersForBook(book.id, text: text)
                 store.chapters = chapters
-                store.bookText = book.text
+                store.bookText = text
                 store.currentBookID = book.id.uuidString
                 store.currentBookTitle = book.title
             }
