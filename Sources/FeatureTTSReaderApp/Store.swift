@@ -42,6 +42,10 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
         if let cached = bookChaptersCache[bookID] { return cached }
+        if text == bookText && !chapters.isEmpty {
+            bookChaptersCache[bookID] = chapters
+            return chapters
+        }
         let parsed = extractChapters(from: text)
         bookChaptersCache[bookID] = parsed
         return parsed
@@ -151,6 +155,10 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.ttsIsPlaying = state.ttsIsPlaying ?? false
                     strong.ttsChapterTitle = state.ttsChapterTitle ?? ""
                     strong.ttsSegmentTitle = state.ttsSegmentTitle ?? ""
+
+                    if let currentBook = state.books.first(where: { $0.id.uuidString == state.currentBookID }) ?? state.books.first {
+                        strong.bookChaptersCache[currentBook.id] = strong.extractChapters(from: currentBook.text)
+                    }
                 }
                 // Load local voice catalog on startup (outside MainActor.run to allow await)
                 if state.selectedVoiceCatalog != .remote {
@@ -589,6 +597,7 @@ final class ReaderStore: NSObject, ObservableObject {
         currentBookTitle = title
         currentBookID = book.id.uuidString
         chapters = extractChapters(from: bookText)
+        bookChaptersCache[book.id] = chapters
         selectedChapterID = chapters.first?.id
         characters = []
         scriptSegments = []
@@ -690,6 +699,7 @@ final class ReaderStore: NSObject, ObservableObject {
             statusMessage = "已导入文本，发现 \(chapters.count) 个章节。"
 
             let book = Book(id: UUID(), title: currentBookTitle, text: bookText, importedAt: Date())
+            bookChaptersCache[book.id] = extracted
             books.append(book)
             saveState()
         }

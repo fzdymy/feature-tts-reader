@@ -152,7 +152,6 @@ struct ReaderView: View {
                 useSystemBrightness = false
                 UIScreen.main.brightness = savedBrightness
             }
-            _ = store.chaptersForBook(bookID, text: book.text)
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
@@ -265,8 +264,8 @@ struct ReaderView: View {
     }
 
     private func previousChapter() {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              currentChapterIndex > 0, currentChapterIndex - 1 < chapters.count else { return }
+        let chapters = store.chaptersForBookCached(bookID) ?? store.chapters
+        guard !chapters.isEmpty, currentChapterIndex > 0, currentChapterIndex - 1 < chapters.count else { return }
         let prev = chapters[currentChapterIndex - 1]
         currentChapter = prev
         currentChapterIndex -= 1
@@ -276,8 +275,8 @@ struct ReaderView: View {
     }
 
     private func nextChapter() {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              currentChapterIndex < chapters.count - 1 else { return }
+        let chapters = store.chaptersForBookCached(bookID) ?? store.chapters
+        guard !chapters.isEmpty, currentChapterIndex < chapters.count - 1 else { return }
         let next = chapters[currentChapterIndex + 1]
         currentChapter = next
         currentChapterIndex += 1
