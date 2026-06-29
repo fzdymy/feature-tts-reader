@@ -78,6 +78,7 @@ struct VoiceItem: Identifiable, Hashable, Codable {
     let name: String
     let locale: String
     let styleList: [String]?
+    var shortName: String { id }
 
     var displayName: String {
         name.isEmpty ? id : name

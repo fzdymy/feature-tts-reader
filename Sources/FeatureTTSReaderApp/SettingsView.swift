@@ -89,7 +89,7 @@ struct SettingsView: View {
                             apiKeyTask = Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiKey = localAPIKey }
                         }
 
-                    Picker("音色列表", selection: $store.selectedVoiceCatalog) {
+                    Picker("音色库", selection: $store.selectedVoiceCatalog) {
                         ForEach(VoiceCatalogSource.localCases) { source in
                             Text(source.displayName).tag(source)
                         }
@@ -98,10 +98,13 @@ struct SettingsView: View {
                     .onChange(of: store.selectedVoiceCatalog) { _ in
                         Task { try? await Task.sleep(nanoseconds: 100_000_000); await store.refreshVoices() }
                     }
+                    Text("选择「本地 35 种音色」或「本地 full 音色」作为角色配音候选列表")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
 
                     HStack {
                         Button(action: { Task { await store.refreshVoices() } }) {
-                            Label("刷新音色列表", systemImage: "arrow.clockwise")
+                            Label("刷新语音列表", systemImage: "arrow.clockwise")
                         }
                         Spacer()
                         if store.isBusy {
@@ -613,17 +616,15 @@ struct FontManagerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("完成") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        store.saveSettings()
+                        store.apiEndpoint = localEndpoint
+                        store.apiKey = localAPIKey
                         store.saveState()
-                        saveAppSettings()
-                        store.restartAutoSaveTimer()
                     }
                 }
-            }
             }
             .fileImporter(isPresented: $showingFontImporter, allowedContentTypes: [.font], allowsMultipleSelection: true) { result in
                 handleFontImport(result)

@@ -126,6 +126,7 @@ struct ReaderView: View {
             store.saveState()
             bookChapters = store.chaptersForBook(bookID, text: book.text)
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
+            reloadParagraphs()
             
             if let savedBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
                 screenBrightness = savedBrightness

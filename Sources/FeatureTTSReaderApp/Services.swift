@@ -37,14 +37,14 @@ actor TTSHttpClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30
 
-        var body: [String: Any] = [
-            "text": text,
-            "short_name": voice,
-            "voice": voice,
-            "rate": rate,
-            "pitch": pitch,
-            "style": style
-        ]
+    var body: [String: Any] = [
+        "text": text,
+        "voice": voice,
+        "short_name": voice,
+        "rate": rate,
+        "pitch": pitch,
+        "style": style
+    ]
         if let apiKey = apiKey, !apiKey.isEmpty {
             body["api_key"] = apiKey
         }
@@ -67,35 +67,36 @@ actor TTSHttpClient {
 
     private func decodeVoiceList(from data: Data) throws -> [VoiceItem] {
         struct VoiceListItem: Decodable {
-            let short_name: String?
             let voice: String?
-            let id: String?
             let name: String?
-            let display_name: String?
-            let local_name: String?
+            let id: String?
+            let short_name: String?
+            let displayName: String?
             let locale: String?
-            let gender: String?
             let style_list: [String]?
-            let sample_rate_hertz: String?
+            let styleList: [String]?
+
+            var voiceId: String { voice ?? id ?? short_name ?? "" }
 
             enum CodingKeys: String, CodingKey {
-                case short_name, voice, name, id, display_name, local_name, locale, gender, style_list, sample_rate_hertz
+                case voice, name, id, short_name, displayName, locale, style_list, styleList
             }
         }
 
-        func makeItem(from item: VoiceListItem) -> VoiceItem? {
-            let voiceId = item.short_name ?? item.voice ?? item.id
-            guard let voiceId else { return nil }
-            let displayName = item.display_name ?? item.local_name ?? item.name ?? voiceId
-            return VoiceItem(id: voiceId, name: displayName, locale: item.locale ?? "zh-CN", styleList: item.style_list)
-        }
-
         if let wrapper = try? JSONDecoder().decode([String: [VoiceListItem]].self, from: data), let values = wrapper["voices"] ?? wrapper["data"] {
-            return values.compactMap(makeItem)
+            return values.compactMap { item in
+                let voiceId = item.voiceId
+                guard !voiceId.isEmpty else { return nil }
+                return VoiceItem(id: voiceId, name: item.name ?? item.displayName ?? voiceId, locale: item.locale ?? "zh-CN", styleList: nil)
+            }
         }
 
         if let items = try? JSONDecoder().decode([VoiceListItem].self, from: data) {
-            return items.compactMap(makeItem)
+            return items.compactMap { item in
+                let voiceId = item.voiceId
+                guard !voiceId.isEmpty else { return nil }
+                return VoiceItem(id: voiceId, name: item.name ?? item.displayName ?? voiceId, locale: item.locale ?? "zh-CN", styleList: nil)
+            }
         }
 
         if let fallbackText = String(data: data, encoding: .utf8), fallbackText.contains("voice") || fallbackText.contains("name") {
@@ -103,11 +104,11 @@ actor TTSHttpClient {
         }
 
         return [
-            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "晓晓 (标准女声)", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-YunxiNeural", name: "云希 (年轻男声)", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-XiaohanNeural", name: "晓涵 (活力女声)", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-YunjianNeural", name: "云健 (成熟男声)", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-XiaomoNeural", name: "晓墨 (温柔女声)", locale: "zh-CN", styleList: nil)
+            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN", styleList: nil),
+            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN", styleList: nil)
         ]
     }
 }
