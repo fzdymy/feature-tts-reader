@@ -47,7 +47,7 @@ final class NLCharacterAnalyzer: NERModel {
         tokenizer.string = raw
         tokenizer.enumerateTokens(in: raw.startIndex..<raw.endIndex) { range, _ in
             let token = String(raw[range])
-            let cleaned = token.trimmingCharacters(in: .punctuationCharacters + .whitespaces)
+            let cleaned = token.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
             if cleaned.count >= 2 && cleaned.count <= 4 {
                 if cleaned.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
                     if !cleaned.hasPrefix("第") && !cleaned.hasSuffix("章") && !cleaned.hasPrefix("不") && !cleaned.hasPrefix("这") && !cleaned.hasPrefix("那") && !cleaned.hasPrefix("什") {
@@ -303,9 +303,9 @@ final class CharacterAnalyzer {
 extension CharacterSet {
     static let ideographicCharacters: CharacterSet = {
         var set = CharacterSet()
-        set.insert(charactersIn: UnicodeScalar(0x4E00)...UnicodeScalar(0x9FFF))
-        set.insert(charactersIn: UnicodeScalar(0x3400)...UnicodeScalar(0x4DBF))
-        set.insert(charactersIn: UnicodeScalar(0xF900)...UnicodeScalar(0xFAFF))
+        set.insert(charactersIn: UnicodeScalar(0x4E00)..<UnicodeScalar(0xA000))
+        set.insert(charactersIn: UnicodeScalar(0x3400)..<UnicodeScalar(0x4DC0))
+        set.insert(charactersIn: UnicodeScalar(0xF900)..<UnicodeScalar(0xFB00))
         return set
     }()
 }
