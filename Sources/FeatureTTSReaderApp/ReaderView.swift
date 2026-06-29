@@ -60,7 +60,7 @@ struct ReaderView: View {
     private var textColor: Color {
         switch store.readerTheme {
         case .dark: return .white
-        case .light: return .primary
+        case .light: return Color(red: 0.1, green: 0.1, blue: 0.1)
         case .sepia: return Color(red: 0.2, green: 0.18, blue: 0.15)
         }
     }

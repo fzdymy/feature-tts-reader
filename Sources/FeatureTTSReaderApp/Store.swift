@@ -42,7 +42,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
         if let cached = bookChaptersCache[bookID] { return cached }
-        let parsed = parseChapters(text: text)
+        let parsed = extractChapters(from: text)
         bookChaptersCache[bookID] = parsed
         return parsed
     }
