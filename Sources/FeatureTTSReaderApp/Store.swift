@@ -662,20 +662,25 @@ final class ReaderStore: NSObject, ObservableObject {
         let bookID = UUID()
         saveBookTextToFile(bookID: bookID, text: text)
         let book = Book(id: bookID, title: title, text: text, importedAt: Date())
-        books.append(book)
-        persistence.saveBooks(books)
-        bookText = text
-        currentBookTitle = title
-        currentBookID = book.id.uuidString
-        chapters = extractChapters(from: bookText)
-        selectedChapterID = chapters.first?.id
-        characters = []
-        scriptSegments = []
-        recommendations = []
-        lastScannedBookText = ""
-        statusMessage = "已导入：\(title)，共 \(chapters.count) 章。"
-        saveState()
+        await MainActor.run { [book] in
+            books.append(book)
+            persistence.saveBooks(books)
+            bookText = text
+            currentBookTitle = title
+            currentBookID = book.id.uuidString
+            characters = []
+            scriptSegments = []
+            recommendations = []
+            lastScannedBookText = ""
+        }
+        let extracted = await Task.detached { [weak self, text] in
+            self?.extractChapters(from: text) ?? []
+        }.value
         await MainActor.run {
+            chapters = extracted
+            selectedChapterID = chapters.first?.id
+            statusMessage = "已导入：\(title)，共 \(chapters.count) 章。"
+            saveState()
             importProgress = 0.0
             isBusy = false
         }
