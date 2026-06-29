@@ -107,7 +107,6 @@ final class ReaderStore: NSObject, ObservableObject {
             if let data = try? Data(contentsOf: url), let state = try? JSONDecoder().decode(ReaderState.self, from: data) {
                 await MainActor.run {
                     guard let strong = self else { return }
-                    strong.bookText = state.bookText
                     strong.chapters = state.chapters
                     strong.characters = state.characters
                     strong.scriptSegments = state.scriptSegments
@@ -142,7 +141,6 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.bookProgressByChapter = state.bookProgressByChapter
                     strong.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
                     strong.defaultSensitivity = state.defaultSensitivity
-                    strong.lastScannedBookText = state.lastScannedBookText
                     strong.playTimeoutSeconds = state.playTimeoutSeconds
 
                     // Restore TTS queue state
@@ -151,6 +149,42 @@ final class ReaderStore: NSObject, ObservableObject {
                     strong.ttsIsPlaying = state.ttsIsPlaying ?? false
                     strong.ttsChapterTitle = state.ttsChapterTitle ?? ""
                     strong.ttsSegmentTitle = state.ttsSegmentTitle ?? ""
+                }
+                // Load book texts from files (bookText/lastScannedBookText excluded from JSON)
+                await MainActor.run { self?.loadAllTextsFromFiles() }
+                // Migration from old state format where bookText was embedded in JSON
+                await MainActor.run {
+                    guard let self else { return }
+                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+                    let currentID = UUID(uuidString: self.currentBookID)
+                    // Current book text
+                    if let currentID, self.bookText.isEmpty,
+                       let t = json["bookText"] as? String, !t.isEmpty {
+                        let url = self.textFileURL(forBookID: currentID)
+                        if !FileManager.default.fileExists(atPath: url.path) {
+                            self.saveBookTextToFile(bookID: currentID, text: t)
+                            self.bookText = t
+                            self.lastScannedBookText = t
+                        }
+                    }
+                    // Books array
+                    if let booksArray = json["books"] as? [[String: Any]] {
+                        for i in self.books.indices where self.books[i].text.isEmpty {
+                            for b in booksArray {
+                                guard let idStr = b["id"] as? String,
+                                      let id = UUID(uuidString: idStr),
+                                      id == self.books[i].id,
+                                      let t = b["text"] as? String, !t.isEmpty
+                                else { continue }
+                                let url = self.textFileURL(forBookID: id)
+                                if !FileManager.default.fileExists(atPath: url.path) {
+                                    self.saveBookTextToFile(bookID: id, text: t)
+                                    self.books[i].text = t
+                                }
+                                break
+                            }
+                        }
+                    }
                 }
                 // Load local voice catalog on startup (outside MainActor.run to allow await)
                 if state.selectedVoiceCatalog != .remote {
@@ -286,7 +320,6 @@ final class ReaderStore: NSObject, ObservableObject {
             loadPersistentLibrary()
             return
         }
-        bookText = state.bookText
         chapters = state.chapters
         characters = state.characters
         scriptSegments = state.scriptSegments
@@ -315,22 +348,21 @@ final class ReaderStore: NSObject, ObservableObject {
         lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
         selectedVoiceCatalog = state.selectedVoiceCatalog
         defaultSensitivity = state.defaultSensitivity
-        lastScannedBookText = state.lastScannedBookText
         playTimeoutSeconds = state.playTimeoutSeconds
 
         if selectedVoiceCatalog != .remote {
             self.voices = VoiceItem.defaultItems()
         }
 
-        if !bookText.isEmpty && lastScannedBookText.isEmpty {
-            lastScannedBookText = bookText
+        loadAllTextsFromFiles()
+        if !bookText.isEmpty {
+            updateRecommendations(from: bookText)
         }
-        updateRecommendations(from: bookText)
         loadPersistentLibrary()
     }
 
     func restoreState(_ state: ReaderState) {
-        bookText = state.bookText
+        saveAllTextsToFiles()
         chapters = state.chapters
         characters = state.characters
         scriptSegments = state.scriptSegments
@@ -359,7 +391,6 @@ final class ReaderStore: NSObject, ObservableObject {
         lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
         selectedVoiceCatalog = state.selectedVoiceCatalog
         defaultSensitivity = state.defaultSensitivity
-        lastScannedBookText = state.lastScannedBookText
         playTimeoutSeconds = state.playTimeoutSeconds
         ttsQueue = state.ttsQueue ?? []
         ttsCurrentIndex = state.ttsCurrentIndex ?? 0
@@ -367,13 +398,58 @@ final class ReaderStore: NSObject, ObservableObject {
         ttsChapterTitle = state.ttsChapterTitle ?? ""
         ttsSegmentTitle = state.ttsSegmentTitle ?? ""
         recommendations = state.recommendations ?? []
+        loadAllTextsFromFiles()
         statusMessage = "数据已恢复。"
         saveState()
     }
 
+    // MARK: - File-based text storage (avoids encoding 10-40MB into JSON)
+
+    private func textFileURL(forBookID id: UUID) -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let dir = docs.appendingPathComponent("book_texts", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("\(id.uuidString).txt")
+    }
+
+    private func saveBookTextToFile(bookID: UUID, text: String) {
+        guard !text.isEmpty else { return }
+        let url = textFileURL(forBookID: bookID)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func loadBookTextFromFile(bookID: UUID) -> String? {
+        let url = textFileURL(forBookID: bookID)
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func saveAllTextsToFiles() {
+        if !bookText.isEmpty, let id = UUID(uuidString: currentBookID) {
+            saveBookTextToFile(bookID: id, text: bookText)
+        }
+        for book in books {
+            if !book.text.isEmpty {
+                saveBookTextToFile(bookID: book.id, text: book.text)
+            }
+        }
+    }
+
+    private func loadAllTextsFromFiles() {
+        if let id = UUID(uuidString: currentBookID) {
+            bookText = loadBookTextFromFile(bookID: id) ?? ""
+            lastScannedBookText = bookText
+        }
+        for i in books.indices {
+            if let text = loadBookTextFromFile(bookID: books[i].id) {
+                books[i].text = text
+            }
+        }
+    }
+
     func saveState() {
+        saveAllTextsToFiles()
         let state = ReaderState(
-            bookText: bookText,
+            bookText: "",
             chapters: chapters,
             characters: characters,
             scriptSegments: scriptSegments,
@@ -396,7 +472,7 @@ final class ReaderStore: NSObject, ObservableObject {
             bookProgressByChapter: bookProgressByChapter,
             lastReadChapterIndexByBook: lastReadChapterIndexByBook,
             defaultSensitivity: defaultSensitivity,
-            lastScannedBookText: lastScannedBookText,
+            lastScannedBookText: "",
             playTimeoutSeconds: playTimeoutSeconds,
             readerFontName: readerFontName,
             readerParagraphSpacing: readerParagraphSpacing,
@@ -439,6 +515,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let persistedBooks = persistence.fetchBooks()
         if !persistedBooks.isEmpty {
             books = persistedBooks
+            loadAllTextsFromFiles()
         }
         let persistedBookmarks = persistence.fetchBookmarks()
         if !persistedBookmarks.isEmpty {
@@ -582,7 +659,9 @@ final class ReaderStore: NSObject, ObservableObject {
             return
         }
         let title = url.deletingPathExtension().lastPathComponent
-        let book = Book(id: UUID(), title: title, text: text, importedAt: Date())
+        let bookID = UUID()
+        saveBookTextToFile(bookID: bookID, text: text)
+        let book = Book(id: bookID, title: title, text: text, importedAt: Date())
         books.append(book)
         persistence.saveBooks(books)
         bookText = text
@@ -680,7 +759,8 @@ final class ReaderStore: NSObject, ObservableObject {
         await MainActor.run {
             bookText = trimmedText
             currentBookTitle = "未命名文本"
-            currentBookID = UUID().uuidString
+            let bookID = UUID()
+            currentBookID = bookID.uuidString
             chapters = extracted
             selectedChapterID = chapters.first?.id
             characters = []
@@ -689,7 +769,8 @@ final class ReaderStore: NSObject, ObservableObject {
             lastScannedBookText = ""
             statusMessage = "已导入文本，发现 \(chapters.count) 个章节。"
 
-            let book = Book(id: UUID(), title: currentBookTitle, text: bookText, importedAt: Date())
+            saveBookTextToFile(bookID: bookID, text: bookText)
+            let book = Book(id: bookID, title: currentBookTitle, text: bookText, importedAt: Date())
             books.append(book)
             saveState()
         }

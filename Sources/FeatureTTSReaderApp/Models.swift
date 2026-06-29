@@ -27,16 +27,40 @@ struct BookChapter: Identifiable, Hashable, Codable {
     }
 }
 
-struct Book: Identifiable, Hashable, Codable {
+struct Book: Identifiable, Hashable {
     let id: UUID
     var title: String
     var text: String
     var importedAt: Date
 
+    init(id: UUID, title: String, text: String, importedAt: Date) {
+        self.id = id
+        self.title = title
+        self.text = text
+        self.importedAt = importedAt
+    }
+
     var preview: String {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleaned.count <= 120 { return cleaned }
         return String(cleaned.prefix(120)) + "..."
+    }
+}
+
+extension Book: Codable {
+    enum CodingKeys: String, CodingKey { case id, title, importedAt }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        text = ""
+        importedAt = try c.decode(Date.self, forKey: .importedAt)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(importedAt, forKey: .importedAt)
     }
 }
 
@@ -180,7 +204,7 @@ struct CharacterRecommendation: Identifiable, Hashable, Codable {
 }
 
 struct ReaderState: Codable {
-    var bookText: String
+    var bookText: String = ""
     var chapters: [BookChapter]
     var characters: [CharacterProfile]
     var scriptSegments: [ScriptSegment]
@@ -228,9 +252,9 @@ struct ReaderState: Codable {
     var isSpeaking: Bool = false
 
     private enum CodingKeys: String, CodingKey {
-        case bookText, chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
+        case chapters, characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, lastScannedBookText, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking
     }
 
     init(
@@ -331,7 +355,6 @@ struct ReaderState: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        bookText = try container.decodeIfPresent(String.self, forKey: .bookText) ?? ""
         chapters = try container.decodeIfPresent([BookChapter].self, forKey: .chapters) ?? []
         characters = try container.decodeIfPresent([CharacterProfile].self, forKey: .characters) ?? []
         scriptSegments = try container.decodeIfPresent([ScriptSegment].self, forKey: .scriptSegments) ?? []
@@ -354,7 +377,6 @@ struct ReaderState: Codable {
         bookProgressByChapter = try container.decodeIfPresent([UUID: Double].self, forKey: .bookProgressByChapter) ?? [:]
         lastReadChapterIndexByBook = try container.decodeIfPresent([UUID: Int].self, forKey: .lastReadChapterIndexByBook) ?? [:]
         defaultSensitivity = try container.decodeIfPresent(Int.self, forKey: .defaultSensitivity) ?? 50
-        lastScannedBookText = try container.decodeIfPresent(String.self, forKey: .lastScannedBookText) ?? ""
         playTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .playTimeoutSeconds) ?? 30.0
         ttsQueue = try container.decodeIfPresent([TTSQueueItem].self, forKey: .ttsQueue)
         ttsCurrentIndex = try container.decodeIfPresent(Int.self, forKey: .ttsCurrentIndex)
