@@ -303,9 +303,9 @@ final class CharacterAnalyzer {
 extension CharacterSet {
     static let ideographicCharacters: CharacterSet = {
         var set = CharacterSet()
-        set.insert(charactersIn: UnicodeScalar(0x4E00)..<UnicodeScalar(0xA000))
-        set.insert(charactersIn: UnicodeScalar(0x3400)..<UnicodeScalar(0x4DC0))
-        set.insert(charactersIn: UnicodeScalar(0xF900)..<UnicodeScalar(0xFB00))
+        set.insert(charactersIn: UnicodeScalar(UInt32(0x4E00))!..<UnicodeScalar(UInt32(0xA000))!)
+        set.insert(charactersIn: UnicodeScalar(UInt32(0x3400))!..<UnicodeScalar(UInt32(0x4DC0))!)
+        set.insert(charactersIn: UnicodeScalar(UInt32(0xF900))!..<UnicodeScalar(UInt32(0xFB00))!)
         return set
     }()
 }
