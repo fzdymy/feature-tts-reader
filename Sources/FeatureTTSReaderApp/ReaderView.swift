@@ -123,7 +123,6 @@ struct ReaderView: View {
         .onAppear {
             store.selectedChapterID = currentChapter.id
             store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
-            store.saveState()
             bookChapters = store.chaptersForBook(bookID, text: book.text)
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
             reloadParagraphs()
@@ -349,9 +348,8 @@ struct ReaderView: View {
         VStack(spacing: 0) {
             if showBookmarks {
                 bookmarksList
+                    .frame(maxHeight: 300)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else {
-                Spacer()
             }
             
             Divider()
@@ -471,25 +469,23 @@ struct ReaderView: View {
     }
     
     private func previousChapter() {
-        guard currentChapterIndex > 0,
+        guard !bookChapters.isEmpty, currentChapterIndex > 0,
               let prevChapter = bookChapters[safe: currentChapterIndex - 1] else { return }
         currentChapter = prevChapter
         currentChapterIndex -= 1
         reloadParagraphs()
         store.selectedChapterID = prevChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
-        store.saveState()
     }
     
     private func nextChapter() {
-        guard currentChapterIndex < bookChapters.count - 1,
+        guard !bookChapters.isEmpty, currentChapterIndex < bookChapters.count - 1,
               let nextChapter = bookChapters[safe: currentChapterIndex + 1] else { return }
         currentChapter = nextChapter
         currentChapterIndex += 1
         reloadParagraphs()
         store.selectedChapterID = nextChapter.id
         store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
-        store.saveState()
     }
     
     private func reloadParagraphs() {
