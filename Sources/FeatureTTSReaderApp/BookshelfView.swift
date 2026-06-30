@@ -417,6 +417,7 @@ struct BookDetailView: View {
     @State private var showDeleteAlert = false
     @State private var readerNavigation: ReaderNavigation?
     @State private var showCharacterEditor = false
+    @State private var showChapterList = false
 
     struct ReaderNavigation: Identifiable {
         let id: UUID
@@ -529,10 +530,19 @@ struct BookDetailView: View {
                         ).environmentObject(store)
                     }
 
-                    NavigationLink(destination: ChapterListView()
-                        .environmentObject(store)
-                    ) {
+                    Button(action: { showChapterList = true }) {
                         Label("章节目录", systemImage: "list.bullet")
+                    }
+                    .sheet(isPresented: $showChapterList) {
+                        ChapterListView(currentChapterID: nil) { chapter, index in
+                            showChapterList = false
+                            readerNavigation = ReaderNavigation(
+                                id: book.id,
+                                chapter: chapter,
+                                chapterIndex: index
+                            )
+                        }
+                        .environmentObject(store)
                     }
 
                     NavigationLink(destination: ReaderSettingsView()
