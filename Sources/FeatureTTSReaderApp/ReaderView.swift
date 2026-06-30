@@ -31,9 +31,9 @@ struct ReaderView: View {
     @State private var paragraphItems: [ParagraphItem] = []
     @State private var isLoadingNext = false
     @State private var isLoadingPrev = false
+    @State private var fontVersion = 0
     @State private var suppressAutoLoad = false
     @State private var currentTime = Date()
-    @State private var fontVersion = 0
     @State private var batteryLevel: Int = 100
     @State private var chapterTopID = UUID()
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
@@ -130,7 +130,7 @@ struct ReaderView: View {
                         LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
                             Color.clear.frame(height: 0).id("chapter-top")
                             ForEach(paragraphItems) { item in
-                                paragraphView(item.text)
+                                ParagraphText(text: item.text, textColor: textColor, backgroundColor: backgroundColor)
                                     .onAppear {
                                         guard !suppressAutoLoad else { return }
                                         if item.id == paragraphItems.last?.id {
@@ -534,6 +534,37 @@ enum PageMode: String, CaseIterable, Identifiable {
         case .horizontal: return "book.closed"
         case .vertical: return "arrow.up.and.down"
         }
+    }
+}
+
+private struct ParagraphText: View {
+    @EnvironmentObject var store: ReaderStore
+    let text: String
+    let textColor: Color
+    let backgroundColor: Color
+
+    var body: some View {
+        Text("\u{3000}\u{3000}" + text)
+            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+            .foregroundColor(textColor)
+            .lineSpacing(store.readerLineSpacing + 2)
+            .environment(\.locale, Locale(identifier: "zh_CN"))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onTapGesture(count: 2) {
+                guard store.enableDoubleTapToSpeak else { return }
+                store.playFromParagraph(text)
+            }
+            .contextMenu {
+                Button(action: { UIPasteboard.general.string = text; store.statusMessage = "已复制到剪贴板" }) {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+                Button(action: { store.addBookmarkForParagraph(text, chapterID: UUID()) }) {
+                    Label("书签", systemImage: "bookmark")
+                }
+                Button(action: { store.playFromParagraph(text) }) {
+                    Label("从这里朗读", systemImage: "play.fill")
+                }
+            }
     }
 }
 

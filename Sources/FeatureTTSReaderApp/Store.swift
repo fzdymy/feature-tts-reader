@@ -103,104 +103,7 @@ final class ReaderStore: NSObject, ObservableObject {
         audioController.restorePlaybackState()
         startAutoSaveTimer()
 
-        // Load state off the main actor to avoid blocking UI on startup
-        Task.detached { [weak self] in
-            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let url = docs.appendingPathComponent("tts_reader_state.json")
-            if let data = try? Data(contentsOf: url), let state = try? JSONDecoder().decode(ReaderState.self, from: data) {
-                await MainActor.run {
-                    guard let strong = self else { return }
-                    strong.chapters = state.chapters
-                    strong.characters = state.characters
-                    strong.scriptSegments = state.scriptSegments
-                    strong.selectedVoiceCatalog = state.selectedVoiceCatalog
-                    strong.recommendations = state.recommendations ?? []
-                    strong.selectedChapterID = state.selectedChapterID
-                    strong.statusMessage = state.statusMessage
-                    strong.isBusy = state.isBusy
-                    strong.currentPlayingLine = state.currentPlayingLine
-                    strong.apiKey = state.apiKey
-                    strong.apiEndpoint = state.apiEndpoint
-                    strong.playProgress = state.playProgress
-                    strong.books = state.books
-                    strong.currentBookTitle = state.currentBookTitle
-                    strong.currentBookID = state.currentBookID
-                    strong.currentBookProgress = state.currentBookProgress
-                    strong.isSpeaking = state.isSpeaking
-                    strong.readerFontSize = state.readerFontSize
-                    strong.readerLineSpacing = state.readerLineSpacing
-                    strong.readerParagraphSpacing = state.readerParagraphSpacing
-                    strong.readerTheme = state.readerTheme
-                    strong.readerFontName = state.readerFontName
-                    strong.customBackgroundImage = state.customBackgroundImage
-                    strong.showChapterTitle = state.showChapterTitle
-                    strong.showProgressBar = state.showProgressBar
-                    strong.showPageNumber = state.showPageNumber
-                    strong.showTime = state.showTime
-                    strong.showBattery = state.showBattery
-                    strong.showBookCover = state.showBookCover
-                    strong.showReadingProgress = state.showReadingProgress
-                    strong.bookmarks = state.bookmarks
-                    strong.bookProgressByChapter = state.bookProgressByChapter
-                    strong.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
-                    strong.defaultSensitivity = state.defaultSensitivity
-                    strong.playTimeoutSeconds = state.playTimeoutSeconds
-
-                    // Restore TTS queue state
-                    strong.ttsQueue = state.ttsQueue ?? []
-                    strong.ttsCurrentIndex = state.ttsCurrentIndex ?? 0
-                    strong.ttsIsPlaying = state.ttsIsPlaying ?? false
-                    strong.ttsChapterTitle = state.ttsChapterTitle ?? ""
-                    strong.ttsSegmentTitle = state.ttsSegmentTitle ?? ""
-                }
-                // Load book texts from files (bookText/lastScannedBookText excluded from JSON)
-                await MainActor.run { self?.loadAllTextsFromFiles() }
-                // Migration from old state format where bookText was embedded in JSON
-                await MainActor.run {
-                    guard let self else { return }
-                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-                    let currentID = UUID(uuidString: self.currentBookID)
-                    // Current book text
-                    if let currentID, self.bookText.isEmpty,
-                       let t = json["bookText"] as? String, !t.isEmpty {
-                        let url = self.textFileURL(forBookID: currentID)
-                        if !FileManager.default.fileExists(atPath: url.path) {
-                            self.saveBookTextToFile(bookID: currentID, text: t)
-                            self.bookText = t
-                            self.lastScannedBookText = t
-                        }
-                    }
-                    // Books array
-                    if let booksArray = json["books"] as? [[String: Any]] {
-                        for i in self.books.indices where self.books[i].text.isEmpty {
-                            for b in booksArray {
-                                guard let idStr = b["id"] as? String,
-                                      let id = UUID(uuidString: idStr),
-                                      id == self.books[i].id,
-                                      let t = b["text"] as? String, !t.isEmpty
-                                else { continue }
-                                let url = self.textFileURL(forBookID: id)
-                                if !FileManager.default.fileExists(atPath: url.path) {
-                                    self.saveBookTextToFile(bookID: id, text: t)
-                                    self.books[i].text = t
-                                }
-                                break
-                            }
-                        }
-                    }
-                }
-                // Load local voice catalog on startup (outside MainActor.run to allow await)
-                if state.selectedVoiceCatalog != .remote {
-                    if let catalog = await self?.loadLocalVoiceCatalog(state.selectedVoiceCatalog) {
-                        await MainActor.run { self?.voices = catalog }
-                    }
-                }
-            } else {
-                await MainActor.run {
-                    self?.loadPersistentLibrary()
-                }
-            }
-        }
+        loadState()
     }
 
     private func setupAudioSession() {
@@ -321,6 +224,27 @@ final class ReaderStore: NSObject, ObservableObject {
         let url = stateFileURL()
         guard let data = try? Data(contentsOf: url), let state = try? JSONDecoder().decode(ReaderState.self, from: data) else {
             loadPersistentLibrary()
+            // Migrate book texts from old JSON if any
+            if let jsonData = try? Data(contentsOf: url),
+               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                if let booksArray = json["books"] as? [[String: Any]] {
+                    for i in books.indices {
+                        for b in booksArray {
+                            guard let idStr = b["id"] as? String,
+                                  let id = UUID(uuidString: idStr),
+                                  id == books[i].id,
+                                  let t = b["text"] as? String, !t.isEmpty
+                            else { continue }
+                            let fileURL = textFileURL(forBookID: id)
+                            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                                try? t.write(to: fileURL, atomically: true, encoding: .utf8)
+                                books[i].text = t
+                            }
+                            break
+                        }
+                    }
+                }
+            }
             return
         }
         chapters = state.chapters
