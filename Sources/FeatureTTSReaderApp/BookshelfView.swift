@@ -537,7 +537,7 @@ struct BookDetailView: View {
                         ChapterListView(currentChapterID: nil) { chapter, index in
                             showChapterList = false
                             if readerNavigation != nil {
-                                store.externalChapterNavigate = (book.id, index)
+                                store.externalChapterNavigate = ChapterNavigate(bookID: book.id, chapterIndex: index)
                             } else {
                                 readerNavigation = ReaderNavigation(
                                     id: book.id,

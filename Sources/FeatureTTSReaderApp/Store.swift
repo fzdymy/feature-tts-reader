@@ -6,6 +6,11 @@ import MediaPlayer
 import NaturalLanguage
 
 @MainActor
+struct ChapterNavigate: Equatable {
+    let bookID: UUID
+    let chapterIndex: Int
+}
+
 final class ReaderStore: NSObject, ObservableObject {
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
@@ -15,7 +20,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var selectedVoiceCatalog: VoiceCatalogSource = .chinese35
     @Published var recommendations: [CharacterRecommendation] = []
     @Published var selectedChapterID: UUID?
-    @Published var externalChapterNavigate: (bookID: UUID, chapterIndex: Int)?
+    @Published var externalChapterNavigate: ChapterNavigate?
     @Published var statusMessage: String = "请导入小说或粘贴文本。"
     @Published var isBusy: Bool = false
     @Published var importProgress: Double = 0.0

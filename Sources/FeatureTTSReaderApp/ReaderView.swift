@@ -171,21 +171,21 @@ struct ReaderView: View {
                         }
                     }
                     .onChange(of: store.externalChapterNavigate) { nav in
-                        guard let (navBookID, navIndex) = nav, navBookID == bookID,
+                        guard let nav, nav.bookID == bookID,
                               let chapters = store.chaptersForBookCached(bookID),
-                              navIndex < chapters.count else { return }
+                              nav.chapterIndex < chapters.count else { return }
                         store.externalChapterNavigate = nil
                         suppressAutoLoad = true
-                        if navIndex < currentChapterIndex {
+                        if nav.chapterIndex < currentChapterIndex {
                             store.setChapterProgress(chapters[currentChapterIndex].id, percent: 1.0)
                         }
-                        currentChapter = chapters[navIndex]
-                        currentChapterIndex = navIndex
-                        anchorChapterIndex = navIndex
-                        displayedChapterIndex = navIndex
-                        displayedChapterTitle = chapters[navIndex].title
+                        currentChapter = chapters[nav.chapterIndex]
+                        currentChapterIndex = nav.chapterIndex
+                        anchorChapterIndex = nav.chapterIndex
+                        displayedChapterIndex = nav.chapterIndex
+                        displayedChapterTitle = chapters[nav.chapterIndex].title
                         reloadParagraphs()
-                        ReaderStore.saveLastChapterIndex(navIndex, for: bookID)
+                        ReaderStore.saveLastChapterIndex(nav.chapterIndex, for: bookID)
                         chapterTopID = UUID()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
                     }
