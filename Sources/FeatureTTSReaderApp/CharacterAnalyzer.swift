@@ -31,7 +31,7 @@ struct RelationshipEdge: Hashable {
 final class CharacterAnalyzer {
     private let tokenizer = NLTokenizer(unit: .word)
 
-    // MARK: - Name extraction (frequency + context + pattern)
+    // MARK: - Name extraction (tokenizer frequency + context + bigram merging)
     func extractNames(from text: String) -> [String] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var scores = [String: Int]()
@@ -39,61 +39,57 @@ final class CharacterAnalyzer {
         // 1. Tokenizer-based candidate extraction with frequency
         tokenizer.string = raw
         var tokenFreq = [String: Int]()
+        var tokenPositions: [(String, Int)] = []
+        var position = 0
         tokenizer.enumerateTokens(in: raw.startIndex..<raw.endIndex) { range, _ in
             let token = String(raw[range])
             let cleaned = token.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
             if cleaned.count >= 2 && cleaned.count <= 4,
                cleaned.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
                 tokenFreq[cleaned, default: 0] += 1
+                tokenPositions.append((cleaned, position))
             }
+            position += 1
             return true
         }
-        for (name, freq) in tokenFreq where freq >= 3 {
+        for (name, freq) in tokenFreq where freq >= 2 {
             if !isStopWord(name) {
                 scores[name, default: 0] += min(freq, 100)
             }
         }
 
-        // 2. Context regex patterns: XXX说/道/笑道/喊道/问道/怒道 etc
-        let speechPatterns = [
-            "([\\p{Han}]{2,4})(?=说[：:：])",
-            "([\\p{Han}]{2,4})(?=道[：:：])",
-            "([\\p{Han}]{2,4})(?=笑道[：:：])",
-            "([\\p{Han}]{2,4})(?=喊道[：:：])",
-            "([\\p{Han}]{2,4})(?=问道[：:：])",
-            "([\\p{Han}]{2,4})(?=怒道[：:：])",
-            "([\\p{Han}]{2,4})(?=哭道[：:：])",
-            "([\\p{Han}]{2,4})(?=叹道[：:：])",
-            "([\\p{Han}]{2,4})(?=轻声说[：:：])",
-            "([\\p{Han}]{2,4})(?=低声道[：:：])",
-            "([\\p{Han}]{2,4})(?=喃喃道[：:：])",
-            "([\\p{Han}]{2,4})(?=大叫[：:：])",
-            "([\\p{Han}]{2,4})(?=喝道[：:：])",
-            "([\\p{Han}]{2,4})(?=骂[：:：])",
-            "([\\p{Han}]{2,4})(?=问[：:：])",
-            "([\\p{Han}]{2,4})(?=答[：:：])",
-            "([\\p{Han}]{2,4})(?=應[：:：])",
-        ]
-        for pattern in speechPatterns {
-            for match in raw.ranges(of: pattern) {
-                let name = String(raw[match])
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 15
+        // 1b. Bigram merging: merge adjacent 2-char tokens into 4-char candidate names
+        var bigramFreq = [String: Int]()
+        for i in 0..<(tokenPositions.count - 1) {
+            let (a, posA) = tokenPositions[i]
+            let (b, posB) = tokenPositions[i + 1]
+            if posA + 1 == posB && a.count == 2 && b.count == 2 {
+                let merged = a + b
+                if merged.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
+                   !isStopWord(merged) {
+                    bigramFreq[merged, default: 0] += 1
                 }
             }
         }
+        for (name, freq) in bigramFreq where freq >= 2 {
+            scores[name, default: 0] += min(freq * 15, 100)
+        }
 
-        // 3. Title patterns: XXX先生/小姐/姑娘/公子/师父/师傅/少爷/太太/夫人
-        let titlePatterns = [
-            "([\\p{Han}]{2,4})(?=先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|兄台|贤弟|师妹|师姐|师兄|师弟)",
-            "([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|兄台|贤弟)",
-        ]
-        for pattern in titlePatterns {
-            for match in raw.ranges(of: pattern) {
-                let name = String(raw[match])
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 10
-                }
+        // 2. Context regex patterns covering more speech verbs
+        let speechVerbs = "说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
+        for match in raw.ranges(of: "([\\p{Han}]{2,4})\(speechVerbs)") {
+            let name = String(raw[match])
+            if name.count >= 2 && name.count <= 4 {
+                scores[name, default: 0] += 15
+            }
+        }
+
+        // 3. Title patterns
+        let titles = "先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|兄台|贤弟|师妹|师姐|师兄|师弟|掌门|教主|帮主|盟主|庄主|岛主|前辈|姑娘|婆婆|姥姥|老爷子|老人家"
+        for match in raw.ranges(of: "([\\p{Han}]{2,4})(?=\(titles))") {
+            let name = String(raw[match])
+            if name.count >= 2 && name.count <= 4 {
+                scores[name, default: 0] += 12
             }
         }
 
@@ -110,61 +106,87 @@ final class CharacterAnalyzer {
             return true
         }
 
-        // 5. Dialogue-based name detection: names before quoted speech
-        let dialogueBeforePatterns = [
-            "([\\p{Han}]{2,4})[：:\\s]*[「\\u201c\\u300c]",
-            "([\\p{Han}]{2,4})[：:\\s]*[\"\\u201c]",
-        ]
-        for pattern in dialogueBeforePatterns {
-            for match in raw.ranges(of: pattern) {
-                let name = String(raw[match])
-                    .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-                    .replacingOccurrences(of: "：", with: "").replacingOccurrences(of: ":", with: "")
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 10
+        // 5. Dialogue-based name detection (before quotes)
+        for match in raw.ranges(of: "([\\p{Han}]{2,4})[：:\\s]*[「\\u300c\\u201c]") {
+            let rawName = String(raw[match])
+            let name = rawName.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+                .replacingOccurrences(of: "：", with: "").replacingOccurrences(of: ":", with: "")
+            if name.count >= 2 && name.count <= 4 {
+                scores[name, default: 0] += 10
+            }
+        }
+
+        // 6. Chapter title names: first 2-4 Han of chapter title lines
+        for line in raw.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.count >= 2 && trimmed.count <= 15 {
+                let digits = "第[一二三四五六七八九十百千零\\d]+[章回节]"
+                if let _ = try? NSRegularExpression(pattern: "^\(digits).*").firstMatch(in: trimmed, options: [], range: NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)) {
+                    let cleaned = trimmed
+                        .replacingOccurrences(of: "^\(digits)", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+                    if cleaned.count >= 2 && cleaned.count <= 4 {
+                        scores[cleaned, default: 0] += 5
+                    }
                 }
             }
         }
 
         // Filter and sort by score
-        let minScore = 5
+        let minScore = 6
         let sorted = scores.filter { $0.value >= minScore }.sorted { $0.value > $1.value }
-        return sorted.prefix(20).map(\.key)
+        return sorted.prefix(30).map(\.key)
     }
 
     // MARK: - Dialogue detection
     func detectDialogues(in text: String) -> [DialogueMatch] {
         var results: [DialogueMatch] = []
+        var lastKnownSpeaker: String?
 
-        let pattern = "[「\\u300c]([^」\\u300d]+)[」\\u300d]|[\"\\u201c]([^\"\\u201d]+)[\"\\u201d]"
-        for match in text.ranges(of: pattern) {
-            let segment = String(text[match])
-            let content = segment
-                .replacingOccurrences(of: "[「\\u300c]", with: "", options: .regularExpression)
-                .replacingOccurrences(of: "[」\\u300d]", with: "", options: .regularExpression)
-                .replacingOccurrences(of: "[\"\\u201c]", with: "", options: .regularExpression)
-                .replacingOccurrences(of: "[\"\\u201d]", with: "", options: .regularExpression)
+        let quotePatterns = [
+            "[「\\u300c]([^」\\u300d]+)[」\\u300d]",
+            "['\\u2018]([^'\\u2019]+)['\\u2019]",
+            "[\"\\u201c]([^\"\\u201d]+)[\"\\u201d]",
+            "[『\\u300e]([^』\\u300f]+)[』\\u300f]",
+        ]
+        for pattern in quotePatterns {
+            for match in text.ranges(of: pattern) {
+                guard match.lowerBound >= text.startIndex else { continue }
+                let segment = String(text[match])
+                let content = segment
+                    .replacingOccurrences(of: "^[「\\u300c'\\u2018\"\\u201c『\\u300e]", with: "", options: .regularExpression)
+                    .replacingOccurrences(of: "[」\\u300d'\\u2019\"\\u201d』\\u300f]$", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if content.isEmpty { continue }
 
-            let before = text[text.startIndex..<match.lowerBound]
-            let speaker = inferSpeakerFromContext(String(before))
-            results.append(DialogueMatch(speaker: speaker, content: content, range: match))
+                let before = text[text.startIndex..<match.lowerBound]
+                if let speaker = inferSpeakerFromContext(String(before)) {
+                    lastKnownSpeaker = speaker
+                }
+                results.append(DialogueMatch(speaker: lastKnownSpeaker, content: content, range: match))
+            }
         }
         return results
     }
 
     private func inferSpeakerFromContext(_ precedingText: String) -> String? {
-        let context = String(precedingText.suffix(60))
-        let patterns = [
-            "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|轻声说|低声道|喃喃道|大叫|喝道|骂|问|答|應)[：:]*$",
-            "([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人)[：:]*$",
-        ]
-        for pattern in patterns {
-            if let match = context.ranges(of: pattern).last {
-                let name = String(context[match])
-                    .replacingOccurrences(of: "[：:说笑道喊问道怒哭叹轻低喃大叫喝骂问答應]", with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-                if name.count >= 2 && name.count <= 4 { return name }
-            }
+        let context = String(precedingText.suffix(100))
+        let speechVerbs = "说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
+        // "XXX说/道/etc" followed by optional colon at end of preceding text
+        if let match = context.ranges(of: "([\\p{Han}]{2,4})(?:\(speechVerbs))[：:]*$").last {
+            let raw = String(context[match])
+            let name = raw
+                .replacingOccurrences(of: "(?:\(speechVerbs))[：:]*$", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+            if name.count >= 2 && name.count <= 4 { return name }
+        }
+        // "XXX" followed by title suffix at end of preceding text
+        if let match = context.ranges(of: "([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|前辈|掌门|教主)[：:]*$").last {
+            let raw = String(context[match])
+            let name = raw
+                .replacingOccurrences(of: "(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|前辈|掌门|教主)[：:]*$", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+            if name.count >= 2 && name.count <= 4 { return name }
         }
         return nil
     }
@@ -196,13 +218,29 @@ final class CharacterAnalyzer {
         var cooccurrence: [String: [String: Int]] = [:]
         let paragraphs = text.components(separatedBy: "\n")
 
-        // Paragraph-level co-occurrence
+        // Paragraph-level co-occurrence with sliding window
         for para in paragraphs where para.count < 2000 {
-            let paraNames = extractNamesInParagraph(para, nameSet: nameSet)
-            let sorted = paraNames.sorted()
-            for i in 0..<sorted.count {
-                for j in (i+1)..<sorted.count {
-                    cooccurrence[sorted[i], default: [:]][sorted[j], default: 0] += 2
+            let paraNames = extractNamesInParagraph(para, nameSet: nameSet).sorted()
+            if paraNames.count >= 2 {
+                let windowSize = 100
+                var pos = para.startIndex
+                while pos < para.endIndex {
+                    let end = para.index(pos, offsetBy: windowSize, limitedBy: para.endIndex) ?? para.endIndex
+                    let window = String(para[pos..<end])
+                    let windowNames = extractNamesInParagraph(window, nameSet: nameSet).sorted()
+                    for i in 0..<windowNames.count {
+                        for j in (i+1)..<windowNames.count {
+                            cooccurrence[windowNames[i], default: [:]][windowNames[j], default: 0] += 3
+                            cooccurrence[windowNames[j], default: [:]][windowNames[i], default: 0] += 3
+                        }
+                    }
+                    pos = para.index(pos, offsetBy: max(1, para.distance(from: pos, to: end) / 2), limitedBy: para.endIndex) ?? para.endIndex
+                }
+            }
+            for i in 0..<paraNames.count {
+                for j in (i+1)..<paraNames.count {
+                    cooccurrence[paraNames[i], default: [:]][paraNames[j], default: 0] += 1
+                    cooccurrence[paraNames[j], default: [:]][paraNames[i], default: 0] += 1
                 }
             }
         }
@@ -264,57 +302,89 @@ final class CharacterAnalyzer {
     }
 
     func analyzeSentenceTone(_ line: String) -> ToneResult {
+        let angryWords = ["怒", "愤", "恨", "吼", "骂", "怒道", "喝道", "呵斥", "训斥", "喝道", "怒喝"]
+        let sadWords = ["叹", "悲", "哭", "哀", "泣", "叹道", "哭道", "轻声", "低声", "哽咽", "啜泣", "悲伤", "凄凉"]
+        let cheerfulWords = ["笑", "喜", "欢", "乐", "开心", "笑道", "莞尔", "玩笑", "高兴"]
+
         if line.contains("！") && !line.contains("？") {
-            for w in ["怒", "愤", "恨", "吼", "骂", "怒道", "喝道"] where line.contains(w) {
+            for w in angryWords where line.contains(w) {
                 return ToneResult(style: "angry", pitchAdjust: 12, rateAdjust: 10)
+            }
+            for w in cheerfulWords where line.contains(w) {
+                return ToneResult(style: "cheerful", pitchAdjust: 8, rateAdjust: 5)
             }
             return ToneResult(style: "cheerful", pitchAdjust: 8, rateAdjust: 5)
         }
         if line.contains("？") || line.contains("?") {
             return ToneResult(style: "neutral", pitchAdjust: 5, rateAdjust: 0)
         }
-        for w in ["叹", "悲", "哭", "哀", "泣", "叹道", "哭道", "轻声", "低声"] where line.contains(w) {
+        for w in angryWords where line.contains(w) {
+            return ToneResult(style: "angry", pitchAdjust: 12, rateAdjust: 10)
+        }
+        for w in sadWords where line.contains(w) {
             return ToneResult(style: "sad", pitchAdjust: -8, rateAdjust: -8)
+        }
+        for w in cheerfulWords where line.contains(w) {
+            return ToneResult(style: "cheerful", pitchAdjust: 8, rateAdjust: 5)
         }
         return ToneResult(style: "neutral", pitchAdjust: 0, rateAdjust: 0)
     }
 
     // MARK: - Private helpers
     private func inferGender(from context: String) -> String {
-        let ctx = context
-        if ctx.contains("小姐") || ctx.contains("姑娘") || ctx.contains("她") || ctx.contains("母亲") ||
-           ctx.contains("姐姐") || ctx.contains("妹妹") || ctx.contains("老婆") || ctx.contains("太太") ||
-           ctx.contains("闺女") || ctx.contains("妇人") || ctx.contains("婶婶") || ctx.contains("奶奶") ||
-           ctx.contains("姥姥") || ctx.contains("女士") || ctx.contains("女儿") || ctx.contains("公主") ||
-           ctx.contains("贵妃") || ctx.contains("皇后") || ctx.contains("太后") || ctx.contains("女侠") ||
-           ctx.contains("少女") || ctx.contains("女童") || ctx.contains("师妹") || ctx.contains("师姐") {
+        if context.contains("她") || context.contains("母亲") || context.contains("娘") ||
+           context.contains("小姐") || context.contains("姑娘") || context.contains("姐姐") ||
+           context.contains("妹妹") || context.contains("老婆") || context.contains("太太") ||
+           context.contains("闺女") || context.contains("妇人") || context.contains("婶婶") ||
+           context.contains("奶奶") || context.contains("姥姥") || context.contains("女士") ||
+           context.contains("女儿") || context.contains("公主") || context.contains("贵妃") ||
+           context.contains("皇后") || context.contains("太后") || context.contains("女侠") ||
+           context.contains("少女") || context.contains("女童") || context.contains("师妹") ||
+           context.contains("师姐") || context.contains("女眷") || context.contains("女子") ||
+           context.contains("女人") || context.contains("母") {
             return "女性"
         }
-        if ctx.contains("先生") || ctx.contains("公子") || ctx.contains("哥哥") || ctx.contains("弟弟") ||
-           ctx.contains("丈夫") || ctx.contains("小伙") || ctx.contains("大叔") || ctx.contains("大爷") ||
-           ctx.contains("伯伯") || ctx.contains("叔叔") || ctx.contains("少爷") || ctx.contains("儿子") ||
-           ctx.contains("他") || ctx.contains("兄弟") || ctx.contains("陛下") || ctx.contains("王爷") ||
-           ctx.contains("将军") || ctx.contains("丞相") || ctx.contains("兄台") || ctx.contains("贤弟") ||
-           ctx.contains("师兄") || ctx.contains("师弟") || ctx.contains("道长") {
+        if context.contains("他") || context.contains("先生") || context.contains("公子") ||
+           context.contains("哥哥") || context.contains("弟弟") || context.contains("丈夫") ||
+           context.contains("小伙") || context.contains("大叔") || context.contains("大爷") ||
+           context.contains("伯伯") || context.contains("叔叔") || context.contains("少爷") ||
+           context.contains("儿子") || context.contains("兄弟") || context.contains("陛下") ||
+           context.contains("王爷") || context.contains("将军") || context.contains("丞相") ||
+           context.contains("兄台") || context.contains("贤弟") || context.contains("师兄") ||
+           context.contains("师弟") || context.contains("道长") || context.contains("掌门") ||
+           context.contains("教主") || context.contains("帮主") || context.contains("庄主") ||
+           context.contains("男人") || context.contains("男子") || context.contains("汉子") ||
+           context.contains("父") || context.contains("爹") || context.contains("爷") {
             return "男性"
         }
         return "未知"
     }
 
     private func inferAge(from context: String) -> String {
-        if context.contains("小孩") || context.contains("孩子") || context.contains("孩童") || context.contains("幼") || context.contains("小儿") || context.contains("小童") {
+        if context.contains("小孩") || context.contains("孩子") || context.contains("孩童") ||
+           context.contains("幼") || context.contains("小儿") || context.contains("小童") ||
+           context.contains("婴儿") || context.contains("儿童") || context.contains("娃娃") {
             return "少年"
         }
-        if context.contains("少女") || context.contains("小姐") || context.contains("姑娘") || context.contains("女童") || context.contains("女侠") {
+        if context.contains("少女") || context.contains("小姐") || context.contains("姑娘") ||
+           context.contains("女童") || context.contains("女侠") || context.contains("丫头") ||
+           context.contains("丫鬟") || context.contains("侍婢") || context.contains("侍女") {
             return "少女"
         }
-        if context.contains("少年") || context.contains("青年") || context.contains("年轻") || context.contains("小伙") {
+        if context.contains("少年") || context.contains("青年") || context.contains("年轻") ||
+           context.contains("小伙") || context.contains("公子") || context.contains("少侠") {
             return "青年"
         }
-        if context.contains("中年") || context.contains("师傅") || context.contains("大人") || context.contains("师父") {
+        if context.contains("中年") || context.contains("师傅") || context.contains("大人") ||
+           context.contains("师父") || context.contains("大叔") || context.contains("伯伯") ||
+           context.contains("叔叔") || context.contains("婶婶") || context.contains("夫人") ||
+           context.contains("太太") || context.contains("妇人") {
             return "中年"
         }
-        if context.contains("年迈") || context.contains("老太") || context.contains("老人") || context.contains("老翁") || context.contains("老者") || context.contains("老年") || context.contains("婆婆") {
+        if context.contains("年迈") || context.contains("老太") || context.contains("老人") ||
+           context.contains("老翁") || context.contains("老者") || context.contains("老年") ||
+           context.contains("婆婆") || context.contains("姥姥") || context.contains("奶奶") ||
+           context.contains("大爷") || context.contains("老爷子") || context.contains("老人家") {
             return "年长"
         }
         return "未知"
@@ -342,8 +412,8 @@ final class CharacterAnalyzer {
     }
 
     private func isStopWord(_ word: String) -> Bool {
-        let stops = ["第一", "第二", "第三", "第十", "最后", "开始", "结束", "不过", "突然", "然后", "但是", "因为", "所以", "虽然", "如果", "可是", "只是", "就是", "还是", "这个", "那个", "什么", "怎么", "这样", "那样", "这些", "那些", "这里", "那里", "时候", "以后", "之前", "没有", "不是", "自己", "他们", "她们", "你们", "我们", "大家", "一切", "一个", "一种", "别的", "各自", "对面", "眼前", "面前", "身后", "背后", "手中", "脚下", "天上", "地下", "心中", "脸上", "眼里", "嘴里", "身上", "头上", "手中", "脚下", "晚上", "上午", "下午", "方才", "刚才", "此刻", "现在", "原来", "本来", "起来", "出来", "过来", "回来", "进去", "出去", "看见", "看到", "听见", "听到", "知道", "觉得", "感觉", "有点", "有些", "十分", "非常", "特别", "更加", "稍微", "轻轻", "慢慢", "渐渐", "终于", "从未", "从未", "已然", "尚未", "已经", "曾经", "就要", "就要", "还是", "就是", "只是", "可是", "但是", "因为", "所以", "虽然", "如果", "不过", "而且", "并且", "或者", "还是", "不但", "不仅", "甚至", "连同", "以及"]
-        return stops.contains(word) || word.hasPrefix("第") || word.hasSuffix("章") || word.hasPrefix("不") || word.hasPrefix("这") || word.hasPrefix("那") || word.hasPrefix("什") || word.hasPrefix("我") || word.hasPrefix("你")
+        let stops = Set(["第一", "第二", "第三", "第四", "第五", "第十", "最后", "开始", "结束", "不过", "突然", "然后", "但是", "因为", "所以", "虽然", "如果", "可是", "只是", "就是", "还是", "这个", "那个", "什么", "怎么", "这样", "那样", "这些", "那些", "这里", "那里", "时候", "以后", "之前", "没有", "不是", "自己", "他们", "她们", "你们", "我们", "大家", "一切", "一个", "一种", "别的", "各自", "对面", "眼前", "面前", "身后", "背后", "手中", "脚下", "天上", "地下", "心中", "脸上", "眼里", "嘴里", "身上", "头上", "晚上", "上午", "下午", "方才", "刚才", "此刻", "现在", "原来", "本来", "起来", "出来", "过来", "回来", "进去", "出去", "看见", "看到", "听见", "听到", "知道", "觉得", "感觉", "有点", "有些", "十分", "非常", "特别", "更加", "稍微", "轻轻", "慢慢", "渐渐", "终于", "从未", "已然", "尚未", "已经", "曾经", "就要", "还是", "就是", "只是", "可是", "但是", "因为", "所以", "虽然", "如果", "不过", "而且", "并且", "或者", "不但", "不仅", "甚至", "连同", "以及", "全都", "全部", "凡是", "各位", "诸位", "自从", "由于", "关于", "对于", "根据"])
+        return stops.contains(word) || word.hasPrefix("第") || word.hasSuffix("章") || word.hasSuffix("回") || word.hasSuffix("节") || word.hasPrefix("这") || word.hasPrefix("那") || word.hasPrefix("什") || word.hasPrefix("我") || word.hasPrefix("你")
     }
 }
 
