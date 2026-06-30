@@ -593,35 +593,37 @@ struct BookDetailView: View {
             .onAppear {
                 store.currentBookID = book.id.uuidString
                 store.currentBookTitle = book.title
-                // Load chapters from cache or per-book file (preserves UUIDs)
-                let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+                // Use cached chapters if available (preserves UUIDs)
                 if let cached = store.bookChaptersCache[book.id] {
                     chapters = cached
-                    if !text.isEmpty { store.bookText = text }
-                } else if let saved = store.loadChaptersFromFile(bookID: book.id) {
-                    chapters = saved
-                    store.bookChaptersCache[book.id] = saved
-                    if !text.isEmpty { store.bookText = text }
-                } else {
-                    // First time: extract from text
-                    Task {
-                        let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
-                        guard !text.isEmpty else {
-                            store.statusMessage = "文本文件不存在，请重新导入。"
-                            return
-                        }
-                        let parsed: [BookChapter] = await withCheckedContinuation { continuation in
-                            DispatchQueue.global(qos: .userInitiated).async {
-                                let result = store.extractChapters(from: text)
-                                continuation.resume(returning: result)
-                            }
-                        }
-                        chapters = parsed
-                        store.chapters = parsed
-                        store.bookText = text
-                        store.bookChaptersCache[book.id] = parsed
-                        store.saveChaptersToFile(bookID: book.id)
+                    store.chapters = cached
+                    store.bookIDForChapters = book.id
+                    return
+                }
+                // If store.chapters already belongs to this book, use as-is
+                if store.bookIDForChapters == book.id && !store.chapters.isEmpty {
+                    chapters = store.chapters
+                    store.bookChaptersCache[book.id] = store.chapters
+                    return
+                }
+                // First time this book in this session: load text and extract chapters
+                Task {
+                    let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+                    guard !text.isEmpty else {
+                        store.statusMessage = "文本文件不存在，请重新导入。"
+                        return
                     }
+                    let parsed: [BookChapter] = await withCheckedContinuation { continuation in
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            let result = store.extractChapters(from: text)
+                            continuation.resume(returning: result)
+                        }
+                    }
+                    chapters = parsed
+                    store.chapters = parsed
+                    store.bookIDForChapters = book.id
+                    store.bookText = text
+                    store.bookChaptersCache[book.id] = parsed
                 }
             }
         }

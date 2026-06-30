@@ -200,7 +200,6 @@ struct ReaderView: View {
             }
             updateBatteryLevel()
             store.selectedChapterID = currentChapter.id
-            ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
             if let savedBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
                 screenBrightness = savedBrightness
