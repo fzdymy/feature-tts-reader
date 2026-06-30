@@ -536,11 +536,15 @@ struct BookDetailView: View {
                     .sheet(isPresented: $showChapterList) {
                         ChapterListView(currentChapterID: nil) { chapter, index in
                             showChapterList = false
-                            readerNavigation = ReaderNavigation(
-                                id: book.id,
-                                chapter: chapter,
-                                chapterIndex: index
-                            )
+                            if readerNavigation != nil {
+                                store.externalChapterNavigate = (book.id, index)
+                            } else {
+                                readerNavigation = ReaderNavigation(
+                                    id: book.id,
+                                    chapter: chapter,
+                                    chapterIndex: index
+                                )
+                            }
                         }
                         .environmentObject(store)
                     }

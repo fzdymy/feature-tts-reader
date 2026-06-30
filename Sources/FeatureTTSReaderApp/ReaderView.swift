@@ -48,6 +48,7 @@ struct ReaderView: View {
         self._currentChapterIndex = State(initialValue: chapterIndex)
         self._anchorChapterIndex = State(initialValue: chapterIndex)
         self._displayedChapterTitle = State(initialValue: chapter.title)
+        self._displayedChapterIndex = State(initialValue: chapterIndex)
     }
 
     static func splitParagraphs(_ text: String) -> [String] {
@@ -89,6 +90,7 @@ struct ReaderView: View {
 
     @State private var anchorChapterIndex: Int = 0
     @State private var displayedChapterTitle: String = ""
+    @State private var displayedChapterIndex: Int = 0
     @State private var showBookmarks: Bool = false
     @State private var showSettings: Bool = false
     @State private var showFontPicker: Bool = false
@@ -137,6 +139,13 @@ struct ReaderView: View {
                             ForEach(paragraphItems) { item in
                                 ParagraphText(text: item.text, textColor: textColor, backgroundColor: backgroundColor)
                                     .onAppear {
+                                        if item.chapterIndex != displayedChapterIndex {
+                                            displayedChapterIndex = item.chapterIndex
+                                            if let chapters = store.chaptersForBookCached(bookID),
+                                               item.chapterIndex < chapters.count {
+                                                displayedChapterTitle = chapters[item.chapterIndex].title
+                                            }
+                                        }
                                         guard !suppressAutoLoad else { return }
                                         if item.id == paragraphItems.last?.id {
                                             appendNextChapter()
@@ -160,6 +169,25 @@ struct ReaderView: View {
                         } else {
                             proxy.scrollTo("chapter-top", anchor: .top)
                         }
+                    }
+                    .onChange(of: store.externalChapterNavigate) { nav in
+                        guard let (navBookID, navIndex) = nav, navBookID == bookID,
+                              let chapters = store.chaptersForBookCached(bookID),
+                              navIndex < chapters.count else { return }
+                        store.externalChapterNavigate = nil
+                        suppressAutoLoad = true
+                        if navIndex < currentChapterIndex {
+                            store.setChapterProgress(chapters[currentChapterIndex].id, percent: 1.0)
+                        }
+                        currentChapter = chapters[navIndex]
+                        currentChapterIndex = navIndex
+                        anchorChapterIndex = navIndex
+                        displayedChapterIndex = navIndex
+                        displayedChapterTitle = chapters[navIndex].title
+                        reloadParagraphs()
+                        ReaderStore.saveLastChapterIndex(navIndex, for: bookID)
+                        chapterTopID = UUID()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
                     }
                 }
             }
@@ -222,6 +250,10 @@ struct ReaderView: View {
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             ReaderStore.saveLastChapterIndex(anchorChapterIndex, for: bookID)
+            if let chapters = store.chaptersForBookCached(bookID),
+               anchorChapterIndex < chapters.count {
+                store.setChapterProgress(chapters[anchorChapterIndex].id, percent: 1.0)
+            }
             store.saveState()
             if !useSystemBrightness {
                 UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
@@ -450,6 +482,7 @@ struct ReaderView: View {
         guard !paras.isEmpty else { return }
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
         displayedChapterTitle = next.title
+        displayedChapterIndex = lastLoaded + 1
         ReaderStore.debugLog("[APPEND] bookID=\(bookID.uuidString) index=\(lastLoaded + 1)")
         store.setChapterProgress(chapters[lastLoaded].id, percent: 1.0)
     }

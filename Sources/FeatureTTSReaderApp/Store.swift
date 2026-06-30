@@ -15,6 +15,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var selectedVoiceCatalog: VoiceCatalogSource = .chinese35
     @Published var recommendations: [CharacterRecommendation] = []
     @Published var selectedChapterID: UUID?
+    @Published var externalChapterNavigate: (bookID: UUID, chapterIndex: Int)?
     @Published var statusMessage: String = "请导入小说或粘贴文本。"
     @Published var isBusy: Bool = false
     @Published var importProgress: Double = 0.0
