@@ -331,6 +331,16 @@ final class CharacterAnalyzer {
         return "平稳"
     }
 
+    private func styleFromToneName(_ tone: String) -> String {
+        switch tone {
+        case "激昂": return "angry"
+        case "疑问": return "neutral"
+        case "温柔": return "sad"
+        case "轻松": return "cheerful"
+        default: return "neutral"
+        }
+    }
+
     private func isStopWord(_ word: String) -> Bool {
         let stops = ["第一", "第二", "第三", "第十", "最后", "开始", "结束", "不过", "突然", "然后", "但是", "因为", "所以", "虽然", "如果", "可是", "只是", "就是", "还是", "这个", "那个", "什么", "怎么", "这样", "那样", "这些", "那些", "这里", "那里", "时候", "以后", "之前", "没有", "不是", "自己", "他们", "她们", "你们", "我们", "大家", "一切", "一个", "一种", "别的", "各自", "对面", "眼前", "面前", "身后", "背后", "手中", "脚下", "天上", "地下", "心中", "脸上", "眼里", "嘴里", "身上", "头上", "手中", "脚下", "晚上", "上午", "下午", "方才", "刚才", "此刻", "现在", "原来", "本来", "起来", "出来", "过来", "回来", "进去", "出去", "看见", "看到", "听见", "听到", "知道", "觉得", "感觉", "有点", "有些", "十分", "非常", "特别", "更加", "稍微", "轻轻", "慢慢", "渐渐", "终于", "从未", "从未", "已然", "尚未", "已经", "曾经", "就要", "就要", "还是", "就是", "只是", "可是", "但是", "因为", "所以", "虽然", "如果", "不过", "而且", "并且", "或者", "还是", "不但", "不仅", "甚至", "连同", "以及"]
         return stops.contains(word) || word.hasPrefix("第") || word.hasSuffix("章") || word.hasPrefix("不") || word.hasPrefix("这") || word.hasPrefix("那") || word.hasPrefix("什") || word.hasPrefix("我") || word.hasPrefix("你")
