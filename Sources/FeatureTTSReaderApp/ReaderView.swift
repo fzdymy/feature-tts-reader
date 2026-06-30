@@ -439,7 +439,6 @@ struct ReaderView: View {
         currentChapterIndex = lastLoaded + 1
         currentChapter = next
         ReaderStore.debugLog("[APPEND] bookID=\(bookID.uuidString) index=\(currentChapterIndex)")
-        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
         store.setChapterProgress(chapters[previousIndex].id, percent: 1.0)
     }
 
@@ -457,7 +456,6 @@ struct ReaderView: View {
         paragraphItems.insert(contentsOf: newItems, at: 0)
         currentChapterIndex = firstLoaded - 1
         currentChapter = prev
-        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
     }
 
     private func updateBatteryLevel() {

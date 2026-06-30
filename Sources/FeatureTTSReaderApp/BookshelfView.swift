@@ -419,7 +419,7 @@ struct BookDetailView: View {
     @State private var showCharacterEditor = false
 
     struct ReaderNavigation: Identifiable {
-        let id = UUID()
+        let id: UUID
         let chapter: BookChapter
         let chapterIndex: Int
     }
@@ -503,6 +503,7 @@ struct BookDetailView: View {
                         let safeIndex = min(saved, chaps.count - 1)
                         ReaderStore.debugLog("[BUTTON] book.id=\(book.id.uuidString) saved=\(saved) chaps.count=\(chaps.count) safeIndex=\(safeIndex)")
                         readerNavigation = ReaderNavigation(
+                            id: book.id,
                             chapter: chaps[safeIndex],
                             chapterIndex: safeIndex
                         )
