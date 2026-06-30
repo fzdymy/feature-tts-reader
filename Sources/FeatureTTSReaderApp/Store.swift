@@ -322,10 +322,11 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
             }
 
-            loadPersistentLibrary()
             if !bookText.isEmpty {
                 updateRecommendations(from: bookText)
             }
+        }
+    }
         }
     }
 

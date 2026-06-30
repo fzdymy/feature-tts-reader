@@ -527,12 +527,6 @@ struct BookDetailView: View {
                         ).environmentObject(store)
                     }
 
-                    NavigationLink(destination: ChapterListView()
-                        .environmentObject(store)
-                    ) {
-                        Label("章节目录", systemImage: "list.bullet")
-                    }
-
                     NavigationLink(destination: ReaderSettingsView()
                         .environmentObject(store)
                     ) {
