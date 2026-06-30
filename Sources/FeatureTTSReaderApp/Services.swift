@@ -37,14 +37,14 @@ actor TTSHttpClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30
 
-    var body: [String: Any] = [
-        "text": text,
-        "voice": voice,
-        "short_name": voice,
-        "rate": rate,
-        "pitch": pitch,
-        "style": style
-    ]
+        var body: [String: Any] = [
+            "text": text,
+            "voice": voice,
+            "short_name": voice,
+            "rate": "\(rate)",
+            "pitch": "\(pitch)",
+            "style": style
+        ]
         if let apiKey = apiKey, !apiKey.isEmpty {
             body["api_key"] = apiKey
         }
