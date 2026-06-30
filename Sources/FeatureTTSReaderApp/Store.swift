@@ -816,7 +816,7 @@ final class ReaderStore: NSObject, ObservableObject {
             updateRecommendations(from: targetText)
 
             if targetText.count > 10000 {
-                let edges = Self.buildRelationshipGraph(in: targetText, characterNames: characters.map(\.name))
+                let edges = CharacterAnalyzer().buildRelationshipGraph(text: targetText, characterNames: characters.map(\.name))
                 if !edges.isEmpty {
                     statusMessage = (statusMessage ?? "") + " 关系图: \(edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
                 }
@@ -1217,32 +1217,7 @@ final class ReaderStore: NSObject, ObservableObject {
         var names = OrderedSet<String>()
 
         let analyzer = CharacterAnalyzer()
-        let mlNames = analyzer.extractNames(from: raw)
-        for n in mlNames { names.append(n) }
-
-        let namePatterns = [
-            "([\\p{Han}]{2,4})(?=先生|小姐|姑娘|公子|师父|师傅|少爷|哥|姐|太太|夫人)",
-            "([\\p{Han}]{2,4})(?=笑道|说道|问道|喊道|低声说|轻声说|轻声道|说道|道)",
-            "([\\p{Han}]{2,4})(?=说|问|叫|喝|笑)",
-            "([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|太太|夫人)"
-        ]
-
-        for pattern in namePatterns {
-            for match in raw.regexGroups(pattern: pattern) {
-                if let name = match.first?.trimmingCharacters(in: .whitespacesAndNewlines), name.count >= 2, name.count <= 4 {
-                    names.append(name)
-                }
-            }
-        }
-
-        let wordPattern = "([\\p{Han}]{2,4})[，。？！；、 ]"
-        for match in raw.regexGroups(pattern: wordPattern) {
-            if let candidate = match.first?.trimmingCharacters(in: .whitespacesAndNewlines), candidate.count >= 2, candidate.count <= 4 {
-                if !candidate.hasPrefix("第") && !candidate.hasSuffix("章") {
-                    names.append(candidate)
-                }
-            }
-        }
+        for n in analyzer.extractNames(from: raw) { names.append(n) }
 
         // Analyze narrator patterns - text that is not dialogue
         let narratorIndicators = detectNarratorPatterns(in: raw)
@@ -1450,63 +1425,12 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func countCharacterAppearances(in text: String) -> [String: Int] {
-        let result = Self.countCharacterAppearances(in: text, characterNames: characters.map(\.name))
+        let result = CharacterAnalyzer().countAppearances(text: text, characterNames: characters.map(\.name))
         return Dictionary(uniqueKeysWithValues: result.map { ($0.name, $0.count) })
     }
 
-    struct RelationshipEdge: Hashable {
-        let source: String
-        let target: String
-        var weight: Int
-    }
-
     func buildRelationshipGraph(in text: String) -> [RelationshipEdge] {
-        Self.buildRelationshipGraph(in: text, characterNames: characters.map(\.name))
-    }
-
-    nonisolated static func countCharacterAppearances(in text: String, characterNames: [String]) -> [(name: String, count: Int)] {
-        let tokenizer = NLTokenizer(unit: .word)
-        tokenizer.string = text
-        var counts: [String: Int] = [:]
-        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-            let token = String(text[range])
-            if characterNames.contains(token) {
-                counts[token, default: 0] += 1
-            }
-            return true
-        }
-        return characterNames.map { ($0, counts[$0] ?? 0) }
-    }
-
-    nonisolated static func buildRelationshipGraph(in text: String, characterNames: [String]) -> [RelationshipEdge] {
-        let nameSet = Set(characterNames)
-        var cooccurrence: [String: [String: Int]] = [:]
-        let paragraphs = text.components(separatedBy: "\n")
-        let tokenizer = NLTokenizer(unit: .word)
-        for para in paragraphs where para.count < 2000 {
-            tokenizer.string = para
-            var paraNames: Set<String> = []
-            tokenizer.enumerateTokens(in: para.startIndex..<para.endIndex) { range, _ in
-                let token = String(para[range])
-                if nameSet.contains(token) {
-                    paraNames.insert(token)
-                }
-                return true
-            }
-            let sorted = paraNames.sorted()
-            for i in 0..<sorted.count {
-                for j in (i+1)..<sorted.count {
-                    cooccurrence[sorted[i], default: [:]][sorted[j], default: 0] += 1
-                }
-            }
-        }
-        var edges: [RelationshipEdge] = []
-        for (source, targets) in cooccurrence {
-            for (target, weight) in targets {
-                edges.append(RelationshipEdge(source: source, target: target, weight: weight))
-            }
-        }
-        return edges.sorted { $0.weight > $1.weight }
+        CharacterAnalyzer().buildRelationshipGraph(text: text, characterNames: characters.map(\.name))
     }
 
     func defaultVoiceItems() -> [VoiceItem] {
