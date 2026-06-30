@@ -671,6 +671,20 @@ final class ReaderStore: NSObject, ObservableObject {
         return docs.appendingPathComponent("tts_reader_state.json")
     }
 
+    static func saveLastChapterIndex(_ index: Int, for bookID: UUID) {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let url = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
+        try? "\(index)".write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    static func loadLastChapterIndex(for bookID: UUID) -> Int {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let url = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
+        guard let data = try? String(contentsOf: url, encoding: .utf8),
+              let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) else { return 0 }
+        return index
+    }
+
     private func readDataFromURL(_ url: URL) async throws -> Data {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
