@@ -75,7 +75,7 @@ struct SettingsView: View {
             List {
                 // MARK: - TTS 服务
                 Section(header: Text("TTS 服务设置")) {
-                    TextField("TTS 服务地址，例如 http://127.0.0.1:8080", text: $localEndpoint)
+                    TextField("TTS 服务地址，例如 https://example.com/tts", text: $localEndpoint)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .submitLabel(.done)
@@ -84,7 +84,7 @@ struct SettingsView: View {
                             endpointTask?.cancel()
                             endpointTask = Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiEndpoint = localEndpoint }
                         }
-                    SecureField("API Key（可选）", text: $localAPIKey)
+                    SecureField("API Key（选填）", text: $localAPIKey)
                         .textContentType(.password)
                         .submitLabel(.done)
                         .onSubmit { store.apiKey = localAPIKey }
@@ -102,7 +102,7 @@ struct SettingsView: View {
                     .onChange(of: store.selectedVoiceCatalog) { _ in
                         Task { try? await Task.sleep(nanoseconds: 100_000_000); await store.refreshVoices() }
                     }
-                    Text("选择音色库：远程服务从 TTS API 获取，本地音色从内置 json 加载")
+                    Text("选择音色库：远程服务从 TTS 语音列表 API 获取（仅兼容自建服务器），本地音色从内置 json 加载")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -122,8 +122,16 @@ struct SettingsView: View {
                             testResult = result1
                             testAlertTitle = "TTS 服务测试"
                             if result1.contains("失败") || result1.contains("无效") || result1.contains("错误") {
-                                testAlertMessage = "连通测试失败。\n\n请检查服务地址和 API Key 是否正确，\n并确保服务端已启动。"
-                                testSuccess = false
+                                // 语音列表失败，尝试直接合成测试
+                                let result2 = await store.testTTSSynthesize()
+                                testResult = result2
+                                if result2.contains("失败") {
+                                    testAlertMessage = "语音列表与合成测试均失败。\n语音列表错误：\(result1)\n合成错误：\(result2)"
+                                    testSuccess = false
+                                } else {
+                                    testAlertMessage = "语音列表不可用，但合成测试通过！\n\n请使用本地音色库选择音色。\n\(result2)"
+                                    testSuccess = true
+                                }
                             } else {
                                 testAlertMessage = "连通成功！\n\n正在尝试合成测试..."
                                 let result2 = await store.testTTSSynthesize()

@@ -31,28 +31,22 @@ actor TTSHttpClient {
     }
 
     func synthesizeAudio(text: String, voice: String, rate: Int, pitch: Int, style: String) async throws -> URL {
-        let url = baseURL.appendingPathComponent("api/v1/tts")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
-
-        var body: [String: Any] = [
-            "text": text,
-            "voice": voice,
-            "short_name": voice,
-            "rate": "\(rate)",
-            "pitch": "\(pitch)",
-            "style": style
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "t", value: text),
+            URLQueryItem(name: "v", value: voice),
+            URLQueryItem(name: "r", value: "\(rate)"),
+            URLQueryItem(name: "p", value: "\(pitch)"),
+            URLQueryItem(name: "s", value: style),
         ]
         if let apiKey = apiKey, !apiKey.isEmpty {
-            body["api_key"] = apiKey
+            queryItems.append(URLQueryItem(name: "api_key", value: apiKey))
         }
+        components.queryItems = queryItems
 
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        if let apiKey = apiKey, !apiKey.isEmpty {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
 
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {

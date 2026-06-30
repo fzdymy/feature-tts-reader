@@ -529,7 +529,8 @@ final class ReaderStore: NSObject, ObservableObject {
             let voices = try await client.fetchVoiceList()
             return "连通成功，发现 \(voices.count) 个音色。"
         } catch {
-            return "获取音色失败：\(error.localizedDescription)"
+            // 一些 TTS 服务没有独立的语音列表接口，尝试直接合成测试
+            return "获取音色失败，尝试直接合成测试。"
         }
     }
 
