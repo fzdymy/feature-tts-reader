@@ -33,8 +33,8 @@ struct ReaderView: View {
     @State private var showSettings = false
     @State private var showFontPicker = false
     @State private var showTOC = false
-    @State private var isSpeaking = false
     @State private var isImmersive = false
+    @State private var showAudioReader = false
     
     // Status
     @State private var currentTime = Date()
@@ -196,6 +196,10 @@ struct ReaderView: View {
             .environmentObject(store)
             .presentationDetents([.large])
         }
+        .fullScreenCover(isPresented: $showAudioReader) {
+            AudioReaderView(book: book, bookID: bookID, chapterIndex: currentChapterIndex)
+                .environmentObject(store)
+        }
     }
     
     // MARK: - Navigation
@@ -312,14 +316,8 @@ struct ReaderView: View {
                 controlButton(systemName: "textformat.alt", action: { showFontPicker = true })
                 controlButton(systemName: "gearshape.fill", action: { showSettings = true })
                 controlButton(
-                    systemName: isSpeaking ? "pause.fill" : "play.fill",
-                    action: {
-                        if isSpeaking { store.stopPlayback(); isSpeaking = false }
-                        else {
-                            isSpeaking = true
-                            Task { await store.playChapterWithTTS(chapter: currentChapter); isSpeaking = false }
-                        }
-                    }
+                    systemName: "play.circle.fill",
+                    action: { showAudioReader = true }
                 )
                 controlButton(
                     systemName: "chevron.right",
