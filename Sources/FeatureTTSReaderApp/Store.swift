@@ -392,6 +392,31 @@ final class ReaderStore: NSObject, ObservableObject {
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
+    // MARK: - Per-book chapter file storage (preserves UUIDs across relaunch)
+
+    private func chaptersFileURL(forBookID id: UUID) -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let dir = docs.appendingPathComponent("book_chapters", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    func saveChaptersToFile(bookID: UUID) {
+        guard !chapters.isEmpty else { return }
+        let url = chaptersFileURL(forBookID: bookID)
+        if let data = try? JSONEncoder().encode(chapters) {
+            try? data.write(to: url)
+        }
+    }
+
+    func loadChaptersFromFile(bookID: UUID) -> [BookChapter]? {
+        let url = chaptersFileURL(forBookID: bookID)
+        guard let data = try? Data(contentsOf: url),
+              let loaded = try? JSONDecoder().decode([BookChapter].self, from: data),
+              !loaded.isEmpty else { return nil }
+        return loaded
+    }
+
     private func saveAllTextsToFiles() {
         if !bookText.isEmpty, let id = UUID(uuidString: currentBookID) {
             saveBookTextToFile(bookID: id, text: bookText)
@@ -423,6 +448,9 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func saveState() {
         saveAllTextsToFiles()
+        if let id = UUID(uuidString: currentBookID) {
+            saveChaptersToFile(bookID: id)
+        }
         let state = ReaderState(
             bookText: "",
             chapters: chapters,

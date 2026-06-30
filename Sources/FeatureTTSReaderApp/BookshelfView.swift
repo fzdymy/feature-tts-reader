@@ -593,41 +593,35 @@ struct BookDetailView: View {
             .onAppear {
                 store.currentBookID = book.id.uuidString
                 store.currentBookTitle = book.title
-                Task {
-                    let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
-                    guard !text.isEmpty else {
-                        store.statusMessage = "文本文件不存在，请重新导入。"
-                        return
-                    }
-                    // Use cached chapters if available (preserves chapter UUIDs)
-                    if let cached = store.bookChaptersCache[book.id], !cached.isEmpty {
-                        chapters = cached
-                        store.chapters = cached
-                        store.bookText = text
-                        return
-                    }
-                    // Run CPU-heavy chapter extraction off the main thread via callback
-                    let parsed: [BookChapter] = await withCheckedContinuation { continuation in
-                        DispatchQueue.global(qos: .userInitiated).async {
-                            let result = store.extractChapters(from: text)
-                            continuation.resume(returning: result)
+                // Load chapters from cache or per-book file (preserves UUIDs)
+                let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+                if let cached = store.bookChaptersCache[book.id] {
+                    chapters = cached
+                    if !text.isEmpty { store.bookText = text }
+                } else if let saved = store.loadChaptersFromFile(bookID: book.id) {
+                    chapters = saved
+                    store.bookChaptersCache[book.id] = saved
+                    if !text.isEmpty { store.bookText = text }
+                } else {
+                    // First time: extract from text
+                    Task {
+                        let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+                        guard !text.isEmpty else {
+                            store.statusMessage = "文本文件不存在，请重新导入。"
+                            return
                         }
-                    }
-                    // Migrate progress from old chapter UUIDs to new ones
-                    if !store.chapters.isEmpty && !store.bookProgressByChapter.isEmpty {
-                        for i in 0..<min(parsed.count, store.chapters.count) {
-                            let oldID = store.chapters[i].id
-                            let newID = parsed[i].id
-                            if let progress = store.bookProgressByChapter[oldID] {
-                                store.bookProgressByChapter[newID] = progress
-                                store.bookProgressByChapter.removeValue(forKey: oldID)
+                        let parsed: [BookChapter] = await withCheckedContinuation { continuation in
+                            DispatchQueue.global(qos: .userInitiated).async {
+                                let result = store.extractChapters(from: text)
+                                continuation.resume(returning: result)
                             }
                         }
+                        chapters = parsed
+                        store.chapters = parsed
+                        store.bookText = text
+                        store.bookChaptersCache[book.id] = parsed
+                        store.saveChaptersToFile(bookID: book.id)
                     }
-                    chapters = parsed
-                    store.chapters = parsed
-                    store.bookText = text
-                    store.bookChaptersCache[book.id] = parsed
                 }
             }
         }
