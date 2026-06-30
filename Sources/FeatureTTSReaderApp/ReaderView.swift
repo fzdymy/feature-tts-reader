@@ -46,6 +46,7 @@ struct ReaderView: View {
         self._paragraphItems = State(initialValue: paras.map { ParagraphItem(text: $0, chapterIndex: chapterIndex) })
         self._currentChapter = State(initialValue: chapter)
         self._currentChapterIndex = State(initialValue: chapterIndex)
+        self._anchorChapterIndex = State(initialValue: chapterIndex)
     }
 
     static func splitParagraphs(_ text: String) -> [String] {
@@ -85,6 +86,7 @@ struct ReaderView: View {
         return result.isEmpty ? [trimmed] : result
     }
 
+    @State private var anchorChapterIndex: Int = 0
     @State private var showBookmarks: Bool = false
     @State private var showSettings: Bool = false
     @State private var showFontPicker: Bool = false
@@ -210,7 +212,7 @@ struct ReaderView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
-            ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+            ReaderStore.saveLastChapterIndex(anchorChapterIndex, for: bookID)
             store.saveState()
             if !useSystemBrightness {
                 UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
@@ -231,6 +233,7 @@ struct ReaderView: View {
                 }
                 currentChapter = chapter
                 currentChapterIndex = index
+                anchorChapterIndex = index
                 reloadParagraphs()
                 store.selectedChapterID = chapter.id
                 ReaderStore.saveLastChapterIndex(index, for: bookID)
@@ -396,6 +399,7 @@ struct ReaderView: View {
               currentChapterIndex > 0 else { return }
         suppressAutoLoad = true
         currentChapterIndex -= 1
+        anchorChapterIndex = currentChapterIndex
         currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
@@ -410,6 +414,7 @@ struct ReaderView: View {
         suppressAutoLoad = true
         store.setChapterProgress(chapters[currentChapterIndex].id, percent: 1.0)
         currentChapterIndex += 1
+        anchorChapterIndex = currentChapterIndex
         currentChapter = chapters[currentChapterIndex]
         ReaderStore.debugLog("[NEXT] bookID=\(bookID.uuidString) index=\(currentChapterIndex)")
         reloadParagraphs()
