@@ -2,6 +2,19 @@ import SwiftUI
 import Combine
 import UIKit
 
+enum TextAlign: Int, CaseIterable, Identifiable {
+    case leading = 0, center = 1, trailing = 2, justified = 3
+    var id: Self { self }
+    var displayName: String {
+        switch self {
+        case .leading: return "左对齐"
+        case .center: return "居中对齐"
+        case .trailing: return "右对齐"
+        case .justified: return "两端对齐"
+        }
+    }
+}
+
 // MARK: - ChapterTextView (Pure UIKit, single UITextView, no double-scroll)
 
 struct ChapterTextView: UIViewRepresentable {
