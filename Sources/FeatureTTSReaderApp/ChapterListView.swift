@@ -15,53 +15,64 @@ struct ChapterListView: View {
     }
 
     var body: some View {
-        List {
+        VStack(spacing: 0) {
             if store.chapters.isEmpty {
+                Spacer()
                 Text("当前还没有章节，请先导入小说并扫描章节。")
                     .foregroundColor(.secondary)
+                Spacer()
             } else {
-                ForEach(Array(store.chapters.enumerated()), id: \.element.id) { chapterIndex, chapter in
-                    let isCurrent = chapter.id == currentChapterID
-                    if let onSelect {
-                        Button(action: {
-                            onSelect(chapter, chapterIndex)
-                            dismiss()
-                        }) {
-                            HStack {
-                                Text(chapter.title)
-                                    .font(.headline)
-                                    .foregroundColor(isCurrent ? .accentColor : .primary)
-                                Spacer()
-                                if isCurrent {
-                                    Image(systemName: "bookmark.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.accentColor)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(store.chapters.enumerated()), id: \.element.id) { chapterIndex, chapter in
+                            let isCurrent = chapter.id == currentChapterID
+                            let bg = isCurrent ? Color.accentColor.opacity(0.15) : Color.clear
+                            if let onSelect {
+                                Button(action: {
+                                    onSelect(chapter, chapterIndex)
+                                    dismiss()
+                                }) {
+                                    HStack {
+                                        Text(chapter.title)
+                                            .font(.headline)
+                                            .foregroundColor(isCurrent ? .accentColor : .primary)
+                                        Spacer()
+                                        if isCurrent {
+                                            Image(systemName: "bookmark.fill")
+                                                .font(.caption)
+                                                .foregroundColor(.accentColor)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16).padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(bg)
                                 }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                        .listRowBackground(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
-                    } else if let book = currentBook {
-                        NavigationLink(destination: ReaderView(book: book, chapter: chapter, bookID: book.id, chapterIndex: chapterIndex).environmentObject(store)) {
-                            HStack {
-                                Text(chapter.title)
-                                    .font(.headline)
-                                Spacer()
-                                if isCurrent {
-                                    Image(systemName: "bookmark.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.accentColor)
+                                .buttonStyle(.plain)
+                            } else if let book = currentBook {
+                                NavigationLink(destination: ReaderView(book: book, chapter: chapter, bookID: book.id, chapterIndex: chapterIndex).environmentObject(store)) {
+                                    HStack {
+                                        Text(chapter.title)
+                                            .font(.headline)
+                                        Spacer()
+                                        if isCurrent {
+                                            Image(systemName: "bookmark.fill")
+                                                .font(.caption)
+                                                .foregroundColor(.accentColor)
+                                        }
+                                    }
+                                    .padding(.vertical, 6)
                                 }
+                                .listRowBackground(bg)
                             }
-                            .padding(.vertical, 6)
+                            if chapterIndex < store.chapters.count - 1 {
+                                Divider().padding(.leading, 16)
+                            }
                         }
-                        .listRowBackground(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
                     }
                 }
             }
         }
         .navigationTitle("章节目录")
-        .listStyle(.insetGrouped)
     }
 }
 
