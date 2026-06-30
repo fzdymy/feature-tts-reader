@@ -440,11 +440,8 @@ struct ReaderView: View {
         let paras = Self.splitParagraphs(next.text)
         guard !paras.isEmpty else { return }
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
-        let previousIndex = lastLoaded
-        currentChapterIndex = lastLoaded + 1
-        currentChapter = next
-        ReaderStore.debugLog("[APPEND] bookID=\(bookID.uuidString) index=\(currentChapterIndex)")
-        store.setChapterProgress(chapters[previousIndex].id, percent: 1.0)
+        ReaderStore.debugLog("[APPEND] bookID=\(bookID.uuidString) index=\(lastLoaded + 1)")
+        store.setChapterProgress(chapters[lastLoaded].id, percent: 1.0)
     }
 
     private func prependPreviousChapter() {
@@ -459,8 +456,6 @@ struct ReaderView: View {
         guard !paras.isEmpty else { return }
         let newItems = paras.map { ParagraphItem(text: $0, chapterIndex: firstLoaded - 1) }
         paragraphItems.insert(contentsOf: newItems, at: 0)
-        currentChapterIndex = firstLoaded - 1
-        currentChapter = prev
     }
 
     private func updateBatteryLevel() {
