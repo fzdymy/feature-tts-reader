@@ -558,9 +558,6 @@ private struct ParagraphText: View {
                 Button(action: { UIPasteboard.general.string = text; store.statusMessage = "已复制到剪贴板" }) {
                     Label("复制", systemImage: "doc.on.doc")
                 }
-                Button(action: { store.addBookmarkForParagraph(text, chapterID: UUID()) }) {
-                    Label("书签", systemImage: "bookmark")
-                }
                 Button(action: { store.playFromParagraph(text) }) {
                     Label("从这里朗读", systemImage: "play.fill")
                 }
