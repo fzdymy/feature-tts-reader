@@ -677,9 +677,8 @@ final class ReaderStore: NSObject, ObservableObject {
 
     static func saveLastChapterIndex(_ index: Int, for bookID: UUID) {
         let key = bookID.uuidString
-        // Primary: direct UserDefaults key (as? Int avoids NSNumber bridging issues)
+        print("[POS-SAVE] bookID=\(key) index=\(index)")
         UserDefaults.standard.set(index, forKey: "rp_\(key)")
-        // Legacy fallbacks for backward compatibility
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
         try? FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
@@ -692,34 +691,37 @@ final class ReaderStore: NSObject, ObservableObject {
 
     static func loadLastChapterIndex(for bookID: UUID) -> Int {
         let key = bookID.uuidString
-        // Primary: direct UserDefaults key
         if let val = UserDefaults.standard.object(forKey: "rp_\(key)") as? Int {
+            print("[POS-LOAD] bookID=\(key) found(rp)=\(val)")
             return val
         }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        // Migrate from file-based paths
         let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
         let newUrl = newDir.appendingPathComponent("\(key).txt")
         if let data = try? String(contentsOf: newUrl, encoding: .utf8),
            let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            print("[POS-LOAD] bookID=\(key) found(file)=\(index)")
             saveLastChapterIndex(index, for: bookID)
             return index
         }
         let legacyUrl = docs.appendingPathComponent("lastChapter_\(key).txt")
         if let data = try? String(contentsOf: legacyUrl, encoding: .utf8),
            let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            print("[POS-LOAD] bookID=\(key) found(legacy)=\(index)")
             saveLastChapterIndex(index, for: bookID)
             return index
         }
-        // Migrate from per-book UserDefaults keys
         if let udIndex = UserDefaults.standard.object(forKey: "lastChapter_\(key)") as? Int {
+            print("[POS-LOAD] bookID=\(key) found(ud)=\(udIndex)")
             saveLastChapterIndex(udIndex, for: bookID)
             return udIndex
         }
         if let lrIndex = UserDefaults.standard.object(forKey: "lr_\(key)") as? Int {
+            print("[POS-LOAD] bookID=\(key) found(lr)=\(lrIndex)")
             saveLastChapterIndex(lrIndex, for: bookID)
             return lrIndex
         }
+        print("[POS-LOAD] bookID=\(key) NOT FOUND → 0")
         return 0
     }
 

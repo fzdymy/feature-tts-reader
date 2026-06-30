@@ -41,6 +41,7 @@ struct ReaderView: View {
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
         self.book = book
         self.bookID = bookID
+        print("[RVIEW-INIT] bookID=\(bookID.uuidString) chapterIndex=\(chapterIndex) title=\(chapter.title)")
         let paras = Self.splitParagraphs(chapter.text)
         self._paragraphItems = State(initialValue: paras.map { ParagraphItem(text: $0, chapterIndex: chapterIndex) })
         self._currentChapter = State(initialValue: chapter)
@@ -223,6 +224,7 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showTOC) {
             ChapterListView(currentChapterID: currentChapter.id) { chapter, index in
+                print("[TOC-SELECT] bookID=\(bookID.uuidString) index=\(index)")
                 suppressAutoLoad = true
                 if let chapters = store.chaptersForBookCached(bookID) {
                     store.setChapterProgress(chapters[min(currentChapterIndex, chapters.count - 1)].id, percent: 1.0)
@@ -409,6 +411,7 @@ struct ReaderView: View {
         store.setChapterProgress(chapters[currentChapterIndex].id, percent: 1.0)
         currentChapterIndex += 1
         currentChapter = chapters[currentChapterIndex]
+        print("[NEXT] bookID=\(bookID.uuidString) index=\(currentChapterIndex)")
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
@@ -435,6 +438,7 @@ struct ReaderView: View {
         let previousIndex = lastLoaded
         currentChapterIndex = lastLoaded + 1
         currentChapter = next
+        print("[APPEND] bookID=\(bookID.uuidString) index=\(currentChapterIndex)")
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
         store.setChapterProgress(chapters[previousIndex].id, percent: 1.0)
     }
