@@ -673,34 +673,43 @@ final class ReaderStore: NSObject, ObservableObject {
 
     static func saveLastChapterIndex(_ index: Int, for bookID: UUID) {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let dir = docs.appendingPathComponent("book_position", isDirectory: true)
-        if (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) == nil {
-            Logger.log("saveLastChapterIndex: failed to create dir")
-        }
-        let url = dir.appendingPathComponent("\(bookID.uuidString).txt")
-        do {
-            try "\(index)".write(to: url, atomically: true, encoding: .utf8)
-            Logger.log("saveLastChapterIndex: \(index) -> \(url.lastPathComponent)")
-        } catch {
-            Logger.log(error: error)
-        }
+        // Write to ALL known paths for forward/backward compatibility
+        let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
+        try? FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
+        let newUrl = newDir.appendingPathComponent("\(bookID.uuidString).txt")
+        try? "\(index)".write(to: newUrl, atomically: true, encoding: .utf8)
+        // Also write to legacy flat path
+        let legacyUrl = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
+        try? "\(index)".write(to: legacyUrl, atomically: true, encoding: .utf8)
+        // Also save to UserDefaults for maximum compatibility
+        UserDefaults.standard.set(index, forKey: "lastChapter_\(bookID.uuidString)")
     }
 
     static func loadLastChapterIndex(for bookID: UUID) -> Int {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let dir = docs.appendingPathComponent("book_position", isDirectory: true)
-        let url = dir.appendingPathComponent("\(bookID.uuidString).txt")
-        if let data = try? String(contentsOf: url, encoding: .utf8),
+        // Try new path first
+        let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
+        let newUrl = newDir.appendingPathComponent("\(bookID.uuidString).txt")
+        if let data = try? String(contentsOf: newUrl, encoding: .utf8),
            let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            Logger.log("loadLastChapterIndex: \(index) for \(bookID.uuidString)")
             return index
         }
-        // Fallback: UserDefaults (previous version's format)
+        // Fallback: legacy flat file
+        let legacyUrl = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
+        if let data = try? String(contentsOf: legacyUrl, encoding: .utf8),
+           let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            // Migrate to new path
+            try? "\(index)".write(to: newUrl, atomically: true, encoding: .utf8)
+            return index
+        }
+        // Fallback: UserDefaults
         if let udIndex = UserDefaults.standard.object(forKey: "lastChapter_\(bookID.uuidString)") as? Int {
-            Logger.log("loadLastChapterIndex: UserDefaults fallback \(udIndex) for \(bookID.uuidString)")
             return udIndex
         }
-        Logger.log("loadLastChapterIndex: NO value for \(bookID.uuidString), returning 0")
+        // Fallback: lr_ key (old old format)
+        if let lrIndex = UserDefaults.standard.object(forKey: "lr_\(bookID.uuidString)") as? Int {
+            return lrIndex
+        }
         return 0
     }
 
