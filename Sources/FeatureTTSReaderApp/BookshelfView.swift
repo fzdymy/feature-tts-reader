@@ -499,7 +499,10 @@ struct BookDetailView: View {
                     Button(action: {
                         let chaps = chapters.isEmpty ? store.chapters : chapters
                         guard !chaps.isEmpty else { return }
-                        let index = store.lastReadChapterIndexByBook[book.id] ?? 0
+                        let saved = UserDefaults.standard.object(forKey: "lr_\(book.id.uuidString)") as? Int
+                            ?? store.lastReadChapterIndexByBook[book.id]
+                            ?? 0
+                        let index = saved
                         let safeIndex = min(index, chaps.count - 1)
                         readerNavigation = ReaderNavigation(
                             chapter: chaps[safeIndex],
@@ -527,6 +530,12 @@ struct BookDetailView: View {
                         ).environmentObject(store)
                     }
 
+                    NavigationLink(destination: ChapterListView()
+                        .environmentObject(store)
+                    ) {
+                        Label("章节目录", systemImage: "list.bullet")
+                    }
+
                     NavigationLink(destination: ReaderSettingsView()
                         .environmentObject(store)
                     ) {
@@ -539,54 +548,6 @@ struct BookDetailView: View {
                         showCharacterEditor = true
                     }) {
                         Label("角色音色设置", systemImage: "person.2.fill")
-                    }
-                }
-
-                // Chapters
-                Section(header: Text("章节目录 (\(chapters.count))")) {
-                    if chapters.isEmpty {
-                        Text("正在解析章节...")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(chapters) { chapter in
-                            let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
-                            let progress = store.bookProgressByChapter[chapter.id] ?? 0
-                            let isCurrent = store.selectedChapterID == chapter.id
-
-                            NavigationLink(destination: ReaderView(
-                                book: book,
-                                chapter: chapter,
-                                bookID: book.id,
-                                chapterIndex: chapterIndex
-                            ).environmentObject(store)) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(chapter.title)
-                                            .font(.headline)
-                                            .lineLimit(1)
-                                        if isCurrent {
-                                            Image(systemName: "bookmark.fill")
-                                                .font(.caption)
-                                                .foregroundColor(.blue)
-                                        }
-                                    }
-                                    Text(chapter.preview)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(2)
-
-                                    if progress > 0 {
-                                        HStack {
-                                            ProgressView(value: progress)
-                                            Text("\(Int(progress * 100))%")
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
                     }
                 }
 

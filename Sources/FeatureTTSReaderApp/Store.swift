@@ -322,8 +322,20 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
             }
 
-            if !bookText.isEmpty {
-                updateRecommendations(from: bookText)
+            if !bookText.isEmpty, !characters.isEmpty {
+                let text = bookText
+                let chars = characters
+                let availVoices = voices.isEmpty ? VoiceItem.defaultItems() : voices
+                Task.detached { [weak self] in
+                    guard let self else { return }
+                    let counts = Self.countCharacterAppearances(in: text, characters: chars)
+                    let candidates = chars.sorted { (counts[$0.name] ?? 0) > (counts[$1.name] ?? 0) }
+                    let recs = candidates.map { profile -> CharacterRecommendation in
+                        let suggested = self.suggestedVoices(for: profile, from: availVoices)
+                        return CharacterRecommendation(id: profile.id, profile: profile, count: counts[profile.name] ?? 0, suggestedVoices: suggested)
+                    }
+                    await MainActor.run { self.recommendations = recs }
+                }
             }
         }
     }
@@ -571,6 +583,7 @@ final class ReaderStore: NSObject, ObservableObject {
     func rememberLastReadChapter(bookID: UUID, chapterIndex: Int) {
         guard lastReadChapterIndexByBook[bookID] != chapterIndex else { return }
         lastReadChapterIndexByBook[bookID] = chapterIndex
+        UserDefaults.standard.set(chapterIndex, forKey: "lr_\(bookID.uuidString)")
         if let data = try? JSONEncoder().encode(lastReadChapterIndexByBook) {
             UserDefaults.standard.set(data, forKey: "lastReadChapterIndexByBook")
         }
@@ -1442,6 +1455,10 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func countCharacterAppearances(in text: String) -> [String: Int] {
+        Self.countCharacterAppearances(in: text, characters: characters)
+    }
+
+    nonisolated static func countCharacterAppearances(in text: String, characters: [CharacterProfile]) -> [String: Int] {
         var result: [String: Int] = [:]
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         for profile in characters {
