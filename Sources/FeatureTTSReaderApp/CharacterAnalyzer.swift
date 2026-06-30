@@ -31,38 +31,123 @@ struct RelationshipEdge: Hashable {
 final class CharacterAnalyzer {
     private let tokenizer = NLTokenizer(unit: .word)
 
-    // MARK: - Name extraction (tokenizer frequency + context + bigram merging)
+    // 百家姓单姓
+    private static let singleSurnames: Set<String> = {
+        let s = "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳酆鲍史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于时傅皮卞齐康伍余元卜顾孟平黄和穆萧尹姚邵舒汪祁毛禹狄米贝明臧计伏成戴谈宋茅庞熊纪屈项祝董杜阮蓝闵席季麻强贾路娄危江童颜郭梅盛林刁钟徐邱骆高夏蔡田樊胡凌霍虞万支柯咎管卢莫经房裘缪干解应宗宣丁贲邓郁单杭洪包诸左石崔吉钮龚程嵇邢滑裴陆荣翁荀羊於惠甄加封芮羿储靳汲邴糜松井段富巫乌焦巴弓牧隗山谷车侯宓蓬全郗班仰秋仲伊宫宁仇栾暴甘钭厉戎祖武符刘詹束龙叶幸司韶郜黎蓟薄印宿白怀蒲台从鄂索咸籍赖卓蔺屠蒙池乔阴胥能苍双闻莘党翟谭贡劳逄姬申扶堵冉宰郦雍璩桑桂濮牛寿通边扈燕冀郏浦尚农温别庄晏柴瞿阎充慕连茹习宦艾鱼容向古易慎戈廖庚终暨居衡步都耿满弘匡国文寇广禄阙东殳沃利蔚越夔隆师巩厍聂晁勾敖融冷訾辛阚那简饶空曾毋沙乜养鞠须丰巢关蒯相查后红游竺权逯盖益桓公晋楚法汝鄢涂钦缑亢况有商牟佘佴伯赏墨哈谯笪年爱阳佟琴言福岳帅"
+        return Set(s.map { String($0) })
+    }()
+
+    // 复姓
+    private static let compoundSurnames: Set<String> = [
+        "第五", "梁丘", "左丘", "东门", "百里", "东郭", "南门", "呼延",
+        "万俟", "南宫", "段干", "西门", "司马", "上官", "欧阳", "夏侯",
+        "诸葛", "闻人", "东方", "赫连", "皇甫", "尉迟", "公羊", "澹台",
+        "公冶", "宗政", "濮阳", "淳于", "仲孙", "太叔", "申屠", "公孙",
+        "乐正", "轩辕", "令狐", "钟离", "闾丘", "长孙", "慕容", "鲜于",
+        "宇文", "司徒", "司空", "亓官", "司寇", "子车", "颛孙", "端木",
+        "巫马", "公西", "漆雕", "壤驷", "公良", "夹谷", "宰父", "微生", "羊舌"
+    ]
+
+    private static func firstCharIsSurname(_ token: String) -> Bool {
+        guard let first = token.first else { return false }
+        return singleSurnames.contains(String(first))
+    }
+
+    private static func startsWithCompoundSurname(_ token: String) -> Bool {
+        if token.count >= 2 {
+            let prefix2 = String(token.prefix(2))
+            if compoundSurnames.contains(prefix2) { return true }
+        }
+        return false
+    }
+
+    // MARK: - Name extraction (tokenizer frequency + context + bigram merging + surname boost)
     func extractNames(from text: String) -> [String] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var scores = [String: Int]()
 
-        // 1. Tokenizer-based candidate extraction with frequency
+        // 1. Tokenizer-based candidate extraction with frequency + surname boost
         tokenizer.string = raw
         var tokenFreq = [String: Int]()
-        var tokenPositions: [(String, Int)] = []
+        var allTokens: [(String, Int)] = [] // track ALL tokens (including single-char surnames)
         var position = 0
         tokenizer.enumerateTokens(in: raw.startIndex..<raw.endIndex) { range, _ in
             let token = String(raw[range])
             let cleaned = token.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-            if cleaned.count >= 2 && cleaned.count <= 4,
+            if cleaned.count >= 1 && cleaned.count <= 4,
                cleaned.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
-                tokenFreq[cleaned, default: 0] += 1
-                tokenPositions.append((cleaned, position))
+                allTokens.append((cleaned, position))
+                if cleaned.count >= 2 {
+                    tokenFreq[cleaned, default: 0] += 1
+                }
             }
             position += 1
             return true
         }
         for (name, freq) in tokenFreq where freq >= 2 {
             if !isStopWord(name) {
-                scores[name, default: 0] += min(freq, 100)
+                var score = min(freq, 100)
+                // Surname boost: token starting with a known surname gets doubled
+                if CharacterAnalyzer.firstCharIsSurname(name) || CharacterAnalyzer.startsWithCompoundSurname(name) {
+                    score *= 2
+                }
+                scores[name, default: 0] += score
             }
         }
 
-        // 1b. Bigram merging: merge adjacent 2-char tokens into 4-char candidate names
+        // 1b. Surname + given-name merging: known single-char surname followed by 1-2 char token
+        var mergedFreq = [String: Int]()
+        for i in 0..<(allTokens.count - 1) {
+            let (tok, pos) = allTokens[i]
+            let (nextTok, nextPos) = allTokens[i + 1]
+            guard pos + 1 == nextPos else { continue }
+
+            // Single-char surname + 2-char given name = 3-char name (e.g. 张 + 无忌)
+            if tok.count == 1 && CharacterAnalyzer.singleSurnames.contains(tok) && nextTok.count == 2 {
+                let full = tok + nextTok
+                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
+                   !isStopWord(full) {
+                    mergedFreq[full, default: 0] += 1
+                }
+            }
+            // Single-char surname + 1-char word = 2-char name (e.g. 周 + 某)
+            if tok.count == 1 && CharacterAnalyzer.singleSurnames.contains(tok) && nextTok.count == 1 && tok != nextTok {
+                let full = tok + nextTok
+                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
+                   !isStopWord(full) {
+                    mergedFreq[full, default: 0] += 2
+                }
+            }
+            // Compound surname prefix + completing 1-2 chars (e.g. 慕 + 容 → 慕容; 司 + 马 → 司马)
+            if tok.count == 1 {
+                let candidateCompound = tok + nextTok
+                if candidateCompound.count == 2 && CharacterAnalyzer.compoundSurnames.contains(candidateCompound) {
+                    mergedFreq[candidateCompound, default: 0] += 3
+                }
+            }
+        }
+        // Also merge compound surname + single-char given name: 司马 + 光 → 司马光
+        for i in 0..<(allTokens.count - 1) {
+            let (tok, pos) = allTokens[i]
+            let (nextTok, nextPos) = allTokens[i + 1]
+            guard pos + 1 == nextPos else { continue }
+            if tok.count == 2 && CharacterAnalyzer.compoundSurnames.contains(tok) && nextTok.count == 1 {
+                let full = tok + nextTok
+                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
+                   !isStopWord(full) {
+                    mergedFreq[full, default: 0] += 3
+                }
+            }
+        }
+        for (name, freq) in mergedFreq where freq >= 2 {
+            scores[name, default: 0] += min(freq * 20, 100)
+        }
+
+        // 1c. Regular bigram merging: merge adjacent 2-char tokens into 4-char candidate names
         var bigramFreq = [String: Int]()
-        for i in 0..<(tokenPositions.count - 1) {
-            let (a, posA) = tokenPositions[i]
-            let (b, posB) = tokenPositions[i + 1]
+        for i in 0..<(allTokens.count - 1) {
+            let (a, posA) = allTokens[i]
+            let (b, posB) = allTokens[i + 1]
             if posA + 1 == posB && a.count == 2 && b.count == 2 {
                 let merged = a + b
                 if merged.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
@@ -74,6 +159,9 @@ final class CharacterAnalyzer {
         for (name, freq) in bigramFreq where freq >= 2 {
             scores[name, default: 0] += min(freq * 15, 100)
         }
+
+        // 1d. Boost surname-started names with frequency 1 that appear in high-confidence patterns
+        // (already handled by speech verb / title / dialogue patterns below)
 
         // 2. Context regex patterns covering more speech verbs
         let speechVerbs = "说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
