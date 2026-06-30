@@ -143,8 +143,9 @@ struct ReaderView: View {
                             }
                         }
                         .padding(.horizontal, 20).padding(.vertical, 12)
-}
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .id(fontVersion)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .simultaneousGesture(TapGesture().onEnded {
                         withAnimation { isImmersive.toggle() }
                     })
@@ -185,6 +186,8 @@ struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(isImmersive)
         .statusBarHidden(isImmersive)
+        .onReceive(store.$readerFontName) { _ in fontVersion += 1 }
+        .onReceive(store.$readerFontSize) { _ in fontVersion += 1 }
         .onReceive(timer) { _ in
             currentTime = Date(); updateBatteryLevel()
         }
