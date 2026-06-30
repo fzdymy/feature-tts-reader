@@ -3,6 +3,7 @@ import Combine
 import AVFoundation
 import SwiftUI
 import MediaPlayer
+import NaturalLanguage
 
 @MainActor
 final class ReaderStore: NSObject, ObservableObject {
