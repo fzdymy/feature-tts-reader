@@ -44,8 +44,10 @@ jobs:
           # 1. Copy executable binary
           cp build_output/Release-iphoneos/FeatureTTSReader "$APP_DIR/"
           
-          # 2. Copy resource bundle (must match name SPM's Bundle.module expects)
-          cp -R build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle "$APP_DIR/"
+          # 2. Copy resource bundle if it exists (SPM generates one when Resources/ is present)
+          if [ -d "build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle" ]; then
+            cp -R "build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle" "$APP_DIR/"
+          fi
           
           # 3. Create required Info.plist with APPLICATION type (APPL)
           PLIST_PATH="$APP_DIR/Info.plist"
