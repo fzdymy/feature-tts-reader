@@ -552,13 +552,13 @@ private struct ParagraphText: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .onTapGesture(count: 2) {
                 guard store.enableDoubleTapToSpeak else { return }
-                store.playFromParagraph(text)
+                Task { await store.playFromParagraph(text) }
             }
             .contextMenu {
                 Button(action: { UIPasteboard.general.string = text; store.statusMessage = "已复制到剪贴板" }) {
                     Label("复制", systemImage: "doc.on.doc")
                 }
-                Button(action: { store.playFromParagraph(text) }) {
+                Button(action: { Task { await store.playFromParagraph(text) } }) {
                     Label("从这里朗读", systemImage: "play.fill")
                 }
             }
