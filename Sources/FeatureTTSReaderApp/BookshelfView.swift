@@ -499,10 +499,7 @@ struct BookDetailView: View {
                     Button(action: {
                         let chaps = chapters.isEmpty ? store.chapters : chapters
                         guard !chaps.isEmpty else { return }
-                        let saved = UserDefaults.standard.object(forKey: "lastChapter_\(book.id.uuidString)") as? Int
-                            ?? UserDefaults.standard.object(forKey: "lr_\(book.id.uuidString)") as? Int
-                            ?? store.lastReadChapterIndexByBook[book.id]
-                            ?? 0
+                        let saved = UserDefaults.standard.integer(forKey: "lastChapter_\(book.id.uuidString)")
                         let index = saved
                         let safeIndex = min(index, chaps.count - 1)
                         readerNavigation = ReaderNavigation(

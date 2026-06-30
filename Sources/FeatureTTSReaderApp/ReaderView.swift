@@ -200,7 +200,8 @@ struct ReaderView: View {
             }
             updateBatteryLevel()
             store.selectedChapterID = currentChapter.id
-            store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
+            UserDefaults.standard.set(currentChapterIndex, forKey: "lastChapter_\(bookID.uuidString)")
+            UserDefaults.standard.synchronize()
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
             if let savedBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
                 screenBrightness = savedBrightness
@@ -229,7 +230,7 @@ struct ReaderView: View {
                 currentChapterIndex = index
                 reloadParagraphs()
                 store.selectedChapterID = chapter.id
-                store.rememberLastReadChapter(bookID: bookID, chapterIndex: index)
+                UserDefaults.standard.set(index, forKey: "lastChapter_\(bookID.uuidString)")
                 chapterTopID = UUID()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
             }
@@ -395,7 +396,7 @@ struct ReaderView: View {
         currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
-        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
+        UserDefaults.standard.set(currentChapterIndex, forKey: "lastChapter_\(bookID.uuidString)")
         chapterTopID = UUID()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
     }
@@ -408,7 +409,7 @@ struct ReaderView: View {
         currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
         store.selectedChapterID = currentChapter.id
-        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
+        UserDefaults.standard.set(currentChapterIndex, forKey: "lastChapter_\(bookID.uuidString)")
         chapterTopID = UUID()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
     }
@@ -431,7 +432,7 @@ struct ReaderView: View {
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
         currentChapterIndex = lastLoaded + 1
         currentChapter = next
-        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
+        UserDefaults.standard.set(currentChapterIndex, forKey: "lastChapter_\(bookID.uuidString)")
     }
 
     private func prependPreviousChapter() {
@@ -448,7 +449,7 @@ struct ReaderView: View {
         paragraphItems.insert(contentsOf: newItems, at: 0)
         currentChapterIndex = firstLoaded - 1
         currentChapter = prev
-        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
+        UserDefaults.standard.set(currentChapterIndex, forKey: "lastChapter_\(bookID.uuidString)")
     }
 
     private func updateBatteryLevel() {
