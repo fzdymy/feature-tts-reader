@@ -297,8 +297,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func loadState() {
-        loadStateLight()
-        Task { await loadStateHeavy() }
+        Task { await loadStateAsync() }
     }
 
     func restoreState(_ state: ReaderState) {
