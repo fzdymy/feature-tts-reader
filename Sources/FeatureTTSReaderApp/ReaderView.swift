@@ -225,6 +225,9 @@ struct ReaderView: View {
         .sheet(isPresented: $showTOC) {
             ChapterListView(currentChapterID: currentChapter.id) { chapter, index in
                 suppressAutoLoad = true
+                if let chapters = store.chaptersForBookCached(bookID) {
+                    store.setChapterProgress(chapters[min(currentChapterIndex, chapters.count - 1)].id, percent: 1.0)
+                }
                 currentChapter = chapter
                 currentChapterIndex = index
                 reloadParagraphs()
@@ -404,6 +407,7 @@ struct ReaderView: View {
         guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
               currentChapterIndex < chapters.count - 1 else { return }
         suppressAutoLoad = true
+        store.setChapterProgress(chapters[currentChapterIndex].id, percent: 1.0)
         currentChapterIndex += 1
         currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
@@ -429,9 +433,11 @@ struct ReaderView: View {
         let paras = Self.splitParagraphs(next.text)
         guard !paras.isEmpty else { return }
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
+        let previousIndex = lastLoaded
         currentChapterIndex = lastLoaded + 1
         currentChapter = next
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+        store.setChapterProgress(chapters[previousIndex].id, percent: 1.0)
     }
 
     private func prependPreviousChapter() {

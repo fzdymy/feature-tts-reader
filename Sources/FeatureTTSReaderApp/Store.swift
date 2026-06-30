@@ -671,43 +671,56 @@ final class ReaderStore: NSObject, ObservableObject {
         return docs.appendingPathComponent("tts_reader_state.json")
     }
 
+    static let readingPositionKey = "opencode_reading_positions"
+
     static func saveLastChapterIndex(_ index: Int, for bookID: UUID) {
+        // Primary: centralized UserDefaults dictionary (reliable, no file I/O)
+        var dict = UserDefaults.standard.dictionary(forKey: readingPositionKey) as? [String: Int] ?? [:]
+        let key = bookID.uuidString
+        if dict[key] != index {
+            dict[key] = index
+            UserDefaults.standard.set(dict, forKey: readingPositionKey)
+        }
+        // Legacy fallbacks for backward compatibility
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        // Write to ALL known paths for forward/backward compatibility
         let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
         try? FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
         let newUrl = newDir.appendingPathComponent("\(bookID.uuidString).txt")
         try? "\(index)".write(to: newUrl, atomically: true, encoding: .utf8)
-        // Also write to legacy flat path
         let legacyUrl = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
         try? "\(index)".write(to: legacyUrl, atomically: true, encoding: .utf8)
-        // Also save to UserDefaults for maximum compatibility
         UserDefaults.standard.set(index, forKey: "lastChapter_\(bookID.uuidString)")
     }
 
     static func loadLastChapterIndex(for bookID: UUID) -> Int {
+        let key = bookID.uuidString
+        // Primary: centralized dictionary
+        if let dict = UserDefaults.standard.dictionary(forKey: readingPositionKey) as? [String: Int],
+           let index = dict[key] {
+            return index
+        }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        // Try new path first
+        // Migrate from file-based paths
         let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
-        let newUrl = newDir.appendingPathComponent("\(bookID.uuidString).txt")
+        let newUrl = newDir.appendingPathComponent("\(key).txt")
         if let data = try? String(contentsOf: newUrl, encoding: .utf8),
            let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            saveLastChapterIndex(index, for: bookID)
             return index
         }
-        // Fallback: legacy flat file
-        let legacyUrl = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
+        let legacyUrl = docs.appendingPathComponent("lastChapter_\(key).txt")
         if let data = try? String(contentsOf: legacyUrl, encoding: .utf8),
            let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            // Migrate to new path
-            try? "\(index)".write(to: newUrl, atomically: true, encoding: .utf8)
+            saveLastChapterIndex(index, for: bookID)
             return index
         }
-        // Fallback: UserDefaults
-        if let udIndex = UserDefaults.standard.object(forKey: "lastChapter_\(bookID.uuidString)") as? Int {
+        // Migrate from per-book UserDefaults keys
+        if let udIndex = UserDefaults.standard.object(forKey: "lastChapter_\(key)") as? Int {
+            saveLastChapterIndex(udIndex, for: bookID)
             return udIndex
         }
-        // Fallback: lr_ key (old old format)
-        if let lrIndex = UserDefaults.standard.object(forKey: "lr_\(bookID.uuidString)") as? Int {
+        if let lrIndex = UserDefaults.standard.object(forKey: "lr_\(key)") as? Int {
+            saveLastChapterIndex(lrIndex, for: bookID)
             return lrIndex
         }
         return 0

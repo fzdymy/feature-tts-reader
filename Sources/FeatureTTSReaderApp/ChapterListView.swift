@@ -6,8 +6,12 @@ struct ChapterListView: View {
     var currentChapterID: UUID?
     var onSelect: ((BookChapter, Int) -> Void)?
 
-    private var currentBook: Book {
-        Book(id: UUID(uuidString: store.currentBookID) ?? UUID(), title: store.currentBookTitle.isEmpty ? "当前书籍" : store.currentBookTitle, text: store.bookText, importedAt: Date())
+    private var currentBook: Book? {
+        if let id = UUID(uuidString: store.currentBookID),
+           let found = store.books.first(where: { $0.id == id }) {
+            return found
+        }
+        return store.books.first
     }
 
     var body: some View {
@@ -38,8 +42,8 @@ struct ChapterListView: View {
                             .padding(.vertical, 6)
                         }
                         .listRowBackground(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
-                    } else {
-                        NavigationLink(destination: ReaderView(book: currentBook, chapter: chapter, bookID: currentBook.id, chapterIndex: chapterIndex).environmentObject(store)) {
+                    } else if let book = currentBook {
+                        NavigationLink(destination: ReaderView(book: book, chapter: chapter, bookID: book.id, chapterIndex: chapterIndex).environmentObject(store)) {
                             HStack {
                                 Text(chapter.title)
                                     .font(.headline)
