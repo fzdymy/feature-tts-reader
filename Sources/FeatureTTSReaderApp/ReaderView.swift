@@ -28,9 +28,9 @@ struct ReaderView: View {
     let bookID: UUID
     @State private var currentChapter: BookChapter
     @State private var currentChapterIndex: Int
-    @State private var paragraphItems: [ParagraphItem] = []
-    @State private var isLoadingNext = false
-    @State private var isLoadingPrev = false
+    @State private var loadedChapters: [Int] = []
+    @State private var paragraphCache: [Int: [ParagraphItem]] = [:]
+    @State private var isLoadingChapters = false
     @State private var fontVersion = 0
     @State private var suppressAutoLoad = false
     @State private var currentTime = Date()
@@ -43,7 +43,9 @@ struct ReaderView: View {
         self.bookID = bookID
         ReaderStore.debugLog("[RVIEW-INIT] bookID=\(bookID.uuidString) chapterIndex=\(chapterIndex) title=\(chapter.title)")
         let paras = Self.splitParagraphs(chapter.text)
-        self._paragraphItems = State(initialValue: paras.map { ParagraphItem(text: $0, chapterIndex: chapterIndex) })
+        let items = paras.map { ParagraphItem(text: $0, chapterIndex: chapterIndex) }
+        self._paragraphCache = State(initialValue: [chapterIndex: items])
+        self._loadedChapters = State(initialValue: [chapterIndex])
         self._currentChapter = State(initialValue: chapter)
         self._currentChapterIndex = State(initialValue: chapterIndex)
         self._anchorChapterIndex = State(initialValue: chapterIndex)
@@ -129,31 +131,34 @@ struct ReaderView: View {
                 backgroundColor.ignoresSafeArea()
             }
 
-            if paragraphItems.isEmpty {
+            if loadedChapters.isEmpty {
                 VStack { Spacer(); emptyState; Spacer() }
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
                             Color.clear.frame(height: 0).id("chapter-top")
-                            ForEach(paragraphItems) { item in
-                                ParagraphText(text: item.text, textColor: textColor, backgroundColor: backgroundColor)
-                                    .onAppear {
-                                        if item.chapterIndex != displayedChapterIndex {
-                                            displayedChapterIndex = item.chapterIndex
-                                            if let chapters = store.chaptersForBookCached(bookID),
-                                               item.chapterIndex < chapters.count {
-                                                displayedChapterTitle = chapters[item.chapterIndex].title
+                            ForEach(loadedChapters.sorted(), id: \.self) { chIndex in
+                                let items = paragraphCache[chIndex] ?? []
+                                ForEach(items) { item in
+                                    ParagraphText(text: item.text, textColor: textColor, backgroundColor: backgroundColor)
+                                        .onAppear {
+                                            if chIndex != displayedChapterIndex {
+                                                displayedChapterIndex = chIndex
+                                                if let chapters = store.chaptersForBookCached(bookID),
+                                                   chIndex < chapters.count {
+                                                    displayedChapterTitle = chapters[chIndex].title
+                                                }
+                                            }
+                                            guard !suppressAutoLoad else { return }
+                                            if item.id == items.last?.id {
+                                                loadAdjacentChapter(chIndex + 1)
+                                            }
+                                            if item.id == items.first?.id {
+                                                loadAdjacentChapter(chIndex - 1)
                                             }
                                         }
-                                        guard !suppressAutoLoad else { return }
-                                        if item.id == paragraphItems.last?.id {
-                                            appendNextChapter()
-                                        }
-                                        if item.id == paragraphItems.first?.id {
-                                            prependPreviousChapter()
-                                        }
-                                    }
+                                }
                             }
                         }
                         .padding(.horizontal, 20).padding(.vertical, 12)
@@ -164,7 +169,8 @@ struct ReaderView: View {
                         withAnimation { isImmersive.toggle() }
                     })
                     .onChange(of: chapterTopID) { _ in
-                        if let targetID = paragraphItems.first(where: { $0.chapterIndex == currentChapterIndex })?.id {
+                        if let items = paragraphCache[currentChapterIndex],
+                           let targetID = items.first?.id {
                             proxy.scrollTo(targetID, anchor: .top)
                         } else {
                             proxy.scrollTo("chapter-top", anchor: .top)
@@ -185,6 +191,7 @@ struct ReaderView: View {
                         displayedChapterIndex = nav.chapterIndex
                         displayedChapterTitle = chapters[nav.chapterIndex].title
                         reloadParagraphs()
+                        loadChapterRange(center: nav.chapterIndex, radius: 3)
                         ReaderStore.saveLastChapterIndex(nav.chapterIndex, for: bookID)
                         chapterTopID = UUID()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
@@ -232,9 +239,10 @@ struct ReaderView: View {
             if currentChapter.text.isEmpty {
                 if let cached = store.chaptersForBookCached(bookID), currentChapterIndex < cached.count {
                     currentChapter = cached[currentChapterIndex]
-                    paragraphItems = Self.splitParagraphs(currentChapter.text).map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
+                    reloadParagraphs()
                 }
             }
+            loadChapterRange(center: currentChapterIndex, radius: 3)
             updateBatteryLevel()
             store.selectedChapterID = currentChapter.id
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
@@ -322,7 +330,7 @@ struct ReaderView: View {
                     .monospacedDigit()
             }
             if store.showPageNumber {
-                let pct = paragraphItems.isEmpty ? 0 : min(Double(currentChapterIndex + 1) / Double(max(store.chaptersForBookCached(bookID)?.count ?? 1, 1)), 1)
+                let pct = loadedChapters.isEmpty ? 0 : min(Double(currentChapterIndex + 1) / Double(max(store.chaptersForBookCached(bookID)?.count ?? 1, 1)), 1)
                 Text("\(Int(pct * 100))%")
                     .font(.caption2).foregroundColor(textColor.opacity(0.5))
             }
@@ -443,6 +451,7 @@ struct ReaderView: View {
         anchorChapterIndex = currentChapterIndex
         currentChapter = chapters[currentChapterIndex]
         reloadParagraphs()
+        loadChapterRange(center: currentChapterIndex, radius: 3)
         store.selectedChapterID = currentChapter.id
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
         chapterTopID = UUID()
@@ -459,6 +468,7 @@ struct ReaderView: View {
         currentChapter = chapters[currentChapterIndex]
         ReaderStore.debugLog("[NEXT] bookID=\(bookID.uuidString) index=\(currentChapterIndex)")
         reloadParagraphs()
+        loadChapterRange(center: currentChapterIndex, radius: 3)
         store.selectedChapterID = currentChapter.id
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
         chapterTopID = UUID()
@@ -467,41 +477,43 @@ struct ReaderView: View {
 
     private func reloadParagraphs() {
         let paras = Self.splitParagraphs(currentChapter.text)
-        paragraphItems = paras.map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
+        let items = paras.map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
+        paragraphCache = [currentChapterIndex: items]
+        loadedChapters = [currentChapterIndex]
     }
 
-    private func appendNextChapter() {
-        guard !isLoadingNext else { return }
-        isLoadingNext = true
-        defer { isLoadingNext = false }
+    private func loadAdjacentChapter(_ index: Int) {
+        guard !isLoadingChapters else { return }
+        isLoadingChapters = true
+        defer { isLoadingChapters = false }
         guard let chapters = store.chaptersForBookCached(bookID),
-              let lastLoaded = paragraphItems.last?.chapterIndex,
-              lastLoaded + 1 < chapters.count else { return }
-        let next = chapters[lastLoaded + 1]
-        let paras = Self.splitParagraphs(next.text)
+              index >= 0, index < chapters.count,
+              !loadedChapters.contains(index) else { return }
+        let paras = Self.splitParagraphs(chapters[index].text)
         guard !paras.isEmpty else { return }
-        paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
-        displayedChapterTitle = next.title
-        displayedChapterIndex = lastLoaded + 1
-        ReaderStore.debugLog("[APPEND] bookID=\(bookID.uuidString) index=\(lastLoaded + 1)")
-        store.setChapterProgress(chapters[lastLoaded].id, percent: 1.0)
+        paragraphCache[index] = paras.map { ParagraphItem(text: $0, chapterIndex: index) }
+        loadedChapters.append(index)
+        ReaderStore.debugLog("[LOAD-CH] bookID=\(bookID.uuidString) index=\(index)")
+        if index > currentChapterIndex {
+            store.setChapterProgress(chapters[index - 1].id, percent: 1.0)
+        }
     }
 
-    private func prependPreviousChapter() {
-        guard !isLoadingPrev else { return }
-        isLoadingPrev = true
-        defer { isLoadingPrev = false }
-        guard let chapters = store.chaptersForBookCached(bookID),
-              let firstLoaded = paragraphItems.first?.chapterIndex,
-              firstLoaded > 0 else { return }
-        let batchStart = max(0, firstLoaded - 5)
-        var newItems: [ParagraphItem] = []
-        for i in (batchStart..<firstLoaded).reversed() {
+    private func loadChapterRange(center: Int, radius: Int) {
+        guard let chapters = store.chaptersForBookCached(bookID) else { return }
+        let lower = max(0, center - radius)
+        let upper = min(chapters.count - 1, center + radius)
+        var cache = paragraphCache
+        var loaded = loadedChapters
+        for i in lower...upper {
+            guard !loaded.contains(i) else { continue }
             let paras = Self.splitParagraphs(chapters[i].text)
-            newItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: i) })
+            guard !paras.isEmpty else { continue }
+            cache[i] = paras.map { ParagraphItem(text: $0, chapterIndex: i) }
+            loaded.append(i)
         }
-        guard !newItems.isEmpty else { return }
-        paragraphItems.insert(contentsOf: newItems, at: 0)
+        paragraphCache = cache
+        loadedChapters = loaded
     }
 
     private func updateBatteryLevel() {
