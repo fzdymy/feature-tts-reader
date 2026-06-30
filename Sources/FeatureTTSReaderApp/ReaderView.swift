@@ -210,6 +210,7 @@ struct ReaderView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            UserDefaults.standard.set(currentChapterIndex, forKey: "lastChapter_\(bookID.uuidString)")
             store.saveState()
             if !useSystemBrightness {
                 UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
