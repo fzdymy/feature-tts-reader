@@ -497,11 +497,12 @@ struct BookDetailView: View {
                 // Actions
                 Section {
                     Button(action: {
-                        guard !chapters.isEmpty else { return }
+                        let chaps = chapters.isEmpty ? store.chapters : chapters
+                        guard !chaps.isEmpty else { return }
                         let index = store.lastReadChapterIndexByBook[book.id] ?? 0
-                        let safeIndex = min(index, chapters.count - 1)
+                        let safeIndex = min(index, chaps.count - 1)
                         readerNavigation = ReaderNavigation(
-                            chapter: chapters[safeIndex],
+                            chapter: chaps[safeIndex],
                             chapterIndex: safeIndex
                         )
                     }) {

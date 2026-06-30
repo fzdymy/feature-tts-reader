@@ -103,7 +103,14 @@ final class ReaderStore: NSObject, ObservableObject {
         audioController.restorePlaybackState()
         startAutoSaveTimer()
 
-        loadState()
+        // Restore reading position from UserDefaults (tiny, <1KB) so "继续阅读" works immediately
+        if let data = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
+           let map = try? JSONDecoder().decode([UUID: Int].self, from: data) {
+            lastReadChapterIndexByBook = map
+        }
+
+        // Full state loaded async to avoid blocking UI with ~40MB JSON decode
+        Task { await loadStateAsync() }
     }
 
     private func setupAudioSession() {
@@ -220,72 +227,78 @@ final class ReaderStore: NSObject, ObservableObject {
         restartAutoSaveTimer()
     }
 
-    func loadState() {
+    private func loadStateAsync() async {
         let url = stateFileURL()
-        guard let data = try? Data(contentsOf: url), let state = try? JSONDecoder().decode(ReaderState.self, from: data) else {
-            loadPersistentLibrary()
-            // Migrate book texts from old JSON if any
-            if let jsonData = try? Data(contentsOf: url),
-               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                if let booksArray = json["books"] as? [[String: Any]] {
-                    for i in books.indices {
-                        for b in booksArray {
-                            guard let idStr = b["id"] as? String,
-                                  let id = UUID(uuidString: idStr),
-                                  id == books[i].id,
-                                  let t = b["text"] as? String, !t.isEmpty
-                            else { continue }
-                            let fileURL = textFileURL(forBookID: id)
-                            if !FileManager.default.fileExists(atPath: fileURL.path) {
-                                try? t.write(to: fileURL, atomically: true, encoding: .utf8)
-                                books[i].text = t
-                            }
-                            break
-                        }
-                    }
-                }
+        // Decode JSON off the main actor
+        let decoded: ReaderState? = await Task.detached {
+            guard let data = try? Data(contentsOf: url),
+                  let state = try? JSONDecoder().decode(ReaderState.self, from: data) else { return nil }
+            return state
+        }.value
+
+        await MainActor.run {
+            guard let state = decoded else {
+                loadPersistentLibrary()
+                return
             }
-            return
-        }
-        chapters = state.chapters
-        characters = state.characters
-        scriptSegments = state.scriptSegments
-        selectedChapterID = state.selectedChapterID
-        apiEndpoint = state.apiEndpoint
-        apiKey = state.apiKey
-        books = state.books
-        currentBookTitle = state.currentBookTitle
-        currentBookID = state.currentBookID
-        currentBookProgress = state.currentBookProgress
-        readerFontSize = state.readerFontSize
-        readerLineSpacing = state.readerLineSpacing
-        readerParagraphSpacing = state.readerParagraphSpacing
-        readerTheme = state.readerTheme
-        readerFontName = state.readerFontName
-        customBackgroundImage = state.customBackgroundImage
-        showChapterTitle = state.showChapterTitle
-        showProgressBar = state.showProgressBar
-        showPageNumber = state.showPageNumber
-        showTime = state.showTime
-        showBattery = state.showBattery
-        showBookCover = state.showBookCover
-        showReadingProgress = state.showReadingProgress
-        bookmarks = state.bookmarks
-        bookProgressByChapter = state.bookProgressByChapter
-        lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
-        selectedVoiceCatalog = state.selectedVoiceCatalog
-        defaultSensitivity = state.defaultSensitivity
-        playTimeoutSeconds = state.playTimeoutSeconds
+            books = state.books
+            chapters = state.chapters
+            selectedChapterID = state.selectedChapterID
+            bookProgressByChapter = state.bookProgressByChapter
+            readerFontSize = state.readerFontSize
+            readerLineSpacing = state.readerLineSpacing
+            readerParagraphSpacing = state.readerParagraphSpacing
+            readerTheme = state.readerTheme
+            readerFontName = state.readerFontName
+            customBackgroundImage = state.customBackgroundImage
+            showChapterTitle = state.showChapterTitle
+            showProgressBar = state.showProgressBar
+            showPageNumber = state.showPageNumber
+            showTime = state.showTime
+            showBattery = state.showBattery
+            showBookCover = state.showBookCover
+            showReadingProgress = state.showReadingProgress
+            bookmarks = state.bookmarks
+            currentBookTitle = state.currentBookTitle
+            currentBookID = state.currentBookID
+            currentBookProgress = state.currentBookProgress
+            apiEndpoint = state.apiEndpoint
+            apiKey = state.apiKey
+            defaultSensitivity = state.defaultSensitivity
+            playTimeoutSeconds = state.playTimeoutSeconds
+            selectedVoiceCatalog = state.selectedVoiceCatalog
+            characters = state.characters
+            scriptSegments = state.scriptSegments
+            ttsQueue = state.ttsQueue ?? []
+            ttsCurrentIndex = state.ttsCurrentIndex ?? 0
+            ttsIsPlaying = state.ttsIsPlaying ?? false
+            ttsChapterTitle = state.ttsChapterTitle ?? ""
+            ttsSegmentTitle = state.ttsSegmentTitle ?? ""
+            recommendations = state.recommendations ?? []
+            statusMessage = state.statusMessage
+            isBusy = state.isBusy
+            currentPlayingLine = state.currentPlayingLine
+            playProgress = state.playProgress
+            isSpeaking = state.isSpeaking
 
-        if selectedVoiceCatalog != .remote {
-            self.voices = VoiceItem.defaultItems()
+            // Merge UserDefaults-saved reading positions (most current) with JSON backup
+            if let udData = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
+               let udMap = try? JSONDecoder().decode([UUID: Int].self, from: udData) {
+                lastReadChapterIndexByBook = udMap
+            } else if !state.lastReadChapterIndexByBook.isEmpty {
+                lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
+            }
+            loadAllTextsFromFiles()
+            if !bookText.isEmpty {
+                updateRecommendations(from: bookText)
+            }
+            loadPersistentLibrary()
         }
+    }
 
-        loadAllTextsFromFiles()
-        if !bookText.isEmpty {
-            updateRecommendations(from: bookText)
-        }
-        loadPersistentLibrary()
+    func loadState() {
+        loadStateLight()
+        Task { await loadStateHeavy() }
     }
 
     func restoreState(_ state: ReaderState) {
@@ -525,7 +538,11 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func rememberLastReadChapter(bookID: UUID, chapterIndex: Int) {
+        guard lastReadChapterIndexByBook[bookID] != chapterIndex else { return }
         lastReadChapterIndexByBook[bookID] = chapterIndex
+        if let data = try? JSONEncoder().encode(lastReadChapterIndexByBook) {
+            UserDefaults.standard.set(data, forKey: "lastReadChapterIndexByBook")
+        }
     }
 
     func lastReadChapterIndex(for bookID: UUID) -> Int? {
