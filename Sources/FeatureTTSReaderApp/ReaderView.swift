@@ -143,9 +143,8 @@ struct ReaderView: View {
                             }
                         }
                         .padding(.horizontal, 20).padding(.vertical, 12)
-                    }
-                    .id(fontVersion)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+}
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .simultaneousGesture(TapGesture().onEnded {
                         withAnimation { isImmersive.toggle() }
                     })
@@ -182,13 +181,10 @@ struct ReaderView: View {
                 if !isImmersive { controlBar }
             }
         }
-        .environment(\.font, Font.custom(store.readerFontName, size: store.readerFontSize))
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(isImmersive)
         .statusBarHidden(isImmersive)
-        .onReceive(store.$readerFontName) { _ in fontVersion += 1 }
-        .onReceive(store.$readerFontSize) { _ in fontVersion += 1 }
         .onReceive(timer) { _ in
             currentTime = Date(); updateBatteryLevel()
         }
@@ -211,6 +207,7 @@ struct ReaderView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            store.saveState()
             if !useSystemBrightness {
                 UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
             }
@@ -430,6 +427,7 @@ struct ReaderView: View {
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
         currentChapterIndex = lastLoaded + 1
         currentChapter = next
+        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
     }
 
     private func prependPreviousChapter() {
@@ -446,6 +444,7 @@ struct ReaderView: View {
         paragraphItems.insert(contentsOf: newItems, at: 0)
         currentChapterIndex = firstLoaded - 1
         currentChapter = prev
+        store.rememberLastReadChapter(bookID: bookID, chapterIndex: currentChapterIndex)
     }
 
     private func updateBatteryLevel() {
@@ -472,6 +471,7 @@ struct ReaderView: View {
 
     private func paragraphView(_ para: String) -> some View {
         Text("\u{3000}\u{3000}" + para)
+            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
             .foregroundColor(textColor)
             .lineSpacing(store.readerLineSpacing + 2)
             .environment(\.locale, Locale(identifier: "zh_CN"))
