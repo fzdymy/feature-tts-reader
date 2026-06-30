@@ -1657,25 +1657,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func loadLocalVoiceCatalog(_ source: VoiceCatalogSource) async -> [VoiceItem] {
-        guard let resourceName = source.resourceName else { return [] }
-        return await Task.detached { () -> [VoiceItem] in
-            guard let url = Bundle.module.url(forResource: resourceName, withExtension: "json") else {
-                return VoiceItem.defaultItems()
-            }
-            do {
-                let data = try Data(contentsOf: url)
-                let decoder = JSONDecoder()
-                let raw = try decoder.decode([LocalVoiceCatalogItem].self, from: data)
-                return raw.compactMap { item in
-                    let voiceID = item.short_name ?? item.name ?? item.local_name ?? item.display_name
-                    guard let id = voiceID else { return nil }
-                    let title = item.display_name ?? item.local_name ?? item.name ?? id
-                    return VoiceItem(id: id, name: title, locale: item.locale ?? "zh-CN", styleList: item.style_list ?? item.styleList)
-                }
-            } catch {
-                return VoiceItem.defaultItems()
-            }
-        }.value
+        source.voices
     }
 
     nonisolated func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
@@ -1692,15 +1674,6 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    struct LocalVoiceCatalogItem: Decodable {
-        let name: String?
-        let display_name: String?
-        let local_name: String?
-        let short_name: String?
-        let locale: String?
-        let style_list: [String]?
-        let styleList: [String]?
-    }
 }
     
 private class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate {

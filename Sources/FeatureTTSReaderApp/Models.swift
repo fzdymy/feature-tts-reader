@@ -152,25 +152,31 @@ enum CharacterRole: String, Codable, CaseIterable {
     }
 }
 
+enum VoiceGender: String, Codable, CaseIterable {
+    case male = "Male"
+    case female = "Female"
+
+    var displayName: String {
+        switch self {
+        case .male: return "男声"
+        case .female: return "女声"
+        }
+    }
+}
+
 struct VoiceItem: Identifiable, Hashable, Codable {
     let id: String
     let name: String
     let locale: String
+    let gender: VoiceGender
     let styleList: [String]?
-    var shortName: String { id }
 
     var displayName: String {
         name.isEmpty ? id : name
     }
 
     static func defaultItems() -> [VoiceItem] {
-        [
-            VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "标准女声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-YunxiNeural", name: "年轻男声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-XiaohanNeural", name: "活力女声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-YunjianNeural", name: "成熟男声", locale: "zh-CN", styleList: nil),
-            VoiceItem(id: "zh-CN-XiaomoNeural", name: "温柔女声", locale: "zh-CN", styleList: nil)
-        ]
+        [VoiceCatalog.chinese35.first!]
     }
 }
 
@@ -188,11 +194,11 @@ enum VoiceCatalogSource: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    var resourceName: String? {
+    var voices: [VoiceItem] {
         switch self {
-        case .remote: return nil
-        case .chinese35: return "chinese_voices_35"
-        case .fullChinese: return "full_chinese_voices"
+        case .remote: return []
+        case .chinese35: return VoiceCatalog.chinese35
+        case .fullChinese: return VoiceCatalog.fullChinese
         }
     }
 
