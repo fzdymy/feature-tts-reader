@@ -2,106 +2,90 @@ import SwiftUI
 import Combine
 import UIKit
 
-enum TextAlign: Int, CaseIterable, Identifiable {
-    case leading = 0, center = 1, trailing = 2, justified = 3
-    var id: Self { self }
-    var displayName: String {
-        switch self {
-        case .leading: return "左对齐"
-        case .center: return "居中对齐"
-        case .trailing: return "右对齐"
-        case .justified: return "两端对齐"
-        }
+// MARK: - ChapterTextView (Pure UIKit, single UITextView, no double-scroll)
+
+struct ChapterTextView: UIViewRepresentable {
+    let text: String
+    let font: UIFont
+    let textColor: UIColor
+    let lineSpacing: CGFloat
+    let insets: UIEdgeInsets
+    
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.isEditable = false
+        tv.isScrollEnabled = false
+        tv.backgroundColor = .clear
+        tv.textContainer.lineFragmentPadding = 0
+        tv.textContainerInset = .zero
+        tv.isAccessibilityElement = true
+        return tv
+    }
+    
+    func updateUIView(_ tv: UITextView, context: Context) {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing
+        
+        let attrs: [NSAttributedString.Key: Any] = [
+            .paragraphStyle: style,
+            .font: font,
+            .foregroundColor: textColor
+        ]
+        
+        // Indent paragraphs
+        let indented = "\u{3000}\u{3000}" + text
+            .replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
+        tv.attributedText = NSAttributedString(string: indented, attributes: attrs)
+        
+        tv.frame.size.width = UIScreen.main.bounds.width - insets.left - insets.right
+        tv.invalidateIntrinsicContentSize()
     }
 }
 
-struct ParagraphItem: Identifiable {
-    let id = UUID()
-    let text: String
-    let chapterIndex: Int
-}
+// MARK: - ReaderView
 
 struct ReaderView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
     let book: Book
     let bookID: UUID
+    
+    // Chapter state – single source of truth
     @State private var currentChapter: BookChapter
     @State private var currentChapterIndex: Int
-    @State private var loadedChapters: [Int] = []
-    @State private var paragraphCache: [Int: [ParagraphItem]] = [:]
-    @State private var isLoadingChapters = false
-    @State private var fontVersion = 0
-    @State private var suppressAutoLoad = false
+    @State private var anchorChapterIndex: Int
+    @State private var displayedChapterTitle: String
+    
+    // UI state
+    @State private var showBookmarks = false
+    @State private var showSettings = false
+    @State private var showFontPicker = false
+    @State private var showTOC = false
+    @State private var isSpeaking = false
+    @State private var isImmersive = false
+    
+    // Status
     @State private var currentTime = Date()
     @State private var batteryLevel: Int = 100
-    @State private var chapterTopID = UUID()
+    @State private var screenBrightness: CGFloat = UIScreen.main.brightness
+    @State private var useSystemBrightness = true
+    
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
-
+    
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
         self.book = book
         self.bookID = bookID
-        ReaderStore.debugLog("[RVIEW-INIT] bookID=\(bookID.uuidString) chapterIndex=\(chapterIndex) title=\(chapter.title)")
-        let paras = Self.splitParagraphs(chapter.text)
-        let items = paras.map { ParagraphItem(text: $0, chapterIndex: chapterIndex) }
-        self._paragraphCache = State(initialValue: [chapterIndex: items])
-        self._loadedChapters = State(initialValue: [chapterIndex])
+        ReaderStore.debugLog("[RVIEW-INIT] bookID=\(bookID.uuidString) chapterIndex=\(chapterIndex)")
         self._currentChapter = State(initialValue: chapter)
         self._currentChapterIndex = State(initialValue: chapterIndex)
         self._anchorChapterIndex = State(initialValue: chapterIndex)
         self._displayedChapterTitle = State(initialValue: chapter.title)
-        self._displayedChapterIndex = State(initialValue: chapterIndex)
     }
-
-    static func splitParagraphs(_ text: String) -> [String] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        let byDoubleNewline = trimmed.components(separatedBy: "\n\n")
-            .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).count > 1 }
-
-        if byDoubleNewline.count >= 2 && byDoubleNewline.allSatisfy({ $0.count < 2000 }) {
-            return byDoubleNewline.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        }
-
-        let byNewline = trimmed.components(separatedBy: "\n")
-            .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines).count > 1 }
-
-        if byNewline.count >= 2 && byNewline.allSatisfy({ $0.count < 2000 }) {
-            return byNewline.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        }
-
-        let chunkSize = 800
-        var result: [String] = []
-        var start = trimmed.startIndex
-        while start < trimmed.endIndex {
-            let end = trimmed.index(start, offsetBy: chunkSize, limitedBy: trimmed.endIndex) ?? trimmed.endIndex
-            var split = end
-            if end < trimmed.endIndex {
-                let segment = trimmed[start..<end]
-                if let punct = segment.lastIndex(where: { "。！？!?".contains($0) }) {
-                    split = trimmed.index(after: punct)
-                }
-            }
-            let chunk = String(trimmed[start..<split]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !chunk.isEmpty { result.append(chunk) }
-            start = split
-        }
-        return result.isEmpty ? [trimmed] : result
+    
+    private var chapters: [BookChapter]? {
+        store.chaptersForBookCached(bookID)
     }
-
-    @State private var anchorChapterIndex: Int = 0
-    @State private var displayedChapterTitle: String = ""
-    @State private var displayedChapterIndex: Int = 0
-    @State private var showBookmarks: Bool = false
-    @State private var showSettings: Bool = false
-    @State private var showFontPicker: Bool = false
-    @State private var showTOC: Bool = false
-    @State private var isSpeaking: Bool = false
-    @State private var screenBrightness: CGFloat = UIScreen.main.brightness
-    @State private var useSystemBrightness: Bool = true
-    @State private var isImmersive: Bool = false
-
+    
     private var textColor: Color {
         switch store.readerTheme {
         case .dark: return .white
@@ -109,163 +93,138 @@ struct ReaderView: View {
         case .sepia: return Color(red: 0.2, green: 0.18, blue: 0.15)
         }
     }
-
-    private var backgroundColor: Color {
-        if let _ = store.customBackgroundImage { return Color.clear }
+    
+    private var uiTextColor: UIColor {
+        switch store.readerTheme {
+        case .dark: return .white
+        case .light: return UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+        case .sepia: return UIColor(red: 0.2, green: 0.18, blue: 0.15, alpha: 1)
+        }
+    }
+    
+    private var bgColor: Color {
+        if store.customBackgroundImage != nil { return Color.clear }
         switch store.readerTheme {
         case .dark: return .black
         case .light: return .white
         case .sepia: return Color(red: 0.98, green: 0.93, blue: 0.82)
         }
     }
-
+    
+    private var uiFont: UIFont {
+        UIFont(name: store.readerFontName, size: CGFloat(store.readerFontSize))
+            ?? UIFont.systemFont(ofSize: CGFloat(store.readerFontSize))
+    }
+    
+    private var contentInsets: UIEdgeInsets {
+        UIEdgeInsets(top: 12, left: 20, bottom: 80, right: 20)
+    }
+    
     private var chapterBookmarks: [BookBookmark] {
         store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
-
+    
     var body: some View {
-        ZStack {
-            if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage).resizable().scaledToFill().ignoresSafeArea()
-            } else {
-                backgroundColor.ignoresSafeArea()
-            }
-
-            if loadedChapters.isEmpty {
-                VStack { Spacer(); emptyState; Spacer() }
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: store.readerParagraphSpacing + 4) {
-                            Color.clear.frame(height: 0).id("chapter-top")
-                            ForEach(loadedChapters.sorted(), id: \.self) { chIndex in
-                                let items = paragraphCache[chIndex] ?? []
-                                ForEach(items) { item in
-                                    ParagraphText(text: item.text, textColor: textColor, backgroundColor: backgroundColor)
-                                        .onAppear {
-                                            if chIndex != displayedChapterIndex {
-                                                displayedChapterIndex = chIndex
-                                                if let chapters = store.chaptersForBookCached(bookID),
-                                                   chIndex < chapters.count {
-                                                    displayedChapterTitle = chapters[chIndex].title
-                                                }
-                                            }
-                                            guard !suppressAutoLoad else { return }
-                                            if item.id == items.last?.id {
-                                                loadAdjacentChapter(chIndex + 1)
-                                            }
-                                            if item.id == items.first?.id {
-                                                loadAdjacentChapter(chIndex - 1)
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 20).padding(.vertical, 12)
-                    }
-                    .id(fontVersion)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        withAnimation { isImmersive.toggle() }
-                    })
-                    .onChange(of: chapterTopID) { _ in
-                        if let items = paragraphCache[currentChapterIndex],
-                           let targetID = items.first?.id {
-                            proxy.scrollTo(targetID, anchor: .top)
-                        } else {
-                            proxy.scrollTo("chapter-top", anchor: .top)
-                        }
-                    }
-                    .onChange(of: store.externalChapterNavigate) { nav in
-                        guard let nav, nav.bookID == bookID,
-                              let chapters = store.chaptersForBookCached(bookID),
-                              nav.chapterIndex < chapters.count else { return }
-                        store.externalChapterNavigate = nil
-                        suppressAutoLoad = true
-                        if nav.chapterIndex < currentChapterIndex {
-                            store.setChapterProgress(chapters[currentChapterIndex].id, percent: 1.0)
-                        }
-                        currentChapter = chapters[nav.chapterIndex]
-                        currentChapterIndex = nav.chapterIndex
-                        anchorChapterIndex = nav.chapterIndex
-                        displayedChapterIndex = nav.chapterIndex
-                        displayedChapterTitle = chapters[nav.chapterIndex].title
-                        reloadParagraphs()
-                        loadChapterRange(center: nav.chapterIndex, radius: 3)
-                        ReaderStore.saveLastChapterIndex(nav.chapterIndex, for: bookID)
-                        chapterTopID = UUID()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
-                    }
+        GeometryReader { geo in
+            ZStack {
+                // Background
+                if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
+                    Image(uiImage: uiImage)
+                        .resizable().scaledToFill().ignoresSafeArea()
+                } else {
+                    bgColor.ignoresSafeArea()
                 }
-            }
-
-            if isImmersive, store.showChapterTitle {
-                VStack {
-                    HStack {
-                        Text(displayedChapterTitle)
-                            .font(.caption)
-                            .foregroundColor(textColor.opacity(0.6))
-                            .lineLimit(1)
-                            .padding(.horizontal, 16).padding(.vertical, 6)
+                
+                // Main content – single UITextView inside ScrollView
+                ScrollView {
+                    ChapterTextView(
+                        text: currentChapter.text,
+                        font: uiFont,
+                        textColor: uiTextColor,
+                        lineSpacing: CGFloat(store.readerLineSpacing + 2),
+                        insets: contentInsets
+                    )
+                    .frame(
+                        minHeight: geo.size.height - contentInsets.top - contentInsets.bottom,
+                        alignment: .top
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 80)
+                }
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        withAnimation { isImmersive.toggle() }
+                    }
+                )
+                
+                // Immersive: floating chapter title
+                if isImmersive, store.showChapterTitle {
+                    VStack {
+                        HStack {
+                            Text(displayedChapterTitle)
+                                .font(.caption)
+                                .foregroundColor(textColor.opacity(0.6))
+                                .lineLimit(1)
+                                .padding(.horizontal, 16).padding(.vertical, 6)
+                            Spacer()
+                        }
                         Spacer()
                     }
+                }
+                
+                // Non-immersive: header + control bar
+                VStack {
+                    if !isImmersive, store.showChapterTitle { readerHeader }
                     Spacer()
+                    if !isImmersive { controlBar }
                 }
-            }
-
-            VStack {
-                if !isImmersive, store.showChapterTitle { readerHeader }
-                Spacer()
-            }
-
-            VStack {
-                Spacer()
-                if isImmersive, store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                    readerStatusBar
+                
+                // Immersive: mini status bar
+                if isImmersive,
+                   store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
+                    VStack {
+                        Spacer()
+                        readerStatusBar
+                    }
                 }
-                if !isImmersive { controlBar }
             }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(isImmersive)
         .statusBarHidden(isImmersive)
-        .onReceive(store.$readerFontName) { _ in fontVersion += 1 }
-        .onReceive(store.$readerFontSize) { _ in fontVersion += 1 }
         .onReceive(timer) { _ in
-            currentTime = Date(); updateBatteryLevel()
+            currentTime = Date()
+            updateBatteryLevel()
         }
         .onAppear {
-            if currentChapter.text.isEmpty {
-                if let cached = store.chaptersForBookCached(bookID), currentChapterIndex < cached.count {
-                    currentChapter = cached[currentChapterIndex]
-                    reloadParagraphs()
-                }
-            }
-            loadChapterRange(center: currentChapterIndex, radius: 3)
             updateBatteryLevel()
             store.selectedChapterID = currentChapter.id
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
-            if let savedBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
-                screenBrightness = savedBrightness
+            if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
+                screenBrightness = brightness
                 useSystemBrightness = false
-                UIScreen.main.brightness = savedBrightness
+                UIScreen.main.brightness = brightness
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                chapterTopID = UUID()
-            }
+            ReaderStore.debugLog("[RVIEW-APPEAR] idx=\(currentChapterIndex)")
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             ReaderStore.saveLastChapterIndex(anchorChapterIndex, for: bookID)
-            if let chapters = store.chaptersForBookCached(bookID),
-               anchorChapterIndex < chapters.count {
-                store.setChapterProgress(chapters[anchorChapterIndex].id, percent: 1.0)
+            if let chs = chapters, anchorChapterIndex < chs.count {
+                store.setChapterProgress(chs[anchorChapterIndex].id, percent: 1.0)
             }
             store.saveState()
             if !useSystemBrightness {
                 UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
             }
+        }
+        .onChange(of: store.externalChapterNavigate) { nav in
+            guard let nav, nav.bookID == bookID,
+                  let chs = chapters, nav.chapterIndex < chs.count else { return }
+            store.externalChapterNavigate = nil
+            jumpTo(nav.chapterIndex, explicit: true)
         }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsView().environmentObject(store).presentationDetents([.medium, .large])
@@ -275,62 +234,82 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showTOC) {
             ChapterListView(currentChapterID: currentChapter.id) { chapter, index in
-                ReaderStore.debugLog("[TOC-SELECT] bookID=\(bookID.uuidString) index=\(index)")
-                suppressAutoLoad = true
-                if let chapters = store.chaptersForBookCached(bookID) {
-                    store.setChapterProgress(chapters[min(currentChapterIndex, chapters.count - 1)].id, percent: 1.0)
+                ReaderStore.debugLog("[TOC] idx=\(index)")
+                if let chs = chapters {
+                    store.setChapterProgress(chs[min(currentChapterIndex, chs.count - 1)].id, percent: 1.0)
                 }
-                currentChapter = chapter
-                currentChapterIndex = index
-                anchorChapterIndex = index
-                reloadParagraphs()
-                store.selectedChapterID = chapter.id
-                ReaderStore.saveLastChapterIndex(index, for: bookID)
-                chapterTopID = UUID()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
+                jumpTo(index, explicit: true)
             }
             .environmentObject(store)
             .presentationDetents([.large])
         }
     }
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "text.page.slash").font(.system(size: 48)).foregroundColor(textColor.opacity(0.3))
-            Text("暂无内容").font(.title3).foregroundColor(textColor.opacity(0.5))
-            Text("请检查章节内容是否为空").font(.caption).foregroundColor(textColor.opacity(0.3))
+    
+    // MARK: - Navigation
+    
+    private func jumpTo(_ index: Int, explicit: Bool) {
+        guard let chs = chapters, index >= 0, index < chs.count else { return }
+        currentChapterIndex = index
+        currentChapter = chs[index]
+        displayedChapterTitle = chs[index].title
+        store.selectedChapterID = chs[index].id
+        ReaderStore.saveLastChapterIndex(index, for: bookID)
+        if explicit { anchorChapterIndex = index }
+        // Preload adjacent texts in background
+        let lower = max(0, index - 2)
+        let upper = min(chs.count - 1, index + 2)
+        DispatchQueue.global(qos: .background).async {
+            for i in lower...upper where i != index {
+                _ = chs[i].text // trigger text load
+            }
         }
+        ReaderStore.debugLog("[JUMP] idx=\(index)")
     }
-
+    
+    private func previousChapter() {
+        guard let chs = chapters, currentChapterIndex > 0 else { return }
+        let idx = currentChapterIndex - 1
+        if idx + 1 < chs.count {
+            store.setChapterProgress(chs[idx + 1].id, percent: 1.0)
+        }
+        jumpTo(idx, explicit: true)
+    }
+    
+    private func nextChapter() {
+        guard let chs = chapters, currentChapterIndex < chs.count - 1 else { return }
+        store.setChapterProgress(chs[currentChapterIndex].id, percent: 1.0)
+        jumpTo(currentChapterIndex + 1, explicit: true)
+    }
+    
+    // MARK: - Subviews
+    
     private var readerHeader: some View {
         HStack {
             Button(action: { dismiss() }) {
-                Image(systemName: "xmark.circle.fill").font(.title3).foregroundColor(textColor.opacity(0.7))
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(textColor.opacity(0.7))
             }
-            Text(displayedChapterTitle).font(.headline).lineLimit(1).foregroundColor(textColor).padding(.leading, 8)
+            Text(displayedChapterTitle)
+                .font(.headline).lineLimit(1)
+                .foregroundColor(textColor)
+                .padding(.leading, 8)
             Spacer()
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
-        .background(backgroundColor.opacity(0.9))
+        .background(bgColor.opacity(0.9))
         .overlay(Divider(), alignment: .bottom)
     }
-
-    private var chapterProgressText: String {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty else { return "—" }
-        let current = currentChapterIndex + 1
-        let total = chapters.count
-        return "\(current)/\(total)"
-    }
-
+    
     private var readerStatusBar: some View {
         HStack(spacing: 8) {
             if store.showProgressBar {
-                Text(chapterProgressText)
-                    .font(.caption2).foregroundColor(textColor.opacity(0.6))
-                    .monospacedDigit()
+                Text(progressText)
+                    .font(.caption2).foregroundColor(textColor.opacity(0.6)).monospacedDigit()
             }
             if store.showPageNumber {
-                let pct = loadedChapters.isEmpty ? 0 : min(Double(currentChapterIndex + 1) / Double(max(store.chaptersForBookCached(bookID)?.count ?? 1, 1)), 1)
+                let pct = chapters?.isEmpty ?? true ? 0
+                    : min(Double(currentChapterIndex + 1) / Double(max(chapters?.count ?? 1, 1)), 1)
                 Text("\(Int(pct * 100))%")
                     .font(.caption2).foregroundColor(textColor.opacity(0.5))
             }
@@ -349,57 +328,51 @@ struct ReaderView: View {
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 4)
-        .background(backgroundColor.opacity(0.9))
+        .background(bgColor.opacity(0.9))
     }
-
+    
     private var batteryIcon: String {
-        if batteryLevel > 90 { return "battery.100" }
-        if batteryLevel > 60 { return "battery.75" }
-        if batteryLevel > 30 { return "battery.50" }
-        if batteryLevel > 10 { return "battery.25" }
-        return "battery.0"
+        batteryLevel > 90 ? "battery.100" :
+        batteryLevel > 60 ? "battery.75" :
+        batteryLevel > 30 ? "battery.50" :
+        "battery.0"
     }
-
+    
+    private var progressText: String {
+        guard let chs = chapters, !chs.isEmpty else { return "—" }
+        return "\(currentChapterIndex + 1)/\(chs.count)"
+    }
+    
     private var controlBar: some View {
         VStack(spacing: 0) {
-            if showBookmarks {
-                bookmarksList
-                    .frame(maxHeight: 260)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            if showBookmarks { bookmarkPanel }
             HStack(spacing: 12) {
-                Button(action: previousChapter) {
-                    Image(systemName: "chevron.left").font(.title2)
-                }
-                .disabled(currentChapterIndex <= 0)
-                Button(action: { showTOC = true }) {
-                    Image(systemName: "list.bullet").font(.title2)
-                }
-                Button(action: { showBookmarks.toggle() }) {
-                    Image(systemName: chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill").font(.title2)
-                }
-                Button(action: { store.readerTheme = nextTheme(store.readerTheme) }) {
-                    Image(systemName: themeIcon(store.readerTheme)).font(.title2)
-                }
-                Button(action: { showFontPicker = true }) {
-                    Image(systemName: "textformat.alt").font(.title2)
-                }
-                Button(action: { showSettings = true }) {
-                    Image(systemName: "gearshape.fill").font(.title2)
-                }
-                Button(action: {
-                    if isSpeaking { store.stopPlayback(); isSpeaking = false }
-                    else {
-                        isSpeaking = true
-                        Task { await store.playChapterWithTTS(chapter: currentChapter); isSpeaking = false }
+                controlButton(systemName: "chevron.left", disabled: currentChapterIndex <= 0, action: previousChapter)
+                controlButton(systemName: "list.bullet", action: { showTOC = true })
+                controlButton(
+                    systemName: chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill",
+                    action: { showBookmarks.toggle() }
+                )
+                controlButton(systemName: themeIcon(store.readerTheme), action: {
+                    store.readerTheme = nextTheme(store.readerTheme)
+                })
+                controlButton(systemName: "textformat.alt", action: { showFontPicker = true })
+                controlButton(systemName: "gearshape.fill", action: { showSettings = true })
+                controlButton(
+                    systemName: isSpeaking ? "pause.fill" : "play.fill",
+                    action: {
+                        if isSpeaking { store.stopPlayback(); isSpeaking = false }
+                        else {
+                            isSpeaking = true
+                            Task { await store.playChapterWithTTS(chapter: currentChapter); isSpeaking = false }
+                        }
                     }
-                }) {
-                    Image(systemName: isSpeaking ? "pause.fill" : "play.fill").font(.title2)
-                }
-                Button(action: nextChapter) {
-                    Image(systemName: "chevron.right").font(.title2)
-                }
-                .disabled(currentChapterIndex >= (store.chaptersForBookCached(bookID)?.count ?? 1) - 1)
+                )
+                controlButton(
+                    systemName: "chevron.right",
+                    disabled: currentChapterIndex >= (chapters?.count ?? 1) - 1,
+                    action: nextChapter
+                )
             }
             .padding(.vertical, 8).padding(.horizontal, 12)
             .foregroundColor(textColor)
@@ -407,8 +380,15 @@ struct ReaderView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showBookmarks)
     }
-
-    private var bookmarksList: some View {
+    
+    private func controlButton(systemName: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName).font(.title2)
+        }
+        .disabled(disabled)
+    }
+    
+    private var bookmarkPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("书签 (\(chapterBookmarks.count))").font(.headline).foregroundColor(textColor)
@@ -420,734 +400,66 @@ struct ReaderView: View {
                 Text("暂无书签").foregroundColor(textColor.opacity(0.5)).padding()
             } else {
                 List {
-                    ForEach(chapterBookmarks) { bookmark in
+                    ForEach(chapterBookmarks) { bm in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text(bookmark.note.isEmpty ? "\(Int(bookmark.percent * 100))%" : bookmark.note)
+                                Text(bm.note.isEmpty ? "\(Int(bm.percent * 100))%" : bm.note)
                                     .font(.caption).foregroundColor(textColor)
-                                Text(bookmark.createdAt.formatted(date: .omitted, time: .shortened))
+                                Text(bm.createdAt.formatted(date: .omitted, time: .shortened))
                                     .font(.caption2).foregroundColor(textColor.opacity(0.6))
                             }
                             Spacer()
-                            Button(action: { store.removeBookmark(bookmark.id) }) {
+                            Button(action: { store.removeBookmark(bm.id) }) {
                                 Image(systemName: "trash").foregroundColor(.red)
                             }
                             .buttonStyle(BorderlessButtonStyle())
                         }
-                        .listRowBackground(backgroundColor)
+                        .listRowBackground(bgColor)
                     }
                 }
                 .listStyle(.plain).frame(maxHeight: 180)
             }
         }
-        .background(backgroundColor)
+        .background(bgColor)
     }
-
-    private func previousChapter() {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              currentChapterIndex > 0 else { return }
-        suppressAutoLoad = true
-        currentChapterIndex -= 1
-        anchorChapterIndex = currentChapterIndex
-        currentChapter = chapters[currentChapterIndex]
-        reloadParagraphs()
-        loadChapterRange(center: currentChapterIndex, radius: 3)
-        store.selectedChapterID = currentChapter.id
-        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
-        chapterTopID = UUID()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
-    }
-
-    private func nextChapter() {
-        guard let chapters = store.chaptersForBookCached(bookID), !chapters.isEmpty,
-              currentChapterIndex < chapters.count - 1 else { return }
-        suppressAutoLoad = true
-        store.setChapterProgress(chapters[currentChapterIndex].id, percent: 1.0)
-        currentChapterIndex += 1
-        anchorChapterIndex = currentChapterIndex
-        currentChapter = chapters[currentChapterIndex]
-        ReaderStore.debugLog("[NEXT] bookID=\(bookID.uuidString) index=\(currentChapterIndex)")
-        reloadParagraphs()
-        loadChapterRange(center: currentChapterIndex, radius: 3)
-        store.selectedChapterID = currentChapter.id
-        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
-        chapterTopID = UUID()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suppressAutoLoad = false }
-    }
-
-    private func reloadParagraphs() {
-        let paras = Self.splitParagraphs(currentChapter.text)
-        let items = paras.map { ParagraphItem(text: $0, chapterIndex: currentChapterIndex) }
-        paragraphCache = [currentChapterIndex: items]
-        loadedChapters = [currentChapterIndex]
-    }
-
-    private func loadAdjacentChapter(_ index: Int) {
-        guard !isLoadingChapters else { return }
-        isLoadingChapters = true
-        defer { isLoadingChapters = false }
-        guard let chapters = store.chaptersForBookCached(bookID),
-              index >= 0, index < chapters.count,
-              !loadedChapters.contains(index) else { return }
-        let paras = Self.splitParagraphs(chapters[index].text)
-        guard !paras.isEmpty else { return }
-        paragraphCache[index] = paras.map { ParagraphItem(text: $0, chapterIndex: index) }
-        loadedChapters.append(index)
-        ReaderStore.debugLog("[LOAD-CH] bookID=\(bookID.uuidString) index=\(index)")
-        if index > currentChapterIndex {
-            store.setChapterProgress(chapters[index - 1].id, percent: 1.0)
-        }
-    }
-
-    private func loadChapterRange(center: Int, radius: Int) {
-        guard let chapters = store.chaptersForBookCached(bookID) else { return }
-        let lower = max(0, center - radius)
-        let upper = min(chapters.count - 1, center + radius)
-        var cache = paragraphCache
-        var loaded = loadedChapters
-        for i in lower...upper {
-            guard !loaded.contains(i) else { continue }
-            let paras = Self.splitParagraphs(chapters[i].text)
-            guard !paras.isEmpty else { continue }
-            cache[i] = paras.map { ParagraphItem(text: $0, chapterIndex: i) }
-            loaded.append(i)
-        }
-        paragraphCache = cache
-        loadedChapters = loaded
-    }
-
-    private func updateBatteryLevel() {
-        UIDevice.current.isBatteryMonitoringEnabled = true
-        let level = UIDevice.current.batteryLevel
-        batteryLevel = level >= 0 ? Int(level * 100) : -1
-    }
-
-    private func nextTheme(_ current: ReaderTheme) -> ReaderTheme {
-        switch current {
+    
+    // MARK: - Helpers
+    
+    private func nextTheme(_ t: ReaderTheme) -> ReaderTheme {
+        switch t {
         case .light: return .sepia
         case .sepia: return .dark
         case .dark: return .light
         }
     }
-
-    private func themeIcon(_ theme: ReaderTheme) -> String {
-        switch theme {
+    
+    private func themeIcon(_ t: ReaderTheme) -> String {
+        switch t {
         case .light: return "sun.max"
         case .sepia: return "circle.lefthalf.filled"
         case .dark: return "moon.fill"
         }
     }
-
-    private func paragraphView(_ para: String) -> some View {
-        Text("\u{3000}\u{3000}" + para)
-            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-            .foregroundColor(textColor)
-            .lineSpacing(store.readerLineSpacing + 2)
-            .environment(\.locale, Locale(identifier: "zh_CN"))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .onTapGesture(count: 2) {
-                guard store.enableDoubleTapToSpeak else { return }
-                isSpeaking = true
-                Task { await store.playFromParagraph(para); isSpeaking = false }
-            }
-            .contextMenu {
-                Button(action: { UIPasteboard.general.string = para; store.statusMessage = "已复制到剪贴板" }) {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                Button(action: { addBookmarkForParagraph(para) }) {
-                    Label("书签", systemImage: "bookmark")
-                }
-                Button(action: { isSpeaking = true; Task { await store.playFromParagraph(para); isSpeaking = false } }) {
-                    Label(isSpeaking ? "停止朗读" : "从这里朗读", systemImage: isSpeaking ? "stop.fill" : "play.fill")
-                }
-                Button(action: shareText(para)) {
-                    Label("分享", systemImage: "square.and.arrow.up")
-                }
-            }
-    }
-
-    private func addBookmarkForParagraph(_ text: String) {
-        guard let chapterID = store.selectedChapterID else { return }
-        let percent = store.getChapterProgress(chapterID)
-        let note = text.isEmpty ? "\(Int(percent * 100))%" : String(text.prefix(30))
-        store.addBookmark(note: note)
-    }
-
-    private func shareText(_ text: String) -> () -> Void {
-        return {
-            let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let rootVC = windowScene.windows.first?.rootViewController {
-                rootVC.present(activityVC, animated: true)
-            }
-        }
+    
+    private func updateBatteryLevel() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        batteryLevel = UIDevice.current.batteryLevel >= 0
+            ? Int(UIDevice.current.batteryLevel * 100) : -1
     }
 }
+
+// MARK: - PageMode
 
 enum PageMode: String, CaseIterable, Identifiable {
     case scroll = "scroll"
     case horizontal = "horizontal"
     case vertical = "vertical"
-
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .scroll: return "滚动"
         case .horizontal: return "左右翻页"
         case .vertical: return "上下翻页"
-        }
-    }
-    var icon: String {
-        switch self {
-        case .scroll: return "scroll"
-        case .horizontal: return "book.closed"
-        case .vertical: return "arrow.up.and.down"
-        }
-    }
-}
-
-private struct ParagraphText: View {
-    @EnvironmentObject var store: ReaderStore
-    let text: String
-    let textColor: Color
-    let backgroundColor: Color
-
-    var body: some View {
-        Text("\u{3000}\u{3000}" + text)
-            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-            .foregroundColor(textColor)
-            .lineSpacing(store.readerLineSpacing + 2)
-            .environment(\.locale, Locale(identifier: "zh_CN"))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .onTapGesture(count: 2) {
-                guard store.enableDoubleTapToSpeak else { return }
-                Task { await store.playFromParagraph(text) }
-            }
-            .contextMenu {
-                Button(action: { UIPasteboard.general.string = text; store.statusMessage = "已复制到剪贴板" }) {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                Button(action: { Task { await store.playFromParagraph(text) } }) {
-                    Label("从这里朗读", systemImage: "play.fill")
-                }
-            }
-    }
-}
-
-struct HorizontalPageView: View {
-    let paragraphs: [String]
-    let fontSize: Double
-    let lineSpacing: Double
-    let paragraphSpacing: Double
-    let textColor: Color
-    let backgroundColor: Color
-    @Binding var currentPage: Int
-    @Binding var pageCount: Int
-    let geometry: GeometryProxy
-
-    private var pages: [[String]] {
-        var result: [[String]] = [[]]
-        var currentHeight: CGFloat = 0
-        let pageHeight = geometry.size.height - 120
-        let estimatedLineHeight = fontSize + lineSpacing
-        for para in paragraphs {
-            let paraHeight = estimatedLineHeight * CGFloat(max(1, para.count / 20)) + paragraphSpacing
-            if currentHeight + paraHeight > pageHeight && !(result.last?.isEmpty ?? true) {
-                result.append([])
-                currentHeight = 0
-            }
-            result[result.count - 1].append(para)
-            currentHeight += paraHeight
-        }
-        return result
-    }
-
-    var body: some View {
-        let pages = pages
-        let _ = DispatchQueue.main.async { pageCount = pages.count }
-        return TabView(selection: $currentPage) {
-            ForEach(pages.indices, id: \.self) { index in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: paragraphSpacing) {
-                        ForEach(pages[index], id: \.self) { para in
-                            Text(para).font(.system(size: fontSize)).foregroundColor(textColor)
-                                .lineSpacing(lineSpacing).frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }.padding()
-                }.background(backgroundColor).tag(index)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never)).background(backgroundColor)
-    }
-}
-
-struct VerticalPageView: View {
-    let paragraphs: [String]
-    let fontSize: Double
-    let lineSpacing: Double
-    let paragraphSpacing: Double
-    let textColor: Color
-    let backgroundColor: Color
-    @Binding var currentPage: Int
-    @Binding var pageCount: Int
-    let geometry: GeometryProxy
-
-    private var pages: [[String]] {
-        var result: [[String]] = [[]]
-        var currentHeight: CGFloat = 0
-        let pageHeight = geometry.size.height - 120
-        let estimatedLineHeight = fontSize + lineSpacing
-        for para in paragraphs {
-            let paraHeight = estimatedLineHeight * CGFloat(max(1, para.count / 20)) + paragraphSpacing
-            if currentHeight + paraHeight > pageHeight && !(result.last?.isEmpty ?? true) {
-                result.append([])
-                currentHeight = 0
-            }
-            result[result.count - 1].append(para)
-            currentHeight += paraHeight
-        }
-        return result
-    }
-
-    var body: some View {
-        let pages = pages
-        let _ = DispatchQueue.main.async { pageCount = pages.count }
-        return TabView(selection: $currentPage) {
-            ForEach(pages.indices, id: \.self) { index in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: paragraphSpacing) {
-                        ForEach(pages[index], id: \.self) { para in
-                            Text(para).font(.system(size: fontSize)).foregroundColor(textColor)
-                                .lineSpacing(lineSpacing).frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }.padding()
-                }.background(backgroundColor).tag(index)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .rotationEffect(.degrees(-90))
-        .rotation3DEffect(.degrees(180), axis: (x: 1, y: 0, z: 0))
-        .background(backgroundColor)
-    }
-}
-
-struct ContentHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-struct ParagraphFrameKey: PreferenceKey {
-    static var defaultValue: [Int: CGRect] = [:]
-    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
-}
-
-extension Collection {
-    subscript(safe index: Index) -> Element? {
-        return indices.contains(index) ? self[index] : nil
-    }
-}
-
-struct ReaderSettingsView: View {
-    @EnvironmentObject private var store: ReaderStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var useSystemBrightness: Bool = true
-    @State private var customBrightness: Double = 0.5
-    @State private var keepScreenOn: Bool = false
-    @State private var pageMode: PageMode = .scroll
-    @State private var showFontPicker: Bool = false
-    @State private var showBackgroundPicker: Bool = false
-    @State private var enableHyphenation: Bool = false
-    @State private var enableKerning: Bool = true
-    @State private var firstLineIndent: Double = 0
-    @State private var textAlignment: TextAlign = .leading
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text("翻页模式")) {
-                    Picker("翻页模式", selection: $pageMode) {
-                        ForEach(PageMode.allCases) { mode in
-                            Label(mode.displayName, systemImage: mode.icon).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                Section(header: Text("排版设置")) {
-                    HStack {
-                        Text("字号")
-                        Slider(value: Binding(get: { store.readerFontSize }, set: { store.readerFontSize = $0 }), in: 14...32, step: 1)
-                        Text("\(Int(store.readerFontSize))")
-                    }
-                    HStack {
-                        Text("行距")
-                        Slider(value: Binding(get: { store.readerLineSpacing }, set: { store.readerLineSpacing = $0 }), in: 0...20, step: 1)
-                        Text("\(Int(store.readerLineSpacing))")
-                    }
-                    HStack {
-                        Text("段距")
-                        Slider(value: Binding(get: { store.readerParagraphSpacing }, set: { store.readerParagraphSpacing = $0 }), in: 0...30, step: 1)
-                        Text("\(Int(store.readerParagraphSpacing))")
-                    }
-                    HStack {
-                        Text("首行缩进")
-                        Slider(value: $firstLineIndent, in: 0...40, step: 2)
-                        Text("\(Int(firstLineIndent))")
-                    }
-                    Picker("对齐方式", selection: $textAlignment) {
-                        Text("左对齐").tag(TextAlign.leading)
-                        Text("居中对齐").tag(TextAlign.center)
-                        Text("右对齐").tag(TextAlign.trailing)
-                        Text("两端对齐").tag(TextAlign.justified)
-                    }
-                    Toggle("字距调整", isOn: $enableKerning)
-                    Toggle("自动断字", isOn: $enableHyphenation)
-                }
-
-                Section(header: Text("主题与背景")) {
-                    Picker("主题", selection: Binding(get: { store.readerTheme }, set: { store.readerTheme = $0 })) {
-                        ForEach(ReaderTheme.allCases) { theme in
-                            Text(theme.displayName).tag(theme)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    Button(action: { showBackgroundPicker = true }) {
-                        HStack {
-                            Text("自定义背景图")
-                            Spacer()
-                            if store.customBackgroundImage != nil {
-                                Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                            }
-                        }
-                    }
-                    Button(action: { store.customBackgroundImage = nil }) {
-                        Text("清除背景图").foregroundColor(.red)
-                    }
-                    .disabled(store.customBackgroundImage == nil)
-                }
-
-                Section(header: Text("字体")) {
-                    Button(action: { showFontPicker = true }) {
-                        HStack {
-                            Text("当前字体")
-                            Spacer()
-                            Text(store.readerFontName).foregroundColor(.secondary)
-                            Image(systemName: "chevron.right").foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                Section(header: Text("屏幕与亮度")) {
-                    Toggle("跟随系统亮度", isOn: $useSystemBrightness)
-                        .onChange(of: useSystemBrightness) { newValue in
-                            if newValue { UIScreen.main.brightness = UIScreen.main.brightness }
-                        }
-                    if !useSystemBrightness {
-                        HStack {
-                            Text("亮度")
-                            Slider(value: $customBrightness, in: 0...1)
-                                .onChange(of: customBrightness) { newValue in
-                                    UIScreen.main.brightness = newValue
-                                    UserDefaults.standard.set(newValue, forKey: "readerBrightness")
-                                }
-                            Text("\(Int(customBrightness * 100))%")
-                        }
-                    }
-                    Toggle("屏幕常亮", isOn: $keepScreenOn)
-                        .onChange(of: keepScreenOn) { newValue in
-                            UIApplication.shared.isIdleTimerDisabled = newValue
-                            store.keepScreenOn = newValue
-                        }
-                }
-
-                Section(header: Text("阅读界面显示")) {
-                    Toggle("显示章节标题", isOn: Binding(get: { store.showChapterTitle }, set: { store.showChapterTitle = $0 }))
-                    Toggle("显示进度条", isOn: Binding(get: { store.showProgressBar }, set: { store.showProgressBar = $0 }))
-                    Toggle("显示页码", isOn: Binding(get: { store.showPageNumber }, set: { store.showPageNumber = $0 }))
-                    Toggle("显示时间", isOn: Binding(get: { store.showTime }, set: { store.showTime = $0 }))
-                    Toggle("显示电池", isOn: Binding(get: { store.showBattery }, set: { store.showBattery = $0 }))
-                }
-
-                Section {
-                    Button("保存并应用") {
-                        dismiss()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center).foregroundColor(.blue)
-                }
-            }
-            .navigationTitle("阅读设置")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-            }
-            .sheet(isPresented: $showFontPicker) {
-                FontPickerView().environmentObject(store).presentationDetents([.medium])
-            }
-            .sheet(isPresented: $showBackgroundPicker) {
-                BackgroundPickerView().environmentObject(store).presentationDetents([.medium, .large])
-            }
-            .onAppear {
-                useSystemBrightness = UserDefaults.standard.object(forKey: "useSystemBrightness") as? Bool ?? true
-                customBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? Double ?? 0.5
-                keepScreenOn = store.keepScreenOn
-                pageMode = PageMode(rawValue: UserDefaults.standard.string(forKey: "pageMode") ?? "scroll") ?? .scroll
-                firstLineIndent = UserDefaults.standard.object(forKey: "firstLineIndent") as? Double ?? 0
-                textAlignment = TextAlign(rawValue: UserDefaults.standard.integer(forKey: "textAlignment")) ?? .leading
-                enableKerning = UserDefaults.standard.object(forKey: "enableKerning") as? Bool ?? true
-                enableHyphenation = UserDefaults.standard.object(forKey: "enableHyphenation") as? Bool ?? false
-            }
-            .onDisappear {
-                UserDefaults.standard.set(useSystemBrightness, forKey: "useSystemBrightness")
-                UserDefaults.standard.set(customBrightness, forKey: "readerBrightness")
-                UserDefaults.standard.set(pageMode.rawValue, forKey: "pageMode")
-                UserDefaults.standard.set(firstLineIndent, forKey: "firstLineIndent")
-                UserDefaults.standard.set(textAlignment.rawValue, forKey: "textAlignment")
-                UserDefaults.standard.set(enableKerning, forKey: "enableKerning")
-                UserDefaults.standard.set(enableHyphenation, forKey: "enableHyphenation")
-                store.keepScreenOn = keepScreenOn
-            }
-        }
-    }
-}
-
-struct FontPickerView: View {
-    @EnvironmentObject private var store: ReaderStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var customFonts: [_CustomFont] = []
-    @State private var showingFontImporter = false
-
-    private let systemFonts = [
-        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
-        "Arial", "Helvetica", "Georgia", "Times New Roman",
-        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
-    ]
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section(header: Text("系统字体")) {
-                    ForEach(systemFonts, id: \.self) { font in
-                        Button(action: { store.readerFontName = font; dismiss() }) {
-                            HStack {
-                                Text(font).font(.custom(font, size: 17))
-                                Spacer()
-                                if store.readerFontName == font { Image(systemName: "checkmark").foregroundColor(.blue) }
-                            }
-                        }
-                        .foregroundColor(.primary)
-                    }
-                }
-
-                Section(header: Text("自定义字体"), footer: Text("支持 TTF/OTF 格式")) {
-                    if customFonts.isEmpty {
-                        Text("暂无自定义字体").foregroundColor(.secondary)
-                    } else {
-                        ForEach(customFonts) { font in
-                            Button(action: { store.readerFontName = font.name; dismiss() }) {
-                                HStack {
-                                    Text(font.name).font(.custom(font.name, size: 17))
-                                    Spacer()
-                                    if store.readerFontName == font.name { Image(systemName: "checkmark").foregroundColor(.blue) }
-                                }
-                            }
-                            .foregroundColor(.primary)
-                        }
-                        .onDelete(perform: removeCustomFonts)
-                    }
-                    Button(action: { showingFontImporter = true }) {
-                        Label("导入字体", systemImage: "plus.circle")
-                    }
-                }
-            }
-            .navigationTitle("选择字体").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-            }
-            .fileImporter(isPresented: $showingFontImporter, allowedContentTypes: [.font], allowsMultipleSelection: true) { result in
-                handleFontImport(result)
-            }
-            .onAppear { loadCustomFonts() }
-        }
-    }
-
-    private func loadCustomFonts() {
-        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
-        let fontsDir = docs.appendingPathComponent("CustomFonts")
-        if let files = try? FileManager.default.contentsOfDirectory(at: fontsDir, includingPropertiesForKeys: nil) {
-            customFonts = files.compactMap { url in
-                guard url.pathExtension.lowercased() == "ttf" || url.pathExtension.lowercased() == "otf" else { return nil }
-                let name = url.deletingPathExtension().lastPathComponent
-                return _CustomFont(name: name, url: url)
-            }
-        }
-    }
-
-    private func handleFontImport(_ result: Result<[URL], Error>) {
-        guard let urls = try? result.get() else { return }
-        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
-        let fontsDir = docs.appendingPathComponent("CustomFonts")
-        try? FileManager.default.createDirectory(at: fontsDir, withIntermediateDirectories: true)
-        for url in urls {
-            let dest = fontsDir.appendingPathComponent(url.lastPathComponent)
-            if FileManager.default.fileExists(atPath: dest.path) { try? FileManager.default.removeItem(at: dest) }
-            do {
-                try FileManager.default.copyItem(at: url, to: dest)
-                registerFont(at: dest)
-            } catch { print("Font import error: \(error)") }
-        }
-        loadCustomFonts()
-    }
-
-    private func registerFont(at url: URL) {
-        guard let data = try? Data(contentsOf: url),
-              let provider = CGDataProvider(data: data as CFData),
-              let font = CGFont(provider) else { return }
-        var error: Unmanaged<CFError>?
-        CTFontManagerRegisterGraphicsFont(font, &error)
-    }
-
-    private func removeCustomFonts(at offsets: IndexSet) {
-        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
-        let fontsDir = docs.appendingPathComponent("CustomFonts")
-        for index in offsets {
-            try? FileManager.default.removeItem(at: customFonts[index].url)
-        }
-        loadCustomFonts()
-    }
-}
-
-struct _CustomFont: Identifiable {
-    let id = UUID()
-    let name: String
-    let url: URL
-}
-
-struct BackgroundPickerView: View {
-    @EnvironmentObject private var store: ReaderStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var showingImagePicker = false
-    @State private var selectedImage: UIImage?
-
-    private let presetBackgrounds = [
-        ("无", nil),
-        ("淡雅纹理", "bg_texture_1"),
-        ("复古纸张", "bg_texture_2"),
-        ("深色纹理", "bg_texture_3")
-    ]
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section(header: Text("预设背景")) {
-                    ForEach(presetBackgrounds, id: \.0) { name, assetName in
-                        Button(action: {
-                            store.customBackgroundImage = assetName.flatMap { UIImage(named: $0)?.pngData() }
-                            dismiss()
-                        }) {
-                            HStack {
-                                if let assetName = assetName, let img = UIImage(named: assetName) {
-                                    Image(uiImage: img).resizable().frame(width: 40, height: 40).cornerRadius(8)
-                                } else {
-                                    RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.2)).frame(width: 40, height: 40)
-                                }
-                                Text(name)
-                                Spacer()
-                                if store.customBackgroundImage == (assetName.flatMap { UIImage(named: $0)?.pngData() }) {
-                                    Image(systemName: "checkmark").foregroundColor(.blue)
-                                }
-                            }
-                        }
-                        .foregroundColor(.primary)
-                    }
-                }
-
-                Section(header: Text("自定义背景")) {
-                    Button(action: { showingImagePicker = true }) {
-                        HStack {
-                            if let data = store.customBackgroundImage, let img = UIImage(data: data) {
-                                Image(uiImage: img).resizable().frame(width: 40, height: 40).cornerRadius(8)
-                                Text("当前自定义背景")
-                            } else {
-                                Label("从相册选择", systemImage: "photo")
-                            }
-                            Spacer()
-                        }
-                    }
-                    .foregroundColor(.primary)
-
-                    if store.customBackgroundImage != nil {
-                        Button("清除自定义背景", role: .destructive) {
-                            store.customBackgroundImage = nil
-                        }
-                    }
-                }
-            }
-            .navigationTitle("阅读背景").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
-            }
-            .sheet(isPresented: $showingImagePicker) { ImagePicker(image: $selectedImage) }
-            .onChange(of: selectedImage) { newImage in
-                if let img = newImage, let data = img.pngData() {
-                    store.customBackgroundImage = data
-                    dismiss()
-                }
-            }
-        }
-    }
-}
-
-struct ImagePicker: UIViewControllerRepresentable {
-    @Binding var image: UIImage?
-    @Environment(\.dismiss) private var dismiss
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.delegate = context.coordinator
-        picker.sourceType = .photoLibrary
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: ImagePicker
-        init(_ parent: ImagePicker) { self.parent = parent }
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let img = info[.originalImage] as? UIImage { parent.image = img }
-            parent.dismiss()
-        }
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
-    }
-}
-
-struct VisualEffectView: UIViewRepresentable {
-    let style: UIBlurEffect.Style
-    func makeUIView(context: Context) -> UIVisualEffectView {
-        UIVisualEffectView(effect: UIBlurEffect(style: style))
-    }
-    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
-}
-
-struct ReaderView_Previews: PreviewProvider {
-    static var previews: some View {
-        NavigationStack {
-            ReaderView(book: Book(id: UUID(), title: "测试书籍", text: "内容", importedAt: Date()),
-                      chapter: BookChapter(id: UUID(), title: "第一章", text: "测试内容\n\n第二段"),
-                      bookID: UUID(), chapterIndex: 0)
-                .environmentObject(ReaderStore())
         }
     }
 }
