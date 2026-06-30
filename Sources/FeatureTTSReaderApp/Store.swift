@@ -229,11 +229,25 @@ final class ReaderStore: NSObject, ObservableObject {
 
     private func loadStateAsync() async {
         let url = stateFileURL()
-        // Decode JSON off the main actor
         let decoded: ReaderState? = await Task.detached {
             guard let data = try? Data(contentsOf: url),
                   let state = try? JSONDecoder().decode(ReaderState.self, from: data) else { return nil }
             return state
+        }.value
+
+        let loadedTexts: [(UUID, String)]? = await Task.detached {
+            guard let state = decoded else { return nil }
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let dir = docs.appendingPathComponent("book_texts", isDirectory: true)
+            var results: [(UUID, String)] = []
+            results.reserveCapacity(state.books.count)
+            for book in state.books {
+                let url = dir.appendingPathComponent("\(book.id.uuidString).txt")
+                if let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty {
+                    results.append((book.id, text))
+                }
+            }
+            return results
         }.value
 
         await MainActor.run {
@@ -281,18 +295,37 @@ final class ReaderStore: NSObject, ObservableObject {
             playProgress = state.playProgress
             isSpeaking = state.isSpeaking
 
-            // Merge UserDefaults-saved reading positions (most current) with JSON backup
             if let udData = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
                let udMap = try? JSONDecoder().decode([UUID: Int].self, from: udData) {
                 lastReadChapterIndexByBook = udMap
             } else if !state.lastReadChapterIndexByBook.isEmpty {
                 lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
             }
-            loadAllTextsFromFiles()
+
+            if let loadedTexts {
+                var changed = false
+                for (id, text) in loadedTexts {
+                    if let idx = books.firstIndex(where: { $0.id == id }) {
+                        if books[idx].text != text {
+                            books[idx].text = text
+                            changed = true
+                        }
+                    }
+                    if currentBookID == id.uuidString {
+                        bookText = text
+                        lastScannedBookText = text
+                    }
+                }
+                if changed {
+                    let snapshot = books
+                    books = snapshot
+                }
+            }
+
+            loadPersistentLibrary()
             if !bookText.isEmpty {
                 updateRecommendations(from: bookText)
             }
-            loadPersistentLibrary()
         }
     }
 
