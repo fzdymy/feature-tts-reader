@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import UIKit
 
 enum TextAlign: Int, CaseIterable, Identifiable {
     case leading = 0, center = 1, trailing = 2, justified = 3
@@ -12,46 +11,6 @@ enum TextAlign: Int, CaseIterable, Identifiable {
         case .trailing: return "右对齐"
         case .justified: return "两端对齐"
         }
-    }
-}
-
-// MARK: - ChapterTextView (Pure UIKit, single UITextView, no double-scroll)
-
-struct ChapterTextView: UIViewRepresentable {
-    let text: String
-    let font: UIFont
-    let textColor: UIColor
-    let lineSpacing: CGFloat
-    let insets: UIEdgeInsets
-    
-    func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isScrollEnabled = false
-        tv.backgroundColor = .clear
-        tv.textContainer.lineFragmentPadding = 0
-        tv.textContainerInset = .zero
-        tv.isAccessibilityElement = true
-        return tv
-    }
-    
-    func updateUIView(_ tv: UITextView, context: Context) {
-        let style = NSMutableParagraphStyle()
-        style.lineSpacing = lineSpacing
-        
-        let attrs: [NSAttributedString.Key: Any] = [
-            .paragraphStyle: style,
-            .font: font,
-            .foregroundColor: textColor
-        ]
-        
-        // Indent paragraphs
-        let indented = "\u{3000}\u{3000}" + text
-            .replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
-        tv.attributedText = NSAttributedString(string: indented, attributes: attrs)
-        
-        tv.frame.size.width = UIScreen.main.bounds.width - insets.left - insets.right
-        tv.invalidateIntrinsicContentSize()
     }
 }
 
@@ -107,14 +66,6 @@ struct ReaderView: View {
         }
     }
     
-    private var uiTextColor: UIColor {
-        switch store.readerTheme {
-        case .dark: return .white
-        case .light: return UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-        case .sepia: return UIColor(red: 0.2, green: 0.18, blue: 0.15, alpha: 1)
-        }
-    }
-    
     private var bgColor: Color {
         if store.customBackgroundImage != nil { return Color.clear }
         switch store.readerTheme {
@@ -124,13 +75,9 @@ struct ReaderView: View {
         }
     }
     
-    private var uiFont: UIFont {
-        UIFont(name: store.readerFontName, size: CGFloat(store.readerFontSize))
-            ?? UIFont.systemFont(ofSize: CGFloat(store.readerFontSize))
-    }
-    
-    private var contentInsets: UIEdgeInsets {
-        UIEdgeInsets(top: 12, left: 20, bottom: 80, right: 20)
+    private var chapterDisplayText: String {
+        "\u{3000}\u{3000}" + currentChapter.text
+            .replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
     }
     
     private var chapterBookmarks: [BookBookmark] {
@@ -138,68 +85,61 @@ struct ReaderView: View {
     }
     
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                // Background
-                if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
-                    Image(uiImage: uiImage)
-                        .resizable().scaledToFill().ignoresSafeArea()
-                } else {
-                    bgColor.ignoresSafeArea()
-                }
-                
-                // Main content – single UITextView inside ScrollView
-                ScrollView {
-                    ChapterTextView(
-                        text: currentChapter.text,
-                        font: uiFont,
-                        textColor: uiTextColor,
-                        lineSpacing: CGFloat(store.readerLineSpacing + 2),
-                        insets: contentInsets
-                    )
-                    .frame(
-                        minHeight: geo.size.height - contentInsets.top - contentInsets.bottom,
-                        alignment: .top
-                    )
+        ZStack {
+            // Background
+            if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
+                Image(uiImage: uiImage)
+                    .resizable().scaledToFill().ignoresSafeArea()
+            } else {
+                bgColor.ignoresSafeArea()
+            }
+            
+            // Main content – single SwiftUI Text for entire chapter
+            ScrollView {
+                Text(chapterDisplayText)
+                    .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+                    .foregroundColor(textColor)
+                    .lineSpacing(store.readerLineSpacing + 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .padding(.bottom, 80)
+                    .textSelection(.enabled)
+            }
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    withAnimation { isImmersive.toggle() }
                 }
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        withAnimation { isImmersive.toggle() }
-                    }
-                )
-                
-                // Immersive: floating chapter title
-                if isImmersive, store.showChapterTitle {
-                    VStack {
-                        HStack {
-                            Text(displayedChapterTitle)
-                                .font(.caption)
-                                .foregroundColor(textColor.opacity(0.6))
-                                .lineLimit(1)
-                                .padding(.horizontal, 16).padding(.vertical, 6)
-                            Spacer()
-                        }
-                        Spacer()
-                    }
-                }
-                
-                // Non-immersive: header + control bar
+            )
+            
+            // Immersive: floating chapter title
+            if isImmersive, store.showChapterTitle {
                 VStack {
-                    if !isImmersive, store.showChapterTitle { readerHeader }
-                    Spacer()
-                    if !isImmersive { controlBar }
-                }
-                
-                // Immersive: mini status bar
-                if isImmersive,
-                   store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                    VStack {
+                    HStack {
+                        Text(displayedChapterTitle)
+                            .font(.caption)
+                            .foregroundColor(textColor.opacity(0.6))
+                            .lineLimit(1)
+                            .padding(.horizontal, 16).padding(.vertical, 6)
                         Spacer()
-                        readerStatusBar
                     }
+                    Spacer()
+                }
+            }
+            
+            // Non-immersive: header + control bar
+            VStack {
+                if !isImmersive, store.showChapterTitle { readerHeader }
+                Spacer()
+                if !isImmersive { controlBar }
+            }
+            
+            // Immersive: mini status bar
+            if isImmersive,
+               store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
+                VStack {
+                    Spacer()
+                    readerStatusBar
                 }
             }
         }
