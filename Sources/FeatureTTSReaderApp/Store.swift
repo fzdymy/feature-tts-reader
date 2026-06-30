@@ -675,9 +675,23 @@ final class ReaderStore: NSObject, ObservableObject {
         return docs.appendingPathComponent("tts_reader_state.json")
     }
 
+    static func debugLog(_ message: String) {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let url = docs.appendingPathComponent("debug_log.txt")
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        let line = "\(timestamp) \(message)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     static func saveLastChapterIndex(_ index: Int, for bookID: UUID) {
         let key = bookID.uuidString
-        print("[POS-SAVE] bookID=\(key) index=\(index)")
+        Self.debugLog("[POS-SAVE] bookID=\(key) index=\(index)")
         UserDefaults.standard.set(index, forKey: "rp_\(key)")
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
@@ -692,7 +706,7 @@ final class ReaderStore: NSObject, ObservableObject {
     static func loadLastChapterIndex(for bookID: UUID) -> Int {
         let key = bookID.uuidString
         if let val = UserDefaults.standard.object(forKey: "rp_\(key)") as? Int {
-            print("[POS-LOAD] bookID=\(key) found(rp)=\(val)")
+            Self.debugLog("[POS-LOAD] bookID=\(key) found(rp)=\(val)")
             return val
         }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
@@ -700,28 +714,28 @@ final class ReaderStore: NSObject, ObservableObject {
         let newUrl = newDir.appendingPathComponent("\(key).txt")
         if let data = try? String(contentsOf: newUrl, encoding: .utf8),
            let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            print("[POS-LOAD] bookID=\(key) found(file)=\(index)")
+            Self.debugLog("[POS-LOAD] bookID=\(key) found(file)=\(index)")
             saveLastChapterIndex(index, for: bookID)
             return index
         }
         let legacyUrl = docs.appendingPathComponent("lastChapter_\(key).txt")
         if let data = try? String(contentsOf: legacyUrl, encoding: .utf8),
            let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            print("[POS-LOAD] bookID=\(key) found(legacy)=\(index)")
+            Self.debugLog("[POS-LOAD] bookID=\(key) found(legacy)=\(index)")
             saveLastChapterIndex(index, for: bookID)
             return index
         }
         if let udIndex = UserDefaults.standard.object(forKey: "lastChapter_\(key)") as? Int {
-            print("[POS-LOAD] bookID=\(key) found(ud)=\(udIndex)")
+            Self.debugLog("[POS-LOAD] bookID=\(key) found(ud)=\(udIndex)")
             saveLastChapterIndex(udIndex, for: bookID)
             return udIndex
         }
         if let lrIndex = UserDefaults.standard.object(forKey: "lr_\(key)") as? Int {
-            print("[POS-LOAD] bookID=\(key) found(lr)=\(lrIndex)")
+            Self.debugLog("[POS-LOAD] bookID=\(key) found(lr)=\(lrIndex)")
             saveLastChapterIndex(lrIndex, for: bookID)
             return lrIndex
         }
-        print("[POS-LOAD] bookID=\(key) NOT FOUND → 0")
+        Self.debugLog("[POS-LOAD] bookID=\(key) NOT FOUND → 0")
         return 0
     }
 
