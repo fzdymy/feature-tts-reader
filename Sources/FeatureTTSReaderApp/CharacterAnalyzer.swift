@@ -61,6 +61,78 @@ final class CharacterAnalyzer {
         return false
     }
 
+    // MARK: - Alias resolution: given name → full name, surname+title → full name
+    static func resolveAliases(_ names: [String]) -> [(canonical: String, aliases: [String])] {
+        let nameSet = Set(names)
+        var canonicalMap: [String: Set<String>] = [:]
+        var isAlias: Set<String> = []
+
+        let titleSuffixes = ["公子", "先生", "小姐", "姑娘", "掌门", "教主", "帮主", "庄主",
+                             "岛主", "盟主", "前辈", "师父", "师傅", "师兄", "师弟", "师姐",
+                             "师妹", "少爷", "大人", "将军", "王爷", "夫人", "太太"]
+
+        // 1. 3-char → last 2 chars is standalone (无忌 → 张无忌)
+        for full in names where full.count == 3 {
+            let suffix = String(full.suffix(2))
+            if nameSet.contains(suffix) && suffix != full {
+                canonicalMap[full, default: []].insert(suffix)
+                isAlias.insert(suffix)
+            }
+        }
+
+        // 2. 4-char → last 2 or 3 chars as alias
+        for full in names where full.count == 4 {
+            let suffix3 = String(full.suffix(3))
+            if nameSet.contains(suffix3) && suffix3 != full {
+                canonicalMap[full, default: []].insert(suffix3)
+                isAlias.insert(suffix3)
+            }
+            let suffix2 = String(full.suffix(2))
+            if nameSet.contains(suffix2) && suffix2 != full {
+                canonicalMap[full, default: []].insert(suffix2)
+                isAlias.insert(suffix2)
+            }
+        }
+
+        // 3. Surname+title → match to character with same first char
+        for alias in names where alias.count == 3 {
+            let firstChar = String(alias.prefix(1))
+            let lastTwo = String(alias.suffix(2))
+            guard titleSuffixes.contains(lastTwo) else { continue }
+            guard CharacterAnalyzer.singleSurnames.contains(firstChar) else { continue }
+            for full in names where full.count >= 2 && full != alias {
+                if String(full.prefix(1)) == firstChar && !isAlias.contains(full) {
+                    canonicalMap[full, default: []].insert(alias)
+                    isAlias.insert(alias)
+                    break
+                }
+            }
+        }
+
+        // 4. 2-char names that are NOT aliases → check if first char is not a surname (given-name only)
+        // e.g. if "芷若" appears but "周芷若" doesn't, create a potential canonical
+        // This is handled in step 1, so reverse case: given name without full-name counterpart
+        for name in names where name.count == 2 && !isAlias.contains(name) {
+            if !CharacterAnalyzer.firstCharIsSurname(name) {
+                // Given-name only, no full name found — keep as standalone
+                canonicalMap[name] = []
+            }
+        }
+
+        // Build result: canonical names in original order
+        var result: [(String, [String])] = []
+        var seenCanonical: Set<String> = []
+        for name in names {
+            if isAlias.contains(name) { continue }
+            let aliases = canonicalMap[name]?.filter { $0 != name }.sorted() ?? []
+            if !seenCanonical.contains(name) {
+                result.append((name, aliases))
+                seenCanonical.insert(name)
+            }
+        }
+        return result
+    }
+
     // MARK: - Name extraction (tokenizer frequency + context + bigram merging + surname boost)
     func extractNames(from text: String) -> [String] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")

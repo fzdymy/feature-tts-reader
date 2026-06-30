@@ -67,6 +67,7 @@ extension Book: Codable {
 struct CharacterProfile: Identifiable, Hashable, Codable {
     let id: UUID
     var name: String
+    var aliases: [String]
     var gender: String
     var age: String
     var tone: String
@@ -80,6 +81,60 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
 
     var info: String {
         [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character) {
+        self.id = id
+        self.name = name
+        self.aliases = aliases
+        self.gender = gender
+        self.age = age
+        self.tone = tone
+        self.voice = voice
+        self.rate = rate
+        self.pitch = pitch
+        self.style = style
+        self.sensitivity = sensitivity
+        self.isNarrator = isNarrator
+        self.role = role
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
+        gender = try c.decode(String.self, forKey: .gender)
+        age = try c.decode(String.self, forKey: .age)
+        tone = try c.decode(String.self, forKey: .tone)
+        voice = try c.decode(String.self, forKey: .voice)
+        rate = try c.decode(Int.self, forKey: .rate)
+        pitch = try c.decode(Int.self, forKey: .pitch)
+        style = try c.decode(String.self, forKey: .style)
+        sensitivity = try c.decode(Int.self, forKey: .sensitivity)
+        isNarrator = try c.decodeIfPresent(Bool.self, forKey: .isNarrator) ?? false
+        role = try c.decodeIfPresent(CharacterRole.self, forKey: .role) ?? .character
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(aliases, forKey: .aliases)
+        try c.encode(gender, forKey: .gender)
+        try c.encode(age, forKey: .age)
+        try c.encode(tone, forKey: .tone)
+        try c.encode(voice, forKey: .voice)
+        try c.encode(rate, forKey: .rate)
+        try c.encode(pitch, forKey: .pitch)
+        try c.encode(style, forKey: .style)
+        try c.encode(sensitivity, forKey: .sensitivity)
+        try c.encode(isNarrator, forKey: .isNarrator)
+        try c.encode(role, forKey: .role)
     }
 }
 

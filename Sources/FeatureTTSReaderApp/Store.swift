@@ -816,7 +816,9 @@ final class ReaderStore: NSObject, ObservableObject {
             updateRecommendations(from: targetText)
 
             if targetText.count > 10000 {
-                let edges = CharacterAnalyzer().buildRelationshipGraph(text: targetText, characterNames: characters.map(\.name))
+                // Include aliases in graph name set (counts map to canonical)
+                let graphNames = characters.flatMap { [$0.name] + $0.aliases }
+                let edges = CharacterAnalyzer().buildRelationshipGraph(text: targetText, characterNames: graphNames)
                 if !edges.isEmpty {
                     statusMessage = (statusMessage ?? "") + " 关系图: \(edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
                 }
@@ -1219,11 +1221,18 @@ final class ReaderStore: NSObject, ObservableObject {
         let analyzer = CharacterAnalyzer()
         for n in analyzer.extractNames(from: raw) { names.append(n) }
 
+        // Resolve aliases: 无忌 → 张无忌, 张公子 → 张无忌, etc.
+        let resolved = CharacterAnalyzer.resolveAliases(Array(names))
+        let allAliases = Set(resolved.flatMap { $0.aliases })
+        let canonicalNames = resolved.map { $0.canonical }.filter { !allAliases.contains($0) }
+
         // Analyze narrator patterns - text that is not dialogue
         let narratorIndicators = detectNarratorPatterns(in: raw)
 
         var result: [CharacterProfile] = []
-        for name in names.prefix(8) {
+        for resolvedName in resolved.prefix(8) {
+            let name = resolvedName.canonical
+            let aliases = resolvedName.aliases
             let context = raw.contextAround(name, radius: 120)
             let attrs = analyzer.analyzeAttributes(for: name, context: context)
 
@@ -1241,6 +1250,7 @@ final class ReaderStore: NSObject, ObservableObject {
             result.append(CharacterProfile(
                 id: UUID(),
                 name: name,
+                aliases: aliases,
                 gender: attrs.gender,
                 age: attrs.age,
                 tone: attrs.baseTone,
@@ -1374,9 +1384,20 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func detectSpeaker(in line: String, characters: [CharacterProfile]) -> String? {
-        let names = characters.map(\.name)
+        // Build lookup: all name variants (canonical + aliases) → canonical name
+        var nameToCanonical: [String: String] = [:]
+        for profile in characters {
+            nameToCanonical[profile.name] = profile.name
+            for alias in profile.aliases {
+                nameToCanonical[alias] = profile.name
+            }
+        }
+        let allNames = Array(nameToCanonical.keys)
         let analyzer = CharacterAnalyzer()
-        if let speaker = analyzer.inferSpeaker(from: line, knownCharacters: names) {
+        if let speaker = analyzer.inferSpeaker(from: line, knownCharacters: allNames),
+           let canonical = nameToCanonical[speaker] {
+            return canonical
+        }
             return speaker
         }
         // Priority 1: Named "Name：" or "Name:" at start of line
@@ -1425,12 +1446,26 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func countCharacterAppearances(in text: String) -> [String: Int] {
-        let result = CharacterAnalyzer().countAppearances(text: text, characterNames: characters.map(\.name))
-        return Dictionary(uniqueKeysWithValues: result.map { ($0.name, $0.count) })
+        // Count appearances for aliases too, map back to canonical name
+        var allLookups: [String: String] = [:]
+        for profile in characters {
+            allLookups[profile.name] = profile.name
+            for alias in profile.aliases where !alias.isEmpty {
+                allLookups[alias] = profile.name
+            }
+        }
+        let result = CharacterAnalyzer().countAppearances(text: text, characterNames: Array(allLookups.keys))
+        var aggregated: [String: Int] = [:]
+        for (name, count) in result {
+            let canonical = allLookups[name] ?? name
+            aggregated[canonical, default: 0] += count
+        }
+        return aggregated
     }
 
     func buildRelationshipGraph(in text: String) -> [RelationshipEdge] {
-        CharacterAnalyzer().buildRelationshipGraph(text: text, characterNames: characters.map(\.name))
+        let graphNames = characters.flatMap { [$0.name] + $0.aliases }
+        return CharacterAnalyzer().buildRelationshipGraph(text: text, characterNames: graphNames)
     }
 
     func defaultVoiceItems() -> [VoiceItem] {
