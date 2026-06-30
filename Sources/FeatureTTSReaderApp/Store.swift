@@ -327,8 +327,6 @@ final class ReaderStore: NSObject, ObservableObject {
             }
         }
     }
-        }
-    }
 
     func loadState() {
         Task { await loadStateAsync() }
