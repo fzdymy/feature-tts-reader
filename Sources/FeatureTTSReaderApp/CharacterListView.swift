@@ -31,12 +31,22 @@ struct CharacterListView: View {
                         }
                     }
 
-                    Section(header: Text("操作")) {
+                    Section(header: Text("角色扫描")) {
+                        Button(action: {
+                            if let chapter = store.chapters.first(where: { $0.id == store.selectedChapterID }) {
+                                Task { await store.scanCharacters(chapterText: chapter.text) }
+                            }
+                        }) {
+                            Label("扫描当前章节", systemImage: "doc.text")
+                        }
                         Button(action: {
                             Task { await store.scanCharacters() }
                         }) {
-                            Label("重新扫描角色", systemImage: "arrow.clockwise")
+                            Label("扫描全文", systemImage: "book.fill")
                         }
+                    }
+
+                    Section(header: Text("朗读脚本")) {
                         Button(action: {
                             Task { await store.buildScript(for: false) }
                         }) {

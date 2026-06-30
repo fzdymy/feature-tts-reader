@@ -322,21 +322,6 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
             }
 
-            if !bookText.isEmpty, !characters.isEmpty {
-                let text = bookText
-                let chars = characters
-                let availVoices = voices.isEmpty ? VoiceItem.defaultItems() : voices
-                Task.detached { [weak self] in
-                    guard let self else { return }
-                    let counts = Self.countCharacterAppearances(in: text, characters: chars)
-                    let candidates = chars.sorted { (counts[$0.name] ?? 0) > (counts[$1.name] ?? 0) }
-                    let recs = candidates.map { profile -> CharacterRecommendation in
-                        let suggested = self.suggestedVoices(for: profile, from: availVoices)
-                        return CharacterRecommendation(id: profile.id, profile: profile, count: counts[profile.name] ?? 0, suggestedVoices: suggested)
-                    }
-                    await MainActor.run { self.recommendations = recs }
-                }
-            }
         }
     }
 
@@ -800,13 +785,14 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    func scanCharacters() async {
+    func scanCharacters(chapterText: String? = nil) async {
         ensureVoiceOptionsLoaded()
         let currentVoices = voices
         let currentSensitivity = defaultSensitivity
-        // perform character inference off the main thread
-        let inferred = await Task.detached { [bookText, currentVoices, currentSensitivity, weak self] in
-            return self?.inferCharacters(from: bookText, voices: currentVoices, defaultSensitivity: currentSensitivity) ?? []
+        let targetText = chapterText ?? bookText
+
+        let inferred = await Task.detached { [targetText, currentVoices, currentSensitivity, weak self] in
+            return self?.inferCharacters(from: targetText, voices: currentVoices, defaultSensitivity: currentSensitivity) ?? []
         }.value
 
         await MainActor.run {
@@ -825,8 +811,16 @@ final class ReaderStore: NSObject, ObservableObject {
                 statusMessage = "已识别 \(final.count) 个角色。"
             }
             characters = final
-            lastScannedBookText = bookText
-            updateRecommendations()
+            lastScannedBookText = targetText
+            updateRecommendations(from: targetText)
+
+            if targetText.count > 10000 {
+                let edges = Self.buildRelationshipGraph(in: targetText, characterNames: characters.map(\.name))
+                if !edges.isEmpty {
+                    statusMessage = (statusMessage ?? "") + " 关系图: \(edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
+                }
+            }
+
             saveState()
         }
     }
@@ -1455,17 +1449,63 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func countCharacterAppearances(in text: String) -> [String: Int] {
-        Self.countCharacterAppearances(in: text, characters: characters)
+        let result = Self.countCharacterAppearances(in: text, characterNames: characters.map(\.name))
+        return Dictionary(uniqueKeysWithValues: result.map { ($0.name, $0.count) })
     }
 
-    nonisolated static func countCharacterAppearances(in text: String, characters: [CharacterProfile]) -> [String: Int] {
-        var result: [String: Int] = [:]
-        let raw = text.replacingOccurrences(of: "\r", with: "\n")
-        for profile in characters {
-            let occurrences = raw.components(separatedBy: profile.name).count - 1
-            result[profile.name] = max(occurrences, 0)
+    struct RelationshipEdge: Hashable {
+        let source: String
+        let target: String
+        var weight: Int
+    }
+
+    func buildRelationshipGraph(in text: String) -> [RelationshipEdge] {
+        Self.buildRelationshipGraph(in: text, characterNames: characters.map(\.name))
+    }
+
+    nonisolated static func countCharacterAppearances(in text: String, characterNames: [String]) -> [(name: String, count: Int)] {
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        var counts: [String: Int] = [:]
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let token = String(text[range])
+            if characterNames.contains(token) {
+                counts[token, default: 0] += 1
+            }
+            return true
         }
-        return result
+        return characterNames.map { ($0, counts[$0] ?? 0) }
+    }
+
+    nonisolated static func buildRelationshipGraph(in text: String, characterNames: [String]) -> [RelationshipEdge] {
+        let nameSet = Set(characterNames)
+        var cooccurrence: [String: [String: Int]] = [:]
+        let paragraphs = text.components(separatedBy: "\n")
+        let tokenizer = NLTokenizer(unit: .word)
+        for para in paragraphs where para.count < 2000 {
+            tokenizer.string = para
+            var paraNames: Set<String> = []
+            tokenizer.enumerateTokens(in: para.startIndex..<para.endIndex) { range, _ in
+                let token = String(para[range])
+                if nameSet.contains(token) {
+                    paraNames.insert(token)
+                }
+                return true
+            }
+            let sorted = paraNames.sorted()
+            for i in 0..<sorted.count {
+                for j in (i+1)..<sorted.count {
+                    cooccurrence[sorted[i], default: [:]][sorted[j], default: 0] += 1
+                }
+            }
+        }
+        var edges: [RelationshipEdge] = []
+        for (source, targets) in cooccurrence {
+            for (target, weight) in targets {
+                edges.append(RelationshipEdge(source: source, target: target, weight: weight))
+            }
+        }
+        return edges.sorted { $0.weight > $1.weight }
     }
 
     func defaultVoiceItems() -> [VoiceItem] {
