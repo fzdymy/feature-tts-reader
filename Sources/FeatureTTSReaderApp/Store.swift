@@ -671,33 +671,26 @@ final class ReaderStore: NSObject, ObservableObject {
         return docs.appendingPathComponent("tts_reader_state.json")
     }
 
-    static let readingPositionKey = "opencode_reading_positions"
-
     static func saveLastChapterIndex(_ index: Int, for bookID: UUID) {
-        // Primary: centralized UserDefaults dictionary (reliable, no file I/O)
-        var dict = UserDefaults.standard.dictionary(forKey: readingPositionKey) as? [String: Int] ?? [:]
         let key = bookID.uuidString
-        if dict[key] != index {
-            dict[key] = index
-            UserDefaults.standard.set(dict, forKey: readingPositionKey)
-        }
+        // Primary: direct UserDefaults key (as? Int avoids NSNumber bridging issues)
+        UserDefaults.standard.set(index, forKey: "rp_\(key)")
         // Legacy fallbacks for backward compatibility
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let newDir = docs.appendingPathComponent("book_position", isDirectory: true)
         try? FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
-        let newUrl = newDir.appendingPathComponent("\(bookID.uuidString).txt")
+        let newUrl = newDir.appendingPathComponent("\(key).txt")
         try? "\(index)".write(to: newUrl, atomically: true, encoding: .utf8)
-        let legacyUrl = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
+        let legacyUrl = docs.appendingPathComponent("lastChapter_\(key).txt")
         try? "\(index)".write(to: legacyUrl, atomically: true, encoding: .utf8)
-        UserDefaults.standard.set(index, forKey: "lastChapter_\(bookID.uuidString)")
+        UserDefaults.standard.set(index, forKey: "lastChapter_\(key)")
     }
 
     static func loadLastChapterIndex(for bookID: UUID) -> Int {
         let key = bookID.uuidString
-        // Primary: centralized dictionary
-        if let dict = UserDefaults.standard.dictionary(forKey: readingPositionKey) as? [String: Int],
-           let index = dict[key] {
-            return index
+        // Primary: direct UserDefaults key
+        if let val = UserDefaults.standard.object(forKey: "rp_\(key)") as? Int {
+            return val
         }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         // Migrate from file-based paths

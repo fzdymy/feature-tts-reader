@@ -599,6 +599,13 @@ struct BookDetailView: View {
                         store.statusMessage = "文本文件不存在，请重新导入。"
                         return
                     }
+                    // Use cached chapters if available (preserves chapter UUIDs)
+                    if let cached = store.bookChaptersCache[book.id], !cached.isEmpty {
+                        chapters = cached
+                        store.chapters = cached
+                        store.bookText = text
+                        return
+                    }
                     // Run CPU-heavy chapter extraction off the main thread via callback
                     let parsed: [BookChapter] = await withCheckedContinuation { continuation in
                         DispatchQueue.global(qos: .userInitiated).async {
@@ -606,12 +613,21 @@ struct BookDetailView: View {
                             continuation.resume(returning: result)
                         }
                     }
+                    // Migrate progress from old chapter UUIDs to new ones
+                    if !store.chapters.isEmpty && !store.bookProgressByChapter.isEmpty {
+                        for i in 0..<min(parsed.count, store.chapters.count) {
+                            let oldID = store.chapters[i].id
+                            let newID = parsed[i].id
+                            if let progress = store.bookProgressByChapter[oldID] {
+                                store.bookProgressByChapter[newID] = progress
+                                store.bookProgressByChapter.removeValue(forKey: oldID)
+                            }
+                        }
+                    }
                     chapters = parsed
                     store.chapters = parsed
                     store.bookText = text
-                    if !parsed.isEmpty {
-                        store.bookChaptersCache[book.id] = parsed
-                    }
+                    store.bookChaptersCache[book.id] = parsed
                 }
             }
         }
