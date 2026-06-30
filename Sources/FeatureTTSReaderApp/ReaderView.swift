@@ -47,6 +47,7 @@ struct ReaderView: View {
         self._currentChapter = State(initialValue: chapter)
         self._currentChapterIndex = State(initialValue: chapterIndex)
         self._anchorChapterIndex = State(initialValue: chapterIndex)
+        self._displayedChapterTitle = State(initialValue: chapter.title)
     }
 
     static func splitParagraphs(_ text: String) -> [String] {
@@ -87,6 +88,7 @@ struct ReaderView: View {
     }
 
     @State private var anchorChapterIndex: Int = 0
+    @State private var displayedChapterTitle: String = ""
     @State private var showBookmarks: Bool = false
     @State private var showSettings: Bool = false
     @State private var showFontPicker: Bool = false
@@ -165,7 +167,7 @@ struct ReaderView: View {
             if isImmersive, store.showChapterTitle {
                 VStack {
                     HStack {
-                        Text(currentChapter.title)
+                        Text(displayedChapterTitle)
                             .font(.caption)
                             .foregroundColor(textColor.opacity(0.6))
                             .lineLimit(1)
@@ -265,7 +267,7 @@ struct ReaderView: View {
             Button(action: { dismiss() }) {
                 Image(systemName: "xmark.circle.fill").font(.title3).foregroundColor(textColor.opacity(0.7))
             }
-            Text(currentChapter.title).font(.headline).lineLimit(1).foregroundColor(textColor).padding(.leading, 8)
+            Text(displayedChapterTitle).font(.headline).lineLimit(1).foregroundColor(textColor).padding(.leading, 8)
             Spacer()
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
@@ -447,6 +449,7 @@ struct ReaderView: View {
         let paras = Self.splitParagraphs(next.text)
         guard !paras.isEmpty else { return }
         paragraphItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: lastLoaded + 1) })
+        displayedChapterTitle = next.title
         ReaderStore.debugLog("[APPEND] bookID=\(bookID.uuidString) index=\(lastLoaded + 1)")
         store.setChapterProgress(chapters[lastLoaded].id, percent: 1.0)
     }
@@ -458,10 +461,13 @@ struct ReaderView: View {
         guard let chapters = store.chaptersForBookCached(bookID),
               let firstLoaded = paragraphItems.first?.chapterIndex,
               firstLoaded > 0 else { return }
-        let prev = chapters[firstLoaded - 1]
-        let paras = Self.splitParagraphs(prev.text)
-        guard !paras.isEmpty else { return }
-        let newItems = paras.map { ParagraphItem(text: $0, chapterIndex: firstLoaded - 1) }
+        let batchStart = max(0, firstLoaded - 5)
+        var newItems: [ParagraphItem] = []
+        for i in (batchStart..<firstLoaded).reversed() {
+            let paras = Self.splitParagraphs(chapters[i].text)
+            newItems.append(contentsOf: paras.map { ParagraphItem(text: $0, chapterIndex: i) })
+        }
+        guard !newItems.isEmpty else { return }
         paragraphItems.insert(contentsOf: newItems, at: 0)
     }
 

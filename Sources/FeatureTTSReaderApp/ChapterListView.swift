@@ -20,8 +20,7 @@ struct ChapterListView: View {
                 Text("当前还没有章节，请先导入小说并扫描章节。")
                     .foregroundColor(.secondary)
             } else {
-                ForEach(store.chapters) { chapter in
-                    let chapterIndex = store.chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
+                ForEach(Array(store.chapters.enumerated()), id: \.element.id) { chapterIndex, chapter in
                     let isCurrent = chapter.id == currentChapterID
                     if let onSelect {
                         Button(action: {
