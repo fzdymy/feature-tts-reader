@@ -1398,8 +1398,6 @@ final class ReaderStore: NSObject, ObservableObject {
            let canonical = nameToCanonical[speaker] {
             return canonical
         }
-            return speaker
-        }
         // Priority 1: Named "Name：" or "Name:" at start of line
         if let groups = line.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
             return groups[1]
