@@ -153,7 +153,11 @@ struct ReaderView: View {
                         withAnimation { isImmersive.toggle() }
                     })
                     .onChange(of: chapterTopID) { _ in
-                        proxy.scrollTo("chapter-top", anchor: .top)
+                        if let targetID = paragraphItems.first(where: { $0.chapterIndex == currentChapterIndex })?.id {
+                            proxy.scrollTo(targetID, anchor: .top)
+                        } else {
+                            proxy.scrollTo("chapter-top", anchor: .top)
+                        }
                     }
                 }
             }
@@ -208,6 +212,9 @@ struct ReaderView: View {
                 screenBrightness = savedBrightness
                 useSystemBrightness = false
                 UIScreen.main.brightness = savedBrightness
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                chapterTopID = UUID()
             }
         }
         .onDisappear {
