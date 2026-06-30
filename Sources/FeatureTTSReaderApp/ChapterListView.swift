@@ -3,16 +3,11 @@ import SwiftUI
 struct ChapterListView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
-    var bookID: UUID?
     var currentChapterID: UUID?
     var onSelect: ((BookChapter, Int) -> Void)?
 
-    private var effectiveBookID: UUID {
-        bookID ?? UUID(uuidString: store.currentBookID) ?? UUID()
-    }
-
     private var currentBook: Book {
-        Book(id: effectiveBookID, title: store.currentBookTitle.isEmpty ? "当前书籍" : store.currentBookTitle, text: store.bookText, importedAt: Date())
+        Book(id: UUID(uuidString: store.currentBookID) ?? UUID(), title: store.currentBookTitle.isEmpty ? "当前书籍" : store.currentBookTitle, text: store.bookText, importedAt: Date())
     }
 
     var body: some View {

@@ -528,7 +528,7 @@ struct BookDetailView: View {
                         ).environmentObject(store)
                     }
 
-                    NavigationLink(destination: ChapterListView(bookID: book.id)
+                    NavigationLink(destination: ChapterListView()
                         .environmentObject(store)
                     ) {
                         Label("章节目录", systemImage: "list.bullet")
