@@ -528,7 +528,7 @@ struct BookDetailView: View {
                         ).environmentObject(store)
                     }
 
-                    NavigationLink(destination: ChapterListView()
+                    NavigationLink(destination: ChapterListView(bookID: book.id)
                         .environmentObject(store)
                     ) {
                         Label("章节目录", systemImage: "list.bullet")
@@ -591,17 +591,27 @@ struct BookDetailView: View {
                 Text("确定要删除《\(book.title)》吗？此操作不可撤销。")
             }
             .onAppear {
+                store.currentBookID = book.id.uuidString
+                store.currentBookTitle = book.title
                 Task {
                     let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
                     guard !text.isEmpty else {
                         store.statusMessage = "文本文件不存在，请重新导入。"
                         return
                     }
-                    chapters = store.chaptersForBook(book.id, text: text)
-                    store.chapters = chapters
+                    // Run CPU-heavy chapter extraction off the main thread via callback
+                    let parsed: [BookChapter] = await withCheckedContinuation { continuation in
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            let result = store.extractChapters(from: text)
+                            continuation.resume(returning: result)
+                        }
+                    }
+                    chapters = parsed
+                    store.chapters = parsed
                     store.bookText = text
-                    store.currentBookID = book.id.uuidString
-                    store.currentBookTitle = book.title
+                    if !parsed.isEmpty {
+                        store.bookChaptersCache[book.id] = parsed
+                    }
                 }
             }
         }

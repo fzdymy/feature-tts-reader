@@ -673,16 +673,35 @@ final class ReaderStore: NSObject, ObservableObject {
 
     static func saveLastChapterIndex(_ index: Int, for bookID: UUID) {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let url = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
-        try? "\(index)".write(to: url, atomically: true, encoding: .utf8)
+        let dir = docs.appendingPathComponent("book_position", isDirectory: true)
+        if (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) == nil {
+            Logger.log("saveLastChapterIndex: failed to create dir")
+        }
+        let url = dir.appendingPathComponent("\(bookID.uuidString).txt")
+        do {
+            try "\(index)".write(to: url, atomically: true, encoding: .utf8)
+            Logger.log("saveLastChapterIndex: \(index) -> \(url.lastPathComponent)")
+        } catch {
+            Logger.log(error: error)
+        }
     }
 
     static func loadLastChapterIndex(for bookID: UUID) -> Int {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let url = docs.appendingPathComponent("lastChapter_\(bookID.uuidString).txt")
-        guard let data = try? String(contentsOf: url, encoding: .utf8),
-              let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) else { return 0 }
-        return index
+        let dir = docs.appendingPathComponent("book_position", isDirectory: true)
+        let url = dir.appendingPathComponent("\(bookID.uuidString).txt")
+        if let data = try? String(contentsOf: url, encoding: .utf8),
+           let index = Int(data.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            Logger.log("loadLastChapterIndex: \(index) for \(bookID.uuidString)")
+            return index
+        }
+        // Fallback: UserDefaults (previous version's format)
+        if let udIndex = UserDefaults.standard.object(forKey: "lastChapter_\(bookID.uuidString)") as? Int {
+            Logger.log("loadLastChapterIndex: UserDefaults fallback \(udIndex) for \(bookID.uuidString)")
+            return udIndex
+        }
+        Logger.log("loadLastChapterIndex: NO value for \(bookID.uuidString), returning 0")
+        return 0
     }
 
     private func readDataFromURL(_ url: URL) async throws -> Data {
