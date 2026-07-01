@@ -1,6 +1,8 @@
 import Foundation
 import NaturalLanguage
 
+// MARK: - Data Types
+
 struct CharacterAttributes {
     var gender: String
     var age: String
@@ -28,8 +30,29 @@ struct RelationshipEdge: Hashable {
     var weight: Int
 }
 
+// MARK: - Regex Cache
+
+private final class RegexCache {
+    static let shared = RegexCache()
+    private var cache: [String: NSRegularExpression] = [:]
+    private let lock = NSLock()
+
+    func get(_ pattern: String) -> NSRegularExpression? {
+        lock.lock(); defer { lock.unlock() }
+        if let re = cache[pattern] { return re }
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return nil }
+        cache[pattern] = re
+        return re
+    }
+}
+
+// MARK: - CharacterAnalyzer
+
 final class CharacterAnalyzer {
-    private let tokenizer = NLTokenizer(unit: .word)
+    private let tokenizer: NLTokenizer = {
+        let t = NLTokenizer(unit: .word)
+        return t
+    }()
 
     // 百家姓单姓
     private static let singleSurnames: Set<String> = {
@@ -37,7 +60,6 @@ final class CharacterAnalyzer {
         return Set(s.map { String($0) })
     }()
 
-    // 复姓
     private static let compoundSurnames: Set<String> = [
         "第五", "梁丘", "左丘", "东门", "百里", "东郭", "南门", "呼延",
         "万俟", "南宫", "段干", "西门", "司马", "上官", "欧阳", "夏侯",
@@ -48,20 +70,43 @@ final class CharacterAnalyzer {
         "巫马", "公西", "漆雕", "壤驷", "公良", "夹谷", "宰父", "微生", "羊舌"
     ]
 
+    // Pre-compiled regex patterns (compiled once, cached forever)
+    private static let speechVerbPattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道)"
+    )!
+    private static let titlePattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})(?=先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|兄台|贤弟|师妹|师姐|师兄|师弟|掌门|教主|帮主|盟主|庄主|岛主|前辈|婆婆|姥姥|老爷子|老人家)"
+    )!
+    private static let dialogueBeforeQuotePattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})[：:\\s]*[「\\u300c\\u201c『\\u300e]"
+    )!
+    // Name followed by comma + dialogue — "无忌，你怎么来了"
+    private static let commaAddressPattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})[，,](?:[「\\u300c\\u201c『\\u300e])?"
+    )!
+    // Name + speech verb + punctuation/quote: 无忌说道："...
+    private static let speechVerbQuotePattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道)[：:]*[「\\u300c\\u201c『\\u300e\"'\\u2018\\u201c]"
+    )!
+    // Dialogue quote patterns
+    private static let quoteExtractPatterns: [NSRegularExpression] = [
+        RegexCache.shared.get("[「\\u300c]([^」\\u300d]+)[」\\u300d]")!,
+        RegexCache.shared.get("['\\u2018]([^'\\u2019]+)['\\u2019]")!,
+        RegexCache.shared.get("[\"\\u201c]([^\"\\u201d]+)[\"\\u201d]")!,
+        RegexCache.shared.get("[『\\u300e]([^』\\u300f]+)[』\\u300f]")!,
+    ]
+
     private static func firstCharIsSurname(_ token: String) -> Bool {
         guard let first = token.first else { return false }
         return singleSurnames.contains(String(first))
     }
 
     private static func startsWithCompoundSurname(_ token: String) -> Bool {
-        if token.count >= 2 {
-            let prefix2 = String(token.prefix(2))
-            if compoundSurnames.contains(prefix2) { return true }
-        }
-        return false
+        token.count >= 2 && compoundSurnames.contains(String(token.prefix(2)))
     }
 
-    // MARK: - Alias resolution: given name → full name, surname+title → full name
+    // MARK: - Alias resolution
+
     static func resolveAliases(_ names: [String]) -> [(canonical: String, aliases: [String])] {
         let nameSet = Set(names)
         var canonicalMap: [String: Set<String>] = [:]
@@ -71,7 +116,6 @@ final class CharacterAnalyzer {
                              "岛主", "盟主", "前辈", "师父", "师傅", "师兄", "师弟", "师姐",
                              "师妹", "少爷", "大人", "将军", "王爷", "夫人", "太太"]
 
-        // 1. 3-char → last 2 chars is standalone (无忌 → 张无忌)
         for full in names where full.count == 3 {
             let suffix = String(full.suffix(2))
             if nameSet.contains(suffix) && suffix != full {
@@ -80,7 +124,6 @@ final class CharacterAnalyzer {
             }
         }
 
-        // 2. 4-char → last 2 or 3 chars as alias
         for full in names where full.count == 4 {
             let suffix3 = String(full.suffix(3))
             if nameSet.contains(suffix3) && suffix3 != full {
@@ -94,12 +137,11 @@ final class CharacterAnalyzer {
             }
         }
 
-        // 3. Surname+title → match to character with same first char
         for alias in names where alias.count == 3 {
             let firstChar = String(alias.prefix(1))
             let lastTwo = String(alias.suffix(2))
             guard titleSuffixes.contains(lastTwo) else { continue }
-            guard CharacterAnalyzer.singleSurnames.contains(firstChar) else { continue }
+            guard singleSurnames.contains(firstChar) else { continue }
             for full in names where full.count >= 2 && full != alias {
                 if String(full.prefix(1)) == firstChar && !isAlias.contains(full) {
                     canonicalMap[full, default: []].insert(alias)
@@ -109,17 +151,12 @@ final class CharacterAnalyzer {
             }
         }
 
-        // 4. 2-char names that are NOT aliases → check if first char is not a surname (given-name only)
-        // e.g. if "芷若" appears but "周芷若" doesn't, create a potential canonical
-        // This is handled in step 1, so reverse case: given name without full-name counterpart
         for name in names where name.count == 2 && !isAlias.contains(name) {
-            if !CharacterAnalyzer.firstCharIsSurname(name) {
-                // Given-name only, no full name found — keep as standalone
+            if !firstCharIsSurname(name) {
                 canonicalMap[name] = []
             }
         }
 
-        // Build result: canonical names in original order
         var result: [(String, [String])] = []
         var seenCanonical: Set<String> = []
         for name in names {
@@ -133,15 +170,15 @@ final class CharacterAnalyzer {
         return result
     }
 
-    // MARK: - Name extraction (tokenizer frequency + context + bigram merging + surname boost)
+    // MARK: - Name extraction
+
     func extractNames(from text: String) -> [String] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
         var scores = [String: Int]()
 
-        // 1. Tokenizer-based candidate extraction with frequency + surname boost
         tokenizer.string = raw
+        var allTokens: [(String, Int)] = []
         var tokenFreq = [String: Int]()
-        var allTokens: [(String, Int)] = [] // track ALL tokens (including single-char surnames)
         var position = 0
         tokenizer.enumerateTokens(in: raw.startIndex..<raw.endIndex) { range, _ in
             let token = String(raw[range])
@@ -156,104 +193,136 @@ final class CharacterAnalyzer {
             position += 1
             return true
         }
+
+        // Frequency-based scoring
         for (name, freq) in tokenFreq where freq >= 2 {
             if !isStopWord(name) {
                 var score = min(freq, 100)
-                // Surname boost: token starting with a known surname gets doubled
-                if CharacterAnalyzer.firstCharIsSurname(name) || CharacterAnalyzer.startsWithCompoundSurname(name) {
+                if firstCharIsSurname(name) || startsWithCompoundSurname(name) {
                     score *= 2
                 }
                 scores[name, default: 0] += score
             }
         }
 
-        // 1b. Surname + given-name merging: known single-char surname followed by 1-2 char token
+        // Surname + given-name merging (same as before — efficient single scan)
         var mergedFreq = [String: Int]()
         for i in 0..<(allTokens.count - 1) {
             let (tok, pos) = allTokens[i]
             let (nextTok, nextPos) = allTokens[i + 1]
             guard pos + 1 == nextPos else { continue }
 
-            // Single-char surname + 2-char given name = 3-char name (e.g. 张 + 无忌)
-            if tok.count == 1 && CharacterAnalyzer.singleSurnames.contains(tok) && nextTok.count == 2 {
+            if tok.count == 1 && Self.singleSurnames.contains(tok) && nextTok.count == 2 {
                 let full = tok + nextTok
-                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
-                   !isStopWord(full) {
+                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(full) {
                     mergedFreq[full, default: 0] += 1
                 }
             }
-            // Single-char surname + 1-char word = 2-char name (e.g. 周 + 某)
-            if tok.count == 1 && CharacterAnalyzer.singleSurnames.contains(tok) && nextTok.count == 1 && tok != nextTok {
+            if tok.count == 1 && Self.singleSurnames.contains(tok) && nextTok.count == 1 && tok != nextTok {
                 let full = tok + nextTok
-                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
-                   !isStopWord(full) {
+                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(full) {
                     mergedFreq[full, default: 0] += 2
                 }
             }
-            // Compound surname prefix + completing 1-2 chars (e.g. 慕 + 容 → 慕容; 司 + 马 → 司马)
             if tok.count == 1 {
                 let candidateCompound = tok + nextTok
-                if candidateCompound.count == 2 && CharacterAnalyzer.compoundSurnames.contains(candidateCompound) {
+                if candidateCompound.count == 2 && Self.compoundSurnames.contains(candidateCompound) {
                     mergedFreq[candidateCompound, default: 0] += 3
                 }
             }
         }
-        // Also merge compound surname + single-char given name: 司马 + 光 → 司马光
         for i in 0..<(allTokens.count - 1) {
             let (tok, pos) = allTokens[i]
             let (nextTok, nextPos) = allTokens[i + 1]
             guard pos + 1 == nextPos else { continue }
-            if tok.count == 2 && CharacterAnalyzer.compoundSurnames.contains(tok) && nextTok.count == 1 {
+            if tok.count == 2 && Self.compoundSurnames.contains(tok) && nextTok.count == 1 {
                 let full = tok + nextTok
-                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
-                   !isStopWord(full) {
+                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(full) {
                     mergedFreq[full, default: 0] += 3
                 }
             }
         }
-        for (name, freq) in mergedFreq where freq >= 2 {
-            scores[name, default: 0] += min(freq * 20, 100)
-        }
 
-        // 1c. Regular bigram merging: merge adjacent 2-char tokens into 4-char candidate names
-        var bigramFreq = [String: Int]()
+        // Bigram merging
         for i in 0..<(allTokens.count - 1) {
             let (a, posA) = allTokens[i]
             let (b, posB) = allTokens[i + 1]
             if posA + 1 == posB && a.count == 2 && b.count == 2 {
                 let merged = a + b
-                if merged.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }),
-                   !isStopWord(merged) {
-                    bigramFreq[merged, default: 0] += 1
+                if merged.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(merged) {
+                    mergedFreq[merged, default: 0] += 1
                 }
             }
         }
-        for (name, freq) in bigramFreq where freq >= 2 {
-            scores[name, default: 0] += min(freq * 15, 100)
+
+        for (name, freq) in mergedFreq where freq >= 2 {
+            scores[name, default: 0] += min(freq * 20, 100)
         }
 
-        // 1d. Boost surname-started names with frequency 1 that appear in high-confidence patterns
-        // (already handled by speech verb / title / dialogue patterns below)
+        // Pre-compiled regex patterns (single NSRegularExpression match across text)
+        let nsRange = NSRange(raw.startIndex..<raw.endIndex, in: raw)
 
-        // 2. Context regex patterns covering more speech verbs
-        let speechVerbs = "说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
-        for match in raw.ranges(of: "([\\p{Han}]{2,4})\(speechVerbs)") {
-            let name = String(raw[match])
-            if name.count >= 2 && name.count <= 4 {
-                scores[name, default: 0] += 15
+        // Speech verb patterns
+        Self.speechVerbPattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
+            guard let m = match, m.numberOfRanges > 1 else { return }
+            let r = m.range(at: 1)
+            if let range = Range(r, in: raw) {
+                let name = String(raw[range])
+                if name.count >= 2 && name.count <= 4 {
+                    scores[name, default: 0] += 15
+                }
             }
         }
 
-        // 3. Title patterns
-        let titles = "先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|兄台|贤弟|师妹|师姐|师兄|师弟|掌门|教主|帮主|盟主|庄主|岛主|前辈|姑娘|婆婆|姥姥|老爷子|老人家"
-        for match in raw.ranges(of: "([\\p{Han}]{2,4})(?=\(titles))") {
-            let name = String(raw[match])
-            if name.count >= 2 && name.count <= 4 {
-                scores[name, default: 0] += 12
+        // Title patterns
+        Self.titlePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
+            guard let m = match, m.numberOfRanges > 1 else { return }
+            let r = m.range(at: 1)
+            if let range = Range(r, in: raw) {
+                let name = String(raw[range])
+                if name.count >= 2 && name.count <= 4 {
+                    scores[name, default: 0] += 12
+                }
             }
         }
 
-        // 4. NLTagger personal name detection
+        // Dialogue before quote
+        Self.dialogueBeforeQuotePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
+            guard let m = match, m.numberOfRanges > 1 else { return }
+            let r = m.range(at: 1)
+            if let range = Range(r, in: raw) {
+                let name = String(raw[range])
+                if name.count >= 2 && name.count <= 4 {
+                    scores[name, default: 0] += 12
+                }
+            }
+        }
+
+        // Name + comma address — "无忌，你怎么来了？"
+        Self.commaAddressPattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
+            guard let m = match, m.numberOfRanges > 1 else { return }
+            let r = m.range(at: 1)
+            if let range = Range(r, in: raw) {
+                let name = String(raw[range])
+                if name.count >= 2 && name.count <= 4 && !Self.singleSurnames.contains(name) {
+                    scores[name, default: 0] += 10
+                }
+            }
+        }
+
+        // Speech verb + quote — 无忌说道："...
+        Self.speechVerbQuotePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
+            guard let m = match, m.numberOfRanges > 1 else { return }
+            let r = m.range(at: 1)
+            if let range = Range(r, in: raw) {
+                let name = String(raw[range])
+                if name.count >= 2 && name.count <= 4 {
+                    scores[name, default: 0] += 15
+                }
+            }
+        }
+
+        // NLTagger personal name
         let tagger = NLTagger(tagSchemes: [.nameType])
         tagger.string = raw
         tagger.enumerateTags(in: raw.startIndex..<raw.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
@@ -266,24 +335,14 @@ final class CharacterAnalyzer {
             return true
         }
 
-        // 5. Dialogue-based name detection (before quotes)
-        for match in raw.ranges(of: "([\\p{Han}]{2,4})[：:\\s]*[「\\u300c\\u201c]") {
-            let rawName = String(raw[match])
-            let name = rawName.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-                .replacingOccurrences(of: "：", with: "").replacingOccurrences(of: ":", with: "")
-            if name.count >= 2 && name.count <= 4 {
-                scores[name, default: 0] += 10
-            }
-        }
-
-        // 6. Chapter title names: first 2-4 Han of chapter title lines
+        // Chapter title names
+        let chapterLinePattern = RegexCache.shared.get("^(?:第[零一二三四五六七八九十百千\\d]+[章回节]).{0,20}")!
         for line in raw.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.count >= 2 && trimmed.count <= 15 {
-                let digits = "第[一二三四五六七八九十百千零\\d]+[章回节]"
-                if let _ = try? NSRegularExpression(pattern: "^\(digits).*").firstMatch(in: trimmed, options: [], range: NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)) {
+            if trimmed.count >= 6, trimmed.count <= 25 {
+                if chapterLinePattern.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)) != nil {
                     let cleaned = trimmed
-                        .replacingOccurrences(of: "^\(digits)", with: "", options: .regularExpression)
+                        .replacingOccurrences(of: "^第[零一二三四五六七八九十百千\\d]+[章回节]", with: "", options: .regularExpression)
                         .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
                     if cleaned.count >= 2 && cleaned.count <= 4 {
                         scores[cleaned, default: 0] += 5
@@ -292,93 +351,130 @@ final class CharacterAnalyzer {
             }
         }
 
-        // Filter and sort by score
-        let minScore = 6
-        let sorted = scores.filter { $0.value >= minScore }.sorted { $0.value > $1.value }
-        return sorted.prefix(30).map(\.key)
-    }
-
-    // MARK: - Dialogue detection
-    func detectDialogues(in text: String) -> [DialogueMatch] {
-        var results: [DialogueMatch] = []
-        var lastKnownSpeaker: String?
-
-        let quotePatterns = [
-            "[「\\u300c]([^」\\u300d]+)[」\\u300d]",
-            "['\\u2018]([^'\\u2019]+)['\\u2019]",
-            "[\"\\u201c]([^\"\\u201d]+)[\"\\u201d]",
-            "[『\\u300e]([^』\\u300f]+)[』\\u300f]",
-        ]
-        for pattern in quotePatterns {
-            for match in text.ranges(of: pattern) {
-                guard match.lowerBound >= text.startIndex else { continue }
-                let segment = String(text[match])
-                let content = segment
-                    .replacingOccurrences(of: "^[「\\u300c'\\u2018\"\\u201c『\\u300e]", with: "", options: .regularExpression)
-                    .replacingOccurrences(of: "[」\\u300d'\\u2019\"\\u201d』\\u300f]$", with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if content.isEmpty { continue }
-
-                let before = text[text.startIndex..<match.lowerBound]
-                if let speaker = inferSpeakerFromContext(String(before)) {
-                    lastKnownSpeaker = speaker
+        // Dialogue turn-tracking: extract names from dialogue attributions
+        let dialogues = detectDialogues(in: raw)
+        var previousSpeakers: [String] = []
+        for dialogue in dialogues {
+            if let speaker = dialogue.speaker {
+                if speaker.count >= 2 && speaker.count <= 4 {
+                    scores[speaker, default: 0] += 8
                 }
-                results.append(DialogueMatch(speaker: lastKnownSpeaker, content: content, range: match))
-            }
-        }
-        return results
-    }
-
-    private func inferSpeakerFromContext(_ precedingText: String) -> String? {
-        let context = String(precedingText.suffix(100))
-        let speechVerbs = "说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
-        // "XXX说/道/etc" followed by optional colon at end of preceding text
-        if let match = context.ranges(of: "([\\p{Han}]{2,4})(?:\(speechVerbs))[：:]*$").last {
-            let raw = String(context[match])
-            let name = raw
-                .replacingOccurrences(of: "(?:\(speechVerbs))[：:]*$", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-            if name.count >= 2 && name.count <= 4 { return name }
-        }
-        // "XXX" followed by title suffix at end of preceding text
-        if let match = context.ranges(of: "([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|前辈|掌门|教主)[：:]*$").last {
-            let raw = String(context[match])
-            let name = raw
-                .replacingOccurrences(of: "(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|前辈|掌门|教主)[：:]*$", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-            if name.count >= 2 && name.count <= 4 { return name }
-        }
-        return nil
-    }
-
-    // MARK: - Speaker inference
-    func inferSpeaker(from line: String, knownCharacters: [String]) -> String? {
-        for name in knownCharacters {
-            if line.hasPrefix("\(name)：") || line.hasPrefix("\(name):") || line.hasPrefix("\(name)说") || line.hasPrefix("\(name)道") {
-                return name
-            }
-        }
-        for name in knownCharacters {
-            if line.contains(name) {
-                let context = line.prefix(40)
-                let sayPatterns = ["说", "道", "笑道", "喊道", "问道", "怒道", "哭道", "叹道", "叫", "喝", "骂", "问", "答"]
-                for p in sayPatterns {
-                    if context.hasSuffix("\(name)\(p)") || context.hasSuffix("\(name)\(p)：") || context.hasSuffix("\(name)\(p):") {
-                        return name
+                previousSpeakers.append(speaker)
+                // Alternating speaker pattern: if we see A → B → A, boost both
+                if previousSpeakers.count >= 3 {
+                    let last3 = previousSpeakers.suffix(3)
+                    if last3[last3.startIndex] == last3[last3.index(after: last3.startIndex)] {
+                        // Already know these names
                     }
                 }
             }
         }
+
+        // Filter and sort
+        let minScore = 5
+        let sorted = scores.filter { $0.value >= minScore }.sorted { $0.value > $1.value }
+        return sorted.prefix(35).map(\.key)
+    }
+
+    // MARK: - Dialogue detection
+
+    func detectDialogues(in text: String) -> [DialogueMatch] {
+        var results: [DialogueMatch] = []
+        var lastKnownSpeaker: String?
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+
+        for pattern in Self.quoteExtractPatterns {
+            pattern.enumerateMatches(in: text, range: nsRange) { match, _, _ in
+                guard let m = match, m.numberOfRanges > 1 else { return }
+                guard let r1 = m.range(at: 1).toRange(), let range1 = Range(r1, in: text) else { return }
+                let content = String(text[range1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !content.isEmpty else { return }
+
+                // Infer speaker from preceding context (up to 200 chars)
+                let matchStart = text.index(text.startIndex, offsetBy: r1.lowerBound)
+                let beforeEnd = text.index(text.startIndex, offsetBy: r1.lowerBound)
+                let beforeStart = text.index(beforeEnd, offsetBy: -min(200, r1.lowerBound), limitedBy: text.startIndex) ?? text.startIndex
+                let context = String(text[beforeStart..<beforeEnd])
+
+                if let speaker = inferSpeakerFromContext(context) {
+                    lastKnownSpeaker = speaker
+                }
+
+                results.append(DialogueMatch(speaker: lastKnownSpeaker, content: content, range: range1))
+            }
+        }
+
+        return results
+    }
+
+    private func inferSpeakerFromContext(_ precedingText: String) -> String? {
+        // Must be at end of text (immediately before quote)
+        let trimmed = precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Priority 1: "Name" immediately followed by speech verb + colon
+        let speechVerbPattern = RegexCache.shared.get(
+            "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥)[：:]?$"
+        )!
+        let nsRange = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+        if let match = speechVerbPattern.matches(in: trimmed, range: nsRange).last {
+            let raw = String(trimmed[Range(match.range(at: 1), in: trimmed)!])
+            if raw.count >= 2 && raw.count <= 4 { return raw }
+        }
+
+        // Priority 2: "Name：" or "Name:" right before quote
+        let colonPattern = RegexCache.shared.get("([\\p{Han}]{2,4})[：:][\\s]*$")!
+        if let match = colonPattern.matches(in: trimmed, range: nsRange).last {
+            let raw = String(trimmed[Range(match.range(at: 1), in: trimmed)!])
+            if raw.count >= 2 && raw.count <= 4 { return raw }
+        }
+
+        // Priority 3: Title suffix pattern
+        let titlePattern = RegexCache.shared.get("([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|前辈|掌门|教主)[：:]?$")!
+        if let match = titlePattern.matches(in: trimmed, range: nsRange).last {
+            let raw = String(trimmed[Range(match.range(at: 1), in: trimmed)!])
+            if raw.count >= 2 && raw.count <= 4 { return raw }
+        }
+
         return nil
     }
 
-    // MARK: - Relationship graph (co-occurrence + dialogue)
+    // MARK: - Speaker inference (for script building)
+
+    func inferSpeaker(from line: String, knownCharacters: [String]) -> String? {
+        // Priority 1: "Name：" or "Name:" at start
+        if let groups = line.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
+            return groups[1]
+        }
+        // Priority 2: speech verb prefix
+        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4})(?=笑道|说道|问道|喊道|叫道|喝道|骂道|答道|回答|解释说|解释道|忽然道|低声道|轻声道|怒道|叹道|哭道|骂道|喝道|厉声道|正色道)"), groups.count > 1 {
+            return groups[1]
+        }
+        // Priority 3: "Name：" before quote
+        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4})[：:][「『“‘]"), groups.count > 1 {
+            return groups[1]
+        }
+        // Priority 4: Known character name appearing at line start
+        for name in knownCharacters {
+            if line.hasPrefix(name) {
+                return name
+            }
+        }
+        // Priority 5: Known character name + comma (addressed to someone)
+        for name in knownCharacters {
+            if line.hasPrefix("\(name)，") || line.hasPrefix("\(name),") {
+                return name
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Relationship graph
+
     func buildRelationshipGraph(text: String, characterNames: [String]) -> [RelationshipEdge] {
         let nameSet = Set(characterNames)
         var cooccurrence: [String: [String: Int]] = [:]
         let paragraphs = text.components(separatedBy: "\n")
 
-        // Paragraph-level co-occurrence with sliding window
         for para in paragraphs where para.count < 2000 {
             let paraNames = extractNamesInParagraph(para, nameSet: nameSet).sorted()
             if paraNames.count >= 2 {
@@ -405,7 +501,6 @@ final class CharacterAnalyzer {
             }
         }
 
-        // Dialogue-based edges: who speaks to whom
         let dialogues = detectDialogues(in: text)
         for dialogue in dialogues {
             guard let speaker = dialogue.speaker, nameSet.contains(speaker) else { continue }
@@ -438,6 +533,7 @@ final class CharacterAnalyzer {
     }
 
     // MARK: - Frequency counting
+
     func countAppearances(text: String, characterNames: [String]) -> [(name: String, count: Int)] {
         let nameSet = Set(characterNames)
         var counts: [String: Int] = [:]
@@ -451,6 +547,7 @@ final class CharacterAnalyzer {
     }
 
     // MARK: - Attribute analysis
+
     func analyzeAttributes(for name: String, context: String) -> CharacterAttributes {
         let gender = inferGender(from: context)
         let age = inferAge(from: context)
@@ -462,7 +559,7 @@ final class CharacterAnalyzer {
     }
 
     func analyzeSentenceTone(_ line: String) -> ToneResult {
-        let angryWords = ["怒", "愤", "恨", "吼", "骂", "怒道", "喝道", "呵斥", "训斥", "喝道", "怒喝"]
+        let angryWords = ["怒", "愤", "恨", "吼", "骂", "怒道", "喝道", "呵斥", "训斥", "怒喝"]
         let sadWords = ["叹", "悲", "哭", "哀", "泣", "叹道", "哭道", "轻声", "低声", "哽咽", "啜泣", "悲伤", "凄凉"]
         let cheerfulWords = ["笑", "喜", "欢", "乐", "开心", "笑道", "莞尔", "玩笑", "高兴"]
 
@@ -491,6 +588,7 @@ final class CharacterAnalyzer {
     }
 
     // MARK: - Private helpers
+
     private func inferGender(from context: String) -> String {
         if context.contains("她") || context.contains("母亲") || context.contains("娘") ||
            context.contains("小姐") || context.contains("姑娘") || context.contains("姐姐") ||
@@ -572,10 +670,32 @@ final class CharacterAnalyzer {
     }
 
     private func isStopWord(_ word: String) -> Bool {
-        let stops = Set(["第一", "第二", "第三", "第四", "第五", "第十", "最后", "开始", "结束", "不过", "突然", "然后", "但是", "因为", "所以", "虽然", "如果", "可是", "只是", "就是", "还是", "这个", "那个", "什么", "怎么", "这样", "那样", "这些", "那些", "这里", "那里", "时候", "以后", "之前", "没有", "不是", "自己", "他们", "她们", "你们", "我们", "大家", "一切", "一个", "一种", "别的", "各自", "对面", "眼前", "面前", "身后", "背后", "手中", "脚下", "天上", "地下", "心中", "脸上", "眼里", "嘴里", "身上", "头上", "晚上", "上午", "下午", "方才", "刚才", "此刻", "现在", "原来", "本来", "起来", "出来", "过来", "回来", "进去", "出去", "看见", "看到", "听见", "听到", "知道", "觉得", "感觉", "有点", "有些", "十分", "非常", "特别", "更加", "稍微", "轻轻", "慢慢", "渐渐", "终于", "从未", "已然", "尚未", "已经", "曾经", "就要", "还是", "就是", "只是", "可是", "但是", "因为", "所以", "虽然", "如果", "不过", "而且", "并且", "或者", "不但", "不仅", "甚至", "连同", "以及", "全都", "全部", "凡是", "各位", "诸位", "自从", "由于", "关于", "对于", "根据"])
-        return stops.contains(word) || word.hasPrefix("第") || word.hasSuffix("章") || word.hasSuffix("回") || word.hasSuffix("节") || word.hasPrefix("这") || word.hasPrefix("那") || word.hasPrefix("什") || word.hasPrefix("我") || word.hasPrefix("你")
+        let stops: Set<String> = [
+            "第一", "第二", "第三", "第四", "第五", "第十", "最后", "开始", "结束",
+            "不过", "突然", "然后", "但是", "因为", "所以", "虽然", "如果",
+            "可是", "只是", "就是", "还是", "这个", "那个", "什么", "怎么",
+            "这样", "那样", "这些", "那些", "这里", "那里", "时候", "以后",
+            "之前", "没有", "不是", "自己", "他们", "她们", "你们", "我们",
+            "大家", "一切", "一个", "一种", "别的", "各自", "对面", "眼前",
+            "面前", "身后", "背后", "手中", "脚下", "天上", "地下", "心中",
+            "脸上", "眼里", "嘴里", "身上", "头上", "晚上", "上午", "下午",
+            "方才", "刚才", "此刻", "现在", "原来", "本来", "起来", "出来",
+            "过来", "回来", "进去", "出去", "看见", "看到", "听见", "听到",
+            "知道", "觉得", "感觉", "有点", "有些", "十分", "非常", "特别",
+            "更加", "稍微", "轻轻", "慢慢", "渐渐", "终于", "从未", "已然",
+            "尚未", "已经", "曾经", "而且", "并且", "或者", "不但", "不仅",
+            "甚至", "连同", "以及", "全都", "全部", "凡是", "各位", "诸位",
+            "自从", "由于", "关于", "对于", "根据", "先生", "小姐", "姑娘",
+            "公子", "师父", "师傅", "少爷", "夫人", "阁下", "大人", "前辈",
+            "掌门", "教主", "帮主",
+        ]
+        return stops.contains(word) ||
+               word.hasPrefix("第") ||
+               word.hasSuffix("章") || word.hasSuffix("回") || word.hasSuffix("节")
     }
 }
+
+// MARK: - CharacterSet Extension
 
 extension CharacterSet {
     static let ideographicCharacters: CharacterSet = {
@@ -587,7 +707,8 @@ extension CharacterSet {
     }()
 }
 
-// MARK: - Regex helpers
+// MARK: - String Extension (regex helpers)
+
 extension String {
     func ranges(of pattern: String) -> [Range<String.Index>] {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return [] }

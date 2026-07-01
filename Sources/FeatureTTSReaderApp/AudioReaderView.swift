@@ -19,6 +19,8 @@ struct AudioReaderView: View {
     @State private var selectedCharacter: CharacterProfile?
     @State private var editingCharacter: CharacterProfile?
     @State private var showVoiceCatalogPicker = false
+    @State private var showAddCharacter = false
+    @State private var showAllRecommendations = false
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -69,7 +71,7 @@ struct AudioReaderView: View {
                 audioHeader
                 if showCharacterPanel {
                     characterPanel
-                        .frame(maxHeight: UIScreen.main.bounds.height * 0.45)
+                        .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
                 }
                 ScrollView {
                     Text(chapterDisplayText)
@@ -113,6 +115,16 @@ struct AudioReaderView: View {
                 }
             }
             .environmentObject(store)
+        }
+        .sheet(isPresented: $showAddCharacter) {
+            AddCharacterView { name, gender, age, tone in
+                store.addCharacter(name: name, gender: gender, age: age, tone: tone)
+                showAddCharacter = false
+            }
+        }
+        .sheet(isPresented: $showAllRecommendations) {
+            AllRecommendationsView()
+                .environmentObject(store)
         }
     }
 
@@ -287,7 +299,7 @@ struct AudioReaderView: View {
             }
             if store.recommendations.count > 3 {
                 Button("查看全部 \(store.recommendations.count) 个推荐") {
-                    selectedCharacter = store.characters.first
+                    showAllRecommendations = true
                 }
                 .font(.caption).foregroundColor(.secondary)
                 .buttonStyle(.borderless)
@@ -299,9 +311,24 @@ struct AudioReaderView: View {
 
     private var characterListSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("角色列表")
-                .font(.subheadline).fontWeight(.semibold)
-                .foregroundColor(textColor)
+            HStack {
+                Text("角色列表")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(textColor)
+                Spacer()
+                Button(action: { store.sortCharactersByAppearance() }) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.secondary)
+                Button(action: { showAddCharacter = true }) {
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.blue)
+            }
             ForEach(store.characters) { character in
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -330,6 +357,12 @@ struct AudioReaderView: View {
                     Button(action: { editingCharacter = character }) {
                         Image(systemName: "slider.horizontal.3")
                             .foregroundColor(.blue)
+                    }
+                    .buttonStyle(.borderless)
+                    Button(action: { store.deleteCharacter(at: character.id) }) {
+                        Image(systemName: "trash")
+                            .font(.caption)
+                            .foregroundColor(.red.opacity(0.6))
                     }
                     .buttonStyle(.borderless)
                 }
@@ -500,5 +533,99 @@ struct AudioReaderView: View {
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryLevel = UIDevice.current.batteryLevel >= 0
             ? Int(UIDevice.current.batteryLevel * 100) : -1
+    }
+}
+
+// MARK: - AddCharacterView
+
+fileprivate struct AddCharacterView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var gender = "未知"
+    @State private var age = "未知"
+    @State private var tone = "平稳"
+    let onAdd: (String, String, String, String) -> Void
+
+    private let genderOptions = ["未知", "男性", "女性"]
+    private let ageOptions = ["未知", "少年", "少女", "青年", "中年", "年长"]
+    private let toneOptions = ["平稳", "温柔", "激昂", "轻松", "疑问"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("角色信息")) {
+                    TextField("角色名称", text: $name)
+                    Picker("性别", selection: $gender) {
+                        ForEach(genderOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                    Picker("年龄段", selection: $age) {
+                        ForEach(ageOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                    Picker("语气", selection: $tone) {
+                        ForEach(toneOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+            }
+            .navigationTitle("新增角色")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("添加") {
+                        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                        onAdd(name.trimmingCharacters(in: .whitespaces), gender, age, tone)
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - AllRecommendationsView
+
+fileprivate struct AllRecommendationsView: View {
+    @EnvironmentObject private var store: ReaderStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(store.recommendations) { rec in
+                    Section(header: Text("\(rec.profile.name)（出现 \(rec.count) 次）")) {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(rec.suggestedVoices) { voice in
+                                    Button(action: {
+                                        store.applyVoice(voice.id, toCharacterID: rec.id)
+                                    }) {
+                                        VStack(spacing: 2) {
+                                            Text(voice.name)
+                                                .font(.caption).fontWeight(.medium)
+                                            Text(VoiceCatalog.tier(for: voice.id).displayName)
+                                                .font(.caption2)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color.blue.opacity(0.1))
+                                        .cornerRadius(10)
+                                        .foregroundColor(.blue)
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("全部推荐")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
     }
 }

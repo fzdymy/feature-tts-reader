@@ -43,17 +43,6 @@ struct CharacterEditorView: View {
                         Text("\(profile.sensitivity)")
                     }
                     Button(action: {
-                        // apply recommended voice if available
-                        if let rec = store.recommendations.first(where: { $0.profile.id == profile.id }) {
-                            if let v = rec.suggestedVoices.first?.id {
-                                profile.voice = v
-                            }
-                        }
-                    }) {
-                        Text("重置为推荐音色")
-                    }
-                    Button(action: {
-                        // apply first suggested voice to current character only (local edit)
                         if let rec = store.recommendations.first(where: { $0.profile.id == profile.id }) {
                             if let v = rec.suggestedVoices.first?.id {
                                 profile.voice = v

@@ -994,6 +994,40 @@ final class ReaderStore: NSObject, ObservableObject {
         saveState()
     }
 
+    func addCharacter(name: String, gender: String = "未知", age: String = "未知", tone: String = "平稳") {
+        let newCharacter = CharacterProfile(
+            id: UUID(),
+            name: name,
+            aliases: [],
+            gender: gender,
+            age: age,
+            tone: tone,
+            voice: defaultVoice(for: gender, tone: tone, voices: voices),
+            rate: 0,
+            pitch: 0,
+            style: "neutral",
+            sensitivity: defaultSensitivity,
+            isNarrator: false,
+            role: .character
+        )
+        characters.append(newCharacter)
+        statusMessage = "已添加角色「\(name)」。"
+        updateRecommendations()
+        saveState()
+    }
+
+    func deleteCharacter(at id: UUID) {
+        characters.removeAll { $0.id == id }
+        recommendations.removeAll { $0.id == id }
+        statusMessage = "角色已删除。"
+        saveState()
+    }
+
+    func sortCharactersByAppearance() {
+        let counts = countCharacterAppearances(in: bookText)
+        characters.sort { (counts[$0.name] ?? 0) > (counts[$1.name] ?? 0) }
+    }
+
     func playSelectedChapter() async {
         guard !bookText.isEmpty else {
             statusMessage = "请先导入小说文本。"
@@ -1271,7 +1305,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let narratorIndicators = detectNarratorPatterns(in: raw)
 
         var result: [CharacterProfile] = []
-        for resolvedName in resolved.prefix(8) {
+        for resolvedName in resolved.prefix(12) {
             let name = resolvedName.canonical
             let aliases = resolvedName.aliases
             let context = raw.contextAround(name, radius: 120)
