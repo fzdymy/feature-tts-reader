@@ -658,6 +658,10 @@ final class ReaderStore: NSObject, ObservableObject {
         let title = url.deletingPathExtension().lastPathComponent
         let bookID = UUID()
         saveBookTextToFile(bookID: bookID, text: text)
+        // Remove inbox copy to prevent accumulation
+        DispatchQueue.global(qos: .utility).async {
+            if url.path.contains("Inbox") { try? FileManager.default.removeItem(at: url) }
+        }
         let book = Book(id: bookID, title: title, text: text, importedAt: Date())
         await MainActor.run { [book] in
             books.append(book)
@@ -1149,8 +1153,11 @@ final class ReaderStore: NSObject, ObservableObject {
                 ttsCache[key] = url
                 synthesized.append(SynthesizedSegment(index: idx, segment: seg, audioURL: url))
                 // evict oldest if over limit
-                if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first {
+                if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first, let staleURL = ttsCache[stale] {
                     ttsCache.removeValue(forKey: stale)
+                    DispatchQueue.global(qos: .utility).async {
+                        try? FileManager.default.removeItem(at: staleURL)
+                    }
                 }
                 completed += 1
                 statusMessage = "正在合成：\(seg.characterName) (\(completed)/\(total))"

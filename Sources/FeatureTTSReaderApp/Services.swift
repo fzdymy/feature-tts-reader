@@ -68,6 +68,12 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         setupAudioSession()
         setupRemoteCommands()
         restorePlaybackState()
+        // Safety net: clean any stray audio files from previous runs
+        DispatchQueue.global(qos: .utility).async {
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let ttsDir = cachesDir.appendingPathComponent("tts_audio", isDirectory: true)
+            try? FileManager.default.removeItem(at: ttsDir)
+        }
     }
 
     private func setupAudioSession() {
@@ -139,7 +145,6 @@ final class AudioPlaybackController: NSObject, ObservableObject {
             playbackContinuation = cont
             playQueue(items)
         }
-        Self.cleanupAllAudioFiles()
     }
 
     private func playCurrent() {
@@ -203,6 +208,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         player = nil
         isPlaying = false
         stopProgressTimer()
+        let urls = queue.map(\.audioURL)
         queue.removeAll()
         currentIndex = 0
         currentProgress = 0
@@ -211,7 +217,9 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         currentAuthor = ""
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         clearPlaybackState()
-        cleanupAudioFiles()
+        DispatchQueue.global(qos: .utility).async {
+            for url in urls { try? FileManager.default.removeItem(at: url) }
+        }
     }
 
     func playNext() {
@@ -264,7 +272,6 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         clearPlaybackState()
         playbackContinuation?.resume()
         playbackContinuation = nil
-        cleanupAudioFiles()
     }
 
     static func cleanupAllAudioFiles() {
@@ -274,9 +281,6 @@ final class AudioPlaybackController: NSObject, ObservableObject {
     }
 
     private func cleanupAudioFiles() {
-        let urls = queue.map(\.audioURL)
-        Self.cleanupAllAudioFiles()
-    }
 
     private func updateNowPlayingInfo(progress: TimeInterval? = nil) {
         guard let player = player else {
@@ -393,6 +397,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
 
 extension AudioPlaybackController: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        deleteCurrentAudioFile()
         if flag {
             playNext()
         } else {
@@ -404,6 +409,15 @@ extension AudioPlaybackController: AVAudioPlayerDelegate {
         if let error = error {
             Logger.log(error: error)
         }
+        deleteCurrentAudioFile()
         playNext()
+    }
+
+    private func deleteCurrentAudioFile() {
+        guard currentIndex < queue.count else { return }
+        let url = queue[currentIndex].audioURL
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 }
