@@ -198,7 +198,7 @@ final class CharacterAnalyzer {
         for (name, freq) in tokenFreq where freq >= 2 {
             if !isStopWord(name) {
                 var score = min(freq, 100)
-                if firstCharIsSurname(name) || startsWithCompoundSurname(name) {
+                if CharacterAnalyzer.firstCharIsSurname(name) || CharacterAnalyzer.startsWithCompoundSurname(name) {
                     score *= 2
                 }
                 scores[name, default: 0] += score
@@ -386,14 +386,14 @@ final class CharacterAnalyzer {
         for pattern in Self.quoteExtractPatterns {
             pattern.enumerateMatches(in: text, range: nsRange) { match, _, _ in
                 guard let m = match, m.numberOfRanges > 1 else { return }
-                guard let r1 = m.range(at: 1).toRange(), let range1 = Range(r1, in: text) else { return }
+                guard let range1 = Range(m.range(at: 1), in: text) else { return }
                 let content = String(text[range1]).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !content.isEmpty else { return }
 
                 // Infer speaker from preceding context (up to 200 chars)
-                let matchStart = text.index(text.startIndex, offsetBy: r1.lowerBound)
-                let beforeEnd = text.index(text.startIndex, offsetBy: r1.lowerBound)
-                let beforeStart = text.index(beforeEnd, offsetBy: -min(200, r1.lowerBound), limitedBy: text.startIndex) ?? text.startIndex
+                let lower = m.range(at: 1).lowerBound
+                let beforeEnd = text.index(text.startIndex, offsetBy: lower)
+                let beforeStart = text.index(beforeEnd, offsetBy: -min(200, lower), limitedBy: text.startIndex) ?? text.startIndex
                 let context = String(text[beforeStart..<beforeEnd])
 
                 if let speaker = inferSpeakerFromContext(context) {
