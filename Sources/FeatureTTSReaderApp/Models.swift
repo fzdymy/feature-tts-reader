@@ -422,7 +422,10 @@ struct ReaderState: Codable {
         readerFontSize = try container.decodeIfPresent(Double.self, forKey: .readerFontSize) ?? 18
         readerLineSpacing = try container.decodeIfPresent(Double.self, forKey: .readerLineSpacing) ?? 8
         readerTheme = try container.decodeIfPresent(ReaderTheme.self, forKey: .readerTheme) ?? .light
-        selectedVoiceCatalog = try container.decodeIfPresent(VoiceCatalogSource.self, forKey: .selectedVoiceCatalog) ?? .chinese35
+        selectedVoiceCatalog = {
+            let raw = try container.decodeIfPresent(String.self, forKey: .selectedVoiceCatalog)
+            return raw.flatMap(VoiceCatalogSource.init(rawValue:)) ?? .chinese35
+        }()
         defaultVoice = try container.decodeIfPresent(String.self, forKey: .defaultVoice) ?? "zh-CN-XiaoxiaoNeural"
         defaultRate = try container.decodeIfPresent(Int.self, forKey: .defaultRate) ?? 0
         defaultPitch = try container.decodeIfPresent(Int.self, forKey: .defaultPitch) ?? 0
