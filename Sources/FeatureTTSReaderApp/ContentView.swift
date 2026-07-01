@@ -82,6 +82,7 @@ struct ContentView: View {
                         .foregroundColor(store.selectedVoiceCatalog == .chinese35 ? .white : .primary)
                         .cornerRadius(8)
                 }
+                .buttonStyle(.borderless)
                 Button(action: {
                     store.switchCatalog(to: .fullChinese)
                 }) {
@@ -93,6 +94,7 @@ struct ContentView: View {
                         .foregroundColor(store.selectedVoiceCatalog == .fullChinese ? .white : .primary)
                         .cornerRadius(8)
                 }
+                .buttonStyle(.borderless)
             }
             Text("经典音色涵盖 40 种常用中文音色；全音色含 76 种音色（含 Dragon HD / MAI 等）")
                         .font(.caption)

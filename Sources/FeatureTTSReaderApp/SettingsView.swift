@@ -105,6 +105,7 @@ struct SettingsView: View {
                                 .foregroundColor(store.selectedVoiceCatalog == .chinese35 ? .white : .primary)
                                 .cornerRadius(8)
                         }
+                        .buttonStyle(.borderless)
                         Button(action: {
                             store.switchCatalog(to: .fullChinese)
                         }) {
@@ -116,6 +117,7 @@ struct SettingsView: View {
                                 .foregroundColor(store.selectedVoiceCatalog == .fullChinese ? .white : .primary)
                                 .cornerRadius(8)
                         }
+                        .buttonStyle(.borderless)
                     }
                         .font(.caption)
                         .foregroundColor(.secondary)
