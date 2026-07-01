@@ -70,15 +70,35 @@ struct ContentView: View {
             SecureField("API Key（选填）", text: $store.apiKey)
                 .textContentType(.password)
                 .submitLabel(.done)
-            Picker("音色库", selection: $store.selectedVoiceCatalog) {
-                ForEach(VoiceCatalogSource.allCases) { source in
-                    Text(source.displayName).tag(source)
+            HStack(spacing: 12) {
+                Button(action: {
+                    store.selectedVoiceCatalog = .chinese35
+                    Task { await store.refreshVoices() }
+                }) {
+                    Text("经典音色 (40)")
+                        .font(.subheadline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(store.selectedVoiceCatalog == .chinese35 ? Color.accentColor : Color.gray.opacity(0.15))
+                        .foregroundColor(store.selectedVoiceCatalog == .chinese35 ? .white : .primary)
+                        .cornerRadius(8)
+                }
+                Button(action: {
+                    store.selectedVoiceCatalog = .fullChinese
+                    Task { await store.refreshVoices() }
+                }) {
+                    Text("全音色 (76)")
+                        .font(.subheadline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(store.selectedVoiceCatalog == .fullChinese ? Color.accentColor : Color.gray.opacity(0.15))
+                        .foregroundColor(store.selectedVoiceCatalog == .fullChinese ? .white : .primary)
+                        .cornerRadius(8)
                 }
             }
-            .pickerStyle(.menu)
-            .onChange(of: store.selectedVoiceCatalog) { _ in
-                Task { await store.refreshVoices() }
-            }
+            Text("经典音色涵盖 40 种常用中文音色；全音色含 76 种音色（含 Dragon HD / MAI 等）")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
             Button(action: store.saveSettings) {
                 Text("保存设置")
             }
