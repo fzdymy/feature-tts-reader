@@ -36,7 +36,10 @@ actor TTSHttpClient {
             throw NSError(domain: "TTSHttpClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "合成失败，状态码：\(http.statusCode)，返回：\(message)"])
         }
 
-        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("tts-speak-\(UUID().uuidString).mp3")
+        let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let ttsDir = cachesDir.appendingPathComponent("tts_audio", isDirectory: true)
+        try? FileManager.default.createDirectory(at: ttsDir, withIntermediateDirectories: true)
+        let outputURL = ttsDir.appendingPathComponent("tts-speak-\(UUID().uuidString).mp3")
         try data.write(to: outputURL, options: .atomic)
         return outputURL
     }
@@ -136,6 +139,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
             playbackContinuation = cont
             playQueue(items)
         }
+        Self.cleanupAllAudioFiles()
     }
 
     private func playCurrent() {
@@ -207,6 +211,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         currentAuthor = ""
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         clearPlaybackState()
+        cleanupAudioFiles()
     }
 
     func playNext() {
@@ -259,6 +264,18 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         clearPlaybackState()
         playbackContinuation?.resume()
         playbackContinuation = nil
+        cleanupAudioFiles()
+    }
+
+    static func cleanupAllAudioFiles() {
+        let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let ttsDir = cachesDir.appendingPathComponent("tts_audio", isDirectory: true)
+        try? FileManager.default.removeItem(at: ttsDir)
+    }
+
+    private func cleanupAudioFiles() {
+        let urls = queue.map(\.audioURL)
+        Self.cleanupAllAudioFiles()
     }
 
     private func updateNowPlayingInfo(progress: TimeInterval? = nil) {
@@ -322,6 +339,13 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         guard let data = UserDefaults.standard.data(forKey: "ttsPlaybackState"),
               let state = try? JSONDecoder().decode(PlaybackState.self, from: data) else { return }
 
+        // Check if audio files still exist before restoring
+        let staleFiles = state.queue.contains { !FileManager.default.fileExists(atPath: $0.audioURL.path) }
+        guard !staleFiles else {
+            clearPlaybackState()
+            return
+        }
+
         queue = state.queue
         currentIndex = state.currentIndex
         isPlaying = state.isPlaying
@@ -347,6 +371,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
                 Logger.log(error: error)
                 queue.removeAll()
                 currentIndex = 0
+                clearPlaybackState()
             }
         }
     }

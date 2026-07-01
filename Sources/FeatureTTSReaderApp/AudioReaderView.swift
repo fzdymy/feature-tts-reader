@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 
 // MARK: - AudioReaderView (朗读听书 + 多角色配音自动化）
 
@@ -546,6 +547,7 @@ struct AudioReaderView: View {
     }
 
     private func updateBatteryLevel() {
+        guard !UIDevice.current.isBatteryMonitoringEnabled else { return }
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryLevel = UIDevice.current.batteryLevel >= 0
             ? Int(UIDevice.current.batteryLevel * 100) : -1

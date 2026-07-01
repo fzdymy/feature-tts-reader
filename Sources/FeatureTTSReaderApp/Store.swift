@@ -576,6 +576,20 @@ final class ReaderStore: NSObject, ObservableObject {
         return lastReadChapterIndexByBook[bookID]
     }
 
+    func removeBook(at index: Int) {
+        guard index >= 0, index < books.count else { return }
+        let book = books[index]
+        books.remove(at: index)
+        // Clean up text file
+        let url = textFileURL(forBookID: book.id)
+        try? FileManager.default.removeItem(at: url)
+        // Clean up position file
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+        let posURL = docs.appendingPathComponent("book_position/\(book.id.uuidString).txt")
+        try? FileManager.default.removeItem(at: posURL)
+        saveState()
+    }
+
     func clearLibrary() {
         books.removeAll()
         bookmarks.removeAll()
@@ -592,6 +606,12 @@ final class ReaderStore: NSObject, ObservableObject {
         currentBookProgress = 0
         lastScannedBookText = ""
         statusMessage = "已清空书架。"
+        // Clean up all book text files
+        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+        let bookTextsDir = docs.appendingPathComponent("book_texts", isDirectory: true)
+        try? FileManager.default.removeItem(at: bookTextsDir)
+        let bookPosDir = docs.appendingPathComponent("book_position", isDirectory: true)
+        try? FileManager.default.removeItem(at: bookPosDir)
         persistence.clearLibrary()
         saveState()
     }

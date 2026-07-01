@@ -200,8 +200,7 @@ struct BookshelfView: View {
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             if let index = store.books.firstIndex(where: { $0.id == book.id }) {
-                                store.books.remove(at: index)
-                                store.saveState()
+                                store.removeBook(at: index)
                             }
                         } label: {
                             Label("删除", systemImage: "trash")
@@ -239,8 +238,7 @@ struct BookshelfView: View {
         }
         Button(action: {
             if let index = store.books.firstIndex(where: { $0.id == book.id }) {
-                store.books.remove(at: index)
-                store.saveState()
+                store.removeBook(at: index)
             }
         }) {
             Label("删除", systemImage: "trash")
