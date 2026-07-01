@@ -1588,20 +1588,41 @@ final class ReaderStore: NSObject, ObservableObject {
         let lowerID = voice.id.lowercased()
         let lowerName = voice.name.lowercased()
         let locale = voice.locale.lowercased()
+        let voiceTraits = VoiceCatalog.traits[voice.id] ?? []
+        let voiceTier = VoiceCatalog.tier(for: voice.id)
 
+        // 音质等级加分：主角/旁白优先使用高等级音色
+        if profile.role == .narrator || profile.isNarrator {
+            score += voiceTier.rawValue * 8
+        }
+        if voiceTraits.contains("男主角") || voiceTraits.contains("女主角") {
+            score += voiceTier.rawValue * 5 + 5
+        }
+
+        // 角色身份标签匹配
+        if voiceTraits.contains("旁白") && (profile.role == .narrator || profile.isNarrator) {
+            score += 30
+        }
+        if voiceTraits.contains("反派") && profile.tone == "激昂" {
+            score += 15
+        }
+
+        // 性别匹配
         if profile.gender == "女性" {
-            if lowerID.contains("xiao") || lowerName.contains("小") || lowerName.contains("xia") { score += 20 }
+            if lowerID.contains("xiao") || lowerName.contains("小") || lowerName.contains("xia") || voiceTraits.contains("女主角") || voiceTraits.contains("女配角") { score += 25 }
             if !lowerID.contains("yun") && !lowerName.contains("云") { score += 5 }
         } else if profile.gender == "男性" {
-            if lowerID.contains("yun") || lowerName.contains("云") { score += 20 }
+            if lowerID.contains("yun") || lowerName.contains("云") || voiceTraits.contains("男主角") || voiceTraits.contains("男配角") { score += 25 }
             if !lowerID.contains("xiao") && !lowerName.contains("小") { score += 5 }
         }
 
+        // 语气匹配
         if profile.tone == "温柔" || profile.tone == "轻松" {
-            if lowerID.contains("xiao") || lowerName.contains("晓") || lowerName.contains("柔") { score += 10 }
+            if lowerID.contains("xiao") || lowerName.contains("晓") || lowerName.contains("柔") || voiceTraits.contains("温柔") || voiceTraits.contains("治愈") || voiceTraits.contains("温婉") { score += 15 }
         }
         if profile.tone == "激昂" {
             if let styles = voice.styleList, styles.contains(where: { $0.contains("angry") || $0.contains("excited") || $0.contains("strong") || $0.contains("loud") }) { score += 12 }
+            if voiceTraits.contains("激昂") || voiceTraits.contains("战斗型") { score += 10 }
         }
         if profile.tone == "疑问" {
             if let styles = voice.styleList, styles.contains(where: { $0.contains("chat") || $0.contains("assistant") || $0.contains("question") }) { score += 8 }
@@ -1610,11 +1631,29 @@ final class ReaderStore: NSObject, ObservableObject {
             score += 5
         }
 
+        // 年龄/风格匹配
+        if voiceTraits.contains("萝莉") || voiceTraits.contains("少女") { score += (profile.age == "少年" || profile.age == "少女" ? 10 : 2) }
+        if voiceTraits.contains("少年感") || voiceTraits.contains("阳光") { score += (profile.age == "少年" || profile.age == "青年" ? 10 : 3) }
+        if voiceTraits.contains("成熟大叔") || voiceTraits.contains("沉稳") { score += (profile.age == "中年" || profile.age == "年长" ? 10 : 2) }
+
+        // 方言/地域匹配
+        if voiceTraits.contains("东北话") || voiceTraits.contains("四川话") || voiceTraits.contains("河南话") || voiceTraits.contains("山东话") || voiceTraits.contains("陕西话") || voiceTraits.contains("广西话") || voiceTraits.contains("粤语") || voiceTraits.contains("吴语") || voiceTraits.contains("台普") {
+            score += 8
+        }
+
         if locale.contains("zh") { score += 5 }
         if let styles = voice.styleList, styles.contains("chat") { score += 3 }
 
         if let name = profile.name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
             if lowerID.contains(name.lowercased()) || lowerName.contains(name.lowercased()) { score += 15 }
+        }
+
+        // Traits 标签综合加分
+        for trait in voiceTraits {
+            if trait == "元気" || trait == "活泼" || trait == "元气" { score += (profile.tone == "轻松" ? 8 : 2) }
+            if trait == "知性" || trait == "职业" { score += (profile.tone == "平稳" ? 8 : 2) }
+            if trait == "高冷" { score += (profile.tone == "平稳" || profile.tone == "疑问" ? 8 : 2) }
+            if trait == "磁性" || trait == "浑厚" { score += (profile.age == "中年" || profile.age == "年长" ? 8 : 3) }
         }
 
         return score

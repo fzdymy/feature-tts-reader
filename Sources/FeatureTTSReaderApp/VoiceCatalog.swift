@@ -129,4 +129,94 @@ enum VoiceCatalog {
         VoiceItem(id: "zh-TW-HsiaoYuNeural", name: "曉雨", locale: "zh-TW", gender: .female, styleList: nil),
     ]
 
+    /// 音质等级（按 ID 后缀自动推断）
+    static func tier(for id: String) -> VoiceTier {
+        if id.contains("MAI-Voice") { return .mai }
+        if id.contains("DragonHD") { return .hd }
+        if id.contains("Multilingual") { return .multilingual }
+        return .standard
+    }
+
+    /// 角色标签（用于 voiceMatchScore 加权匹配）
+    static let traits: [String: [String]] = [
+        // ---------- 经典音色 ----------
+        "zh-CN-XiaoxiaoNeural":              ["旁白", "女主角", "元気", "多面手"],
+        "zh-CN-YunxiNeural":                 ["旁白", "男主角", "少年感", "阳光"],
+        "zh-CN-XiaomoNeural":                ["女主角", "百变", "情绪丰富", "温柔"],
+        "zh-CN-YunyeNeural":                 ["旁白", "男主角", "沉稳", "磁性", "反派"],
+        "zh-CN-YunjianNeural":               ["旁白", "男主角", "阳光", "专业"],
+        "zh-CN-XiaochenNeural":              ["女主角", "少女", "活泼", "清亮"],
+        "zh-CN-XiaohanNeural":               ["女主角", "熟女", "知性", "温婉"],
+        "zh-CN-XiaomengNeural":              ["女配角", "萝莉", "可爱"],
+        "zh-CN-XiaorouNeural":               ["女配角", "甜美", "夹子音"],
+        "zh-CN-XiaoyiNeural":                ["女主角", "温柔姐姐", "治愈"],
+        "zh-CN-XiaozhenNeural":              ["女配角", "成熟稳重", "职业"],
+        "zh-CN-XiaoyuNeural":                ["女配角", "柔弱", "哀伤"],
+        "zh-CN-XiaoyanNeural":               ["女配角", "知性"],
+        "zh-CN-XiaoqiuNeural":               ["女配角", "成熟稳重", "故事感"],
+        "zh-CN-XiaoruiNeural":               ["女配角", "激昂", "职业", "战斗型"],
+        "zh-CN-XiaoshuangNeural":            ["女配角", "少女", "可爱"],
+        "zh-CN-XiaoyouNeural":               ["女配角", "少女", "活泼"],
+        "zh-CN-YunyangNeural":               ["旁白", "男主角", "浑厚", "正气", "新闻"],
+        "zh-CN-YunhaoNeural":                ["男配角", "暖男", "阳光", "稳重"],
+        "zh-CN-YunzeNeural":                 ["男配角", "高冷", "青年"],
+        "zh-CN-YunfengNeural":               ["男配角", "成熟大叔", "阅历"],
+        "zh-CN-YunjieNeural":                ["男配角", "硬朗", "干练", "职业"],
+        "zh-CN-YunxiaNeural":                ["男配角", "阳光", "青年"],
+        "zh-CN-liaoning-XiaobeiNeural":      ["女配角", "东北话", "喜剧感", "豪爽"],
+        "zh-CN-liaoning-YunbiaoNeural":      ["男配角", "东北话", "喜剧感", "豪爽"],
+        "zh-CN-sichuan-YunxiNeural":         ["男配角", "四川话", "市井"],
+        "zh-CN-henan-YundengNeural":         ["男配角", "河南话"],
+        "zh-CN-shandong-YunxiangNeural":     ["男配角", "山东话"],
+        "zh-CN-shaanxi-XiaoniNeural":        ["女配角", "陕西话"],
+        "zh-CN-guangxi-YunqiNeural":         ["男配角", "广西话"],
+        "zh-HK-HiuMaanNeural":               ["女配角", "粤语", "甜美"],
+        "zh-HK-WanLungNeural":               ["男配角", "粤语", "沉稳"],
+        "zh-HK-HiuGaaiNeural":               ["女配角", "粤语"],
+        "yue-CN-XiaoMinNeural":              ["女配角", "粤语(广)", "接地气"],
+        "yue-CN-YunSongNeural":              ["男配角", "粤语(广)", "接地气"],
+        "zh-TW-HsiaoChenNeural":             ["女主角", "台普", "温婉", "磁性"],
+        "zh-TW-HsiaoYuNeural":               ["女配角", "台普"],
+        "zh-TW-YunJheNeural":                ["男主角", "台普", "温柔"],
+        "wuu-CN-XiaotongNeural":             ["女配角", "吴语", "江南", "软糯"],
+        "wuu-CN-YunzheNeural":               ["男配角", "吴语", "江南"],
+        // ---------- DragonHD ----------
+        "zh-CN-Xiaoxiao:DragonHDFlashLatestNeural":       ["旁白", "女主角", "全能", "高清", "元気"],
+        "zh-CN-Xiaoxiao2:DragonHDFlashLatestNeural":      ["女主角", "全能", "高清", "情绪丰富"],
+        "zh-CN-Yunxi:DragonHDFlashLatestNeural":          ["男主角", "少年感", "热血", "高清"],
+        "zh-CN-Yunyi:DragonHDFlashLatestNeural":          ["男配角", "温润儒雅", "高清"],
+        "zh-CN-Xiaoshuang:DragonHDFlashLatestNeural":     ["女配角", "萌系", "少女", "高清"],
+        "zh-CN-Xiaoshuang:DragonHDOmniLatestNeural":      ["女主角", "萌系", "全能", "高清"],
+        "zh-CN-Xiaochen:DragonHDLatestNeural":            ["女主角", "少女", "清亮", "高清"],
+        "zh-CN-Xiaochen:DragonHDFlashLatestNeural":       ["女主角", "情绪丰富", "高清"],
+        "zh-CN-Yunxiao:DragonHDFlashLatestNeural":        ["男主角", "少年", "高清"],
+        "zh-CN-Yunfan:DragonHDLatestNeural":              ["男配角", "商务", "冷静", "高清"],
+        "zh-CN-Yunye:DragonHDFlashLatestNeural":          ["男主角", "反派", "冷酷", "低沉", "高清"],
+        "zh-CN-Xiaohan:DragonHDFlashLatestNeural":        ["女配角", "情绪丰富", "高清"],
+        "zh-CN-Xiaoyi:DragonHDFlashLatestNeural":         ["女配角", "温柔", "可爱", "高清"],
+        "zh-CN-Xiaoyou:DragonHDFlashLatestNeural":        ["女配角", "元气", "搞笑", "高清"],
+        "zh-CN-Xiaoyu:DragonHDFlashLatestNeural":         ["女配角", "辩论", "高清"],
+        "zh-CN-Yunhan:DragonHDFlashLatestNeural":         ["男主角", "情绪丰富", "高清"],
+        "zh-CN-Yunxia:DragonHDFlashLatestNeural":         ["男配角", "暖男", "高清"],
+        "zh-CN-Lingqing:DragonHDFlashLatestNeural":       ["女配角", "清甜少女", "高清"],
+        "zh-CN-Xiaoyue:DragonHDOmniLatestNeural":         ["女主角", "伤感", "故事感", "高清"],
+        "zh-CN-Yunqi:DragonHDOmniLatestNeural":           ["旁白", "叙事感", "高清"],
+        "zh-CN-Ivoryserenade:DragonHDOmniLatestNeural":   ["女主角", "华丽", "高贵", "宫廷", "高清"],
+        "zh-CN-Maroonallegro:DragonHDOmniLatestNeural":   ["旁白", "男主角", "稳重", "睿智", "反派", "高清"],
+        "zh-CN-Peachgranite:DragonHDOmniLatestNeural":    ["女主角", "温婉", "柔美", "古风", "高清"],
+        // ---------- MAI-Voice ----------
+        "zh-CN-Bo:MAI-Voice-2":  ["男主角", "成熟", "磁性", "深情", "旁白"],
+        "zh-CN-Lan:MAI-Voice-2": ["女主角", "知性", "清冷", "御姐"],
+        "zh-CN-Mei:MAI-Voice-2": ["女主角", "温柔", "邻家", "亲切"],
+        "zh-CN-Wei:MAI-Voice-2": ["男主角", "阳光", "活力", "少年感"],
+        // ---------- Multilingual ----------
+        "zh-CN-XiaochenMultilingualNeural":   ["女主角", "多语言", "知性"],
+        "zh-CN-XiaoshuangMultilingualNeural": ["女配角", "多语言", "可爱"],
+        "zh-CN-XiaoxiaoMultilingualNeural":   ["女主角", "多语言", "全能"],
+        "zh-CN-XiaoyouMultilingualNeural":    ["女配角", "多语言", "活泼"],
+        "zh-CN-XiaoyuMultilingualNeural":     ["女配角", "多语言"],
+        "zh-CN-YunfanMultilingualNeural":     ["男配角", "多语言"],
+        "zh-CN-YunxiaoMultilingualNeural":    ["男配角", "多语言"],
+        "zh-CN-YunyiMultilingualNeural":      ["男配角", "多语言"],
+    ]
 }

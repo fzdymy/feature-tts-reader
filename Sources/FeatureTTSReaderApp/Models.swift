@@ -164,6 +164,25 @@ enum VoiceGender: String, Codable, CaseIterable {
     }
 }
 
+/// 音质等级
+enum VoiceTier: Int, Comparable, Codable {
+    case standard = 0
+    case multilingual = 1
+    case hd = 2
+    case mai = 3
+
+    static func < (lhs: VoiceTier, rhs: VoiceTier) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    var displayName: String {
+        switch self {
+        case .standard: return "标准"
+        case .multilingual: return "多语言"
+        case .hd: return "高清"
+        case .mai: return "超拟真"
+        }
+    }
+}
+
 struct VoiceItem: Identifiable, Hashable, Codable {
     let id: String
     let name: String
