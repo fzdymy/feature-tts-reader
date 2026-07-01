@@ -181,29 +181,22 @@ struct VoiceItem: Identifiable, Hashable, Codable {
 }
 
 enum VoiceCatalogSource: String, CaseIterable, Codable, Identifiable {
-    case remote
     case chinese35
     case fullChinese
 
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .remote: return "远程服务"
-        case .chinese35: return "本地 35 种音色"
-        case .fullChinese: return "本地 full 音色"
+        case .chinese35: return "经典音色 (40)"
+        case .fullChinese: return "全音色 (76)"
         }
     }
 
     var voices: [VoiceItem] {
         switch self {
-        case .remote: return []
         case .chinese35: return VoiceCatalog.chinese35
         case .fullChinese: return VoiceCatalog.fullChinese
         }
-    }
-
-    static var localCases: [VoiceCatalogSource] {
-        [.chinese35, .fullChinese]
     }
 }
 
@@ -333,7 +326,7 @@ struct ReaderState: Codable {
         readerFontSize: Double = 18,
         readerLineSpacing: Double = 8,
         readerTheme: ReaderTheme = .light,
-        selectedVoiceCatalog: VoiceCatalogSource = .remote,
+        selectedVoiceCatalog: VoiceCatalogSource = .chinese35,
         defaultVoice: String = "zh-CN-XiaoxiaoNeural",
         defaultRate: Int = 0,
         defaultPitch: Int = 0,
@@ -429,7 +422,7 @@ struct ReaderState: Codable {
         readerFontSize = try container.decodeIfPresent(Double.self, forKey: .readerFontSize) ?? 18
         readerLineSpacing = try container.decodeIfPresent(Double.self, forKey: .readerLineSpacing) ?? 8
         readerTheme = try container.decodeIfPresent(ReaderTheme.self, forKey: .readerTheme) ?? .light
-        selectedVoiceCatalog = try container.decodeIfPresent(VoiceCatalogSource.self, forKey: .selectedVoiceCatalog) ?? .remote
+        selectedVoiceCatalog = try container.decodeIfPresent(VoiceCatalogSource.self, forKey: .selectedVoiceCatalog) ?? .chinese35
         defaultVoice = try container.decodeIfPresent(String.self, forKey: .defaultVoice) ?? "zh-CN-XiaoxiaoNeural"
         defaultRate = try container.decodeIfPresent(Int.self, forKey: .defaultRate) ?? 0
         defaultPitch = try container.decodeIfPresent(Int.self, forKey: .defaultPitch) ?? 0

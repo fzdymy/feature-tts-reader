@@ -100,49 +100,23 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .onChange(of: store.selectedVoiceCatalog) { _ in
-                        Task { try? await Task.sleep(nanoseconds: 100_000_000); await store.refreshVoices() }
+                        Task { await store.refreshVoices() }
                     }
-                    Text("选择音色库：远程服务从 TTS 语音列表 API 获取（仅兼容自建服务器），本地音色从内置 json 加载")
+                    Text("经典音色涵盖 40 种常用中文音色；全音色含 76 种音色（含 Dragon HD / MAI 等）")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    HStack {
-                        Button(action: { Task { await store.refreshVoices() } }) {
-                            Label("刷新语音列表", systemImage: "arrow.clockwise")
-                        }
-                        Spacer()
-                        if store.isBusy {
-                            ProgressView().scaleEffect(0.8)
-                        }
-                    }
-
                     Button("测试连接") {
                         Task {
-                            let result1 = await store.testTTSConnection()
-                            testResult = result1
+                            let result = await store.testTTSSynthesize()
+                            testResult = result
                             testAlertTitle = "TTS 服务测试"
-                            if result1.contains("失败") || result1.contains("无效") || result1.contains("错误") {
-                                // 语音列表失败，尝试直接合成测试
-                                let result2 = await store.testTTSSynthesize()
-                                testResult = result2
-                                if result2.contains("失败") {
-                                    testAlertMessage = "语音列表与合成测试均失败。\n语音列表错误：\(result1)\n合成错误：\(result2)"
-                                    testSuccess = false
-                                } else {
-                                    testAlertMessage = "语音列表不可用，但合成测试通过！\n\n请使用本地音色库选择音色。\n\(result2)"
-                                    testSuccess = true
-                                }
+                            if result.contains("失败") {
+                                testAlertMessage = "合成测试失败：\n\(result)"
+                                testSuccess = false
                             } else {
-                                testAlertMessage = "连通成功！\n\n正在尝试合成测试..."
-                                let result2 = await store.testTTSSynthesize()
-                                testResult = result2
-                                if result2.contains("失败") {
-                                    testAlertMessage = "连通成功，但合成测试失败：\n\(result2)"
-                                    testSuccess = false
-                                } else {
-                                    testAlertMessage = "连通成功！\n\n合成测试通过！\n\(result2)\n\n点击「播放」试听测试音频。"
-                                    testSuccess = true
-                                }
+                                testAlertMessage = "合成测试通过！\n\(result)\n\n点击「播放」试听测试音频。"
+                                testSuccess = true
                             }
                             showTestAlert = true
                         }

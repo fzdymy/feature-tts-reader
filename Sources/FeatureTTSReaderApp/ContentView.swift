@@ -70,23 +70,14 @@ struct ContentView: View {
             SecureField("API Key（选填）", text: $store.apiKey)
                 .textContentType(.password)
                 .submitLabel(.done)
-            Picker("语音目录", selection: $store.selectedVoiceCatalog) {
+            Picker("音色库", selection: $store.selectedVoiceCatalog) {
                 ForEach(VoiceCatalogSource.allCases) { source in
                     Text(source.displayName).tag(source)
                 }
             }
             .pickerStyle(.menu)
             .onChange(of: store.selectedVoiceCatalog) { _ in
-                Task { try? await Task.sleep(nanoseconds: 100_000_000); await store.refreshVoices() }
-            }
-            HStack {
-                Button(action: { Task { await store.refreshVoices() } }) {
-                    Label("刷新语音列表", systemImage: "arrow.clockwise")
-                }
-                Spacer()
-                if store.isBusy {
-                    ProgressView()
-                }
+                Task { await store.refreshVoices() }
             }
             Button(action: store.saveSettings) {
                 Text("保存设置")

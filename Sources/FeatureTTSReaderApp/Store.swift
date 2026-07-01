@@ -516,21 +516,8 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     private func ensureVoiceOptionsLoaded() {
-        if selectedVoiceCatalog != .remote && voices.isEmpty {
-            voices = VoiceItem.defaultItems()
+        if voices.isEmpty {
             Task { await refreshVoices() }
-        }
-    }
-
-    func testTTSConnection() async -> String {
-        guard let url = URL(string: apiEndpoint) else { return "无效的 TTS 服务地址。" }
-        let client = TTSHttpClient(baseURL: url, apiKey: apiKey.isEmpty ? nil : apiKey)
-        do {
-            let voices = try await client.fetchVoiceList()
-            return "连通成功，发现 \(voices.count) 个音色。"
-        } catch {
-            // 一些 TTS 服务没有独立的语音列表接口，尝试直接合成测试
-            return "获取音色失败，尝试直接合成测试。"
         }
     }
 
@@ -943,38 +930,10 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func refreshVoices() async {
-        guard !isBusy else { return }
-        isBusy = true
-        if selectedVoiceCatalog != .remote {
-            voices = await loadLocalVoiceCatalog(selectedVoiceCatalog)
-            statusMessage = "已加载本地音色目录：\(selectedVoiceCatalog.displayName)，共 \(voices.count) 个音色。"
-            updateRecommendations()
-            saveState()
-            isBusy = false
-            return
-        }
-
-        guard !apiEndpoint.isEmpty else {
-            statusMessage = "请先填写 TTS 服务地址。"
-            isBusy = false
-            return
-        }
-
-        do {
-            voices = try await client.fetchVoiceList()
-            if voices.isEmpty {
-                voices = VoiceItem.defaultItems()
-                statusMessage = "语音列表为空，使用默认内置音色。"
-            } else {
-                statusMessage = "已加载远程服务音色，共 \(voices.count) 个。"
-            }
-        } catch {
-            voices = VoiceItem.defaultItems()
-            statusMessage = "获取语音失败：\(error.localizedDescription)，已使用默认内置音色。"
-        }
+        voices = selectedVoiceCatalog.voices
+        statusMessage = "已加载音色目录：\(selectedVoiceCatalog.displayName)，共 \(voices.count) 个音色。"
         updateRecommendations()
         saveState()
-        isBusy = false
     }
 
     func previewVoice(for profile: CharacterProfile) async {
@@ -1656,10 +1615,6 @@ final class ReaderStore: NSObject, ObservableObject {
         return score
     }
 
-    func loadLocalVoiceCatalog(_ source: VoiceCatalogSource) async -> [VoiceItem] {
-        source.voices
-    }
-
     nonisolated func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
         var list = voiceOptions
         list.sort { voiceMatchScore($0, for: profile) > voiceMatchScore($1, for: profile) }
@@ -1667,11 +1622,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func voiceSourceDescription(_ source: VoiceCatalogSource) -> String {
-        switch source {
-        case .remote: return "远程服务音色"
-        case .chinese35: return "本地 35 种音色"
-        case .fullChinese: return "本地完整音色"
-        }
+        source.displayName
     }
 
 }
