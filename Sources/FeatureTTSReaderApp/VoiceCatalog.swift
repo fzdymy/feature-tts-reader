@@ -47,7 +47,7 @@ enum VoiceCatalog {
     ]
 
     /// 常用经典音色 (过滤自 fullChinese，共 40 个)
-    static var chinese35: [VoiceItem] { fullChinese.filter { chinese35IDs.contains($0.id) } }
+    static let chinese35: [VoiceItem] = fullChinese.filter { chinese35IDs.contains($0.id) }
 
     /// 全音色模式 (76 个，含 Dragon HD / MAI-Voice-2 等)
     static let fullChinese: [VoiceItem] = [
