@@ -176,7 +176,7 @@ struct VoiceItem: Identifiable, Hashable, Codable {
     }
 
     static func defaultItems() -> [VoiceItem] {
-        [VoiceCatalog.chinese35.first!]
+        [VoiceCatalog.chinese35.first ?? VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "晓晓", locale: "zh-CN", gender: .female, styleList: nil)]
     }
 }
 
