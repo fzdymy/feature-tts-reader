@@ -95,8 +95,7 @@ struct SettingsView: View {
 
                     HStack(spacing: 12) {
                         Button(action: {
-                            store.selectedVoiceCatalog = .chinese35
-                            Task { await store.refreshVoices() }
+                            store.switchCatalog(to: .chinese35)
                         }) {
                             Text("经典音色 (40)")
                                 .font(.subheadline)
@@ -107,8 +106,7 @@ struct SettingsView: View {
                                 .cornerRadius(8)
                         }
                         Button(action: {
-                            store.selectedVoiceCatalog = .fullChinese
-                            Task { await store.refreshVoices() }
+                            store.switchCatalog(to: .fullChinese)
                         }) {
                             Text("全音色 (76)")
                                 .font(.subheadline)

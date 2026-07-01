@@ -929,11 +929,16 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    func refreshVoices() async {
-        voices = selectedVoiceCatalog.voices
-        statusMessage = "已加载音色目录：\(selectedVoiceCatalog.displayName)，共 \(voices.count) 个音色。"
+    func switchCatalog(to source: VoiceCatalogSource) {
+        selectedVoiceCatalog = source
+        voices = source.voices
+        statusMessage = "已加载音色目录：\(source.displayName)，共 \(voices.count) 个音色。"
         updateRecommendations()
         saveState()
+    }
+
+    func refreshVoices() async {
+        switchCatalog(to: selectedVoiceCatalog)
     }
 
     func previewVoice(for profile: CharacterProfile) async {
