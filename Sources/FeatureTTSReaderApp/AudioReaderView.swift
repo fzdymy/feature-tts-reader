@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - AudioReaderView (朗读听书 + 多角色配音自动化）
 
@@ -16,11 +17,12 @@ struct AudioReaderView: View {
     @State private var currentTime = Date()
     @State private var batteryLevel: Int = 100
     @State private var showCharacterPanel = false
-    @State private var selectedCharacter: CharacterProfile?
     @State private var editingCharacter: CharacterProfile?
     @State private var showVoiceCatalogPicker = false
     @State private var showAddCharacter = false
     @State private var showAllRecommendations = false
+    @State private var selectedTextForCharacter = ""
+    @State private var showCharacterFromText = false
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -73,16 +75,19 @@ struct AudioReaderView: View {
                     characterPanel
                         .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
                 }
-                ScrollView {
-                    Text(chapterDisplayText)
-                        .font(Font.custom(store.readerFontName, size: store.readerFontSize + 2))
-                        .foregroundColor(textColor)
-                        .lineSpacing(store.readerLineSpacing + 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 12)
-                        .padding(.bottom, 120)
-                }
+                SelectableTextReader(
+                    text: chapterDisplayText,
+                    fontName: store.readerFontName,
+                    fontSize: store.readerFontSize + 2,
+                    textColor: UIColor(textColor),
+                    lineSpacing: store.readerLineSpacing + 4,
+                    onSelect: { selectedText in
+                        let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
+                        selectedTextForCharacter = trimmed
+                        showCharacterFromText = true
+                    }
+                )
                 automationToolbar
                 audioControlBar
             }
@@ -126,6 +131,20 @@ struct AudioReaderView: View {
             AllRecommendationsView()
                 .environmentObject(store)
         }
+        .sheet(isPresented: $showCharacterFromText) {
+            QuickCharacterAddView(
+                candidateName: selectedTextForCharacter,
+                bookText: store.bookText,
+                existingCharacters: store.characters,
+                onAdd: { name, gender, age, tone in
+                    store.addCharacter(name: name, gender: gender, age: age, tone: tone)
+                },
+                onEdit: { character in
+                    editingCharacter = character
+                }
+            )
+            .environmentObject(store)
+        }
     }
 
     // MARK: - Header
@@ -143,6 +162,10 @@ struct AudioReaderView: View {
                 .foregroundColor(textColor)
                 .padding(.leading, 8)
             Spacer()
+            Text("选中文本中的人名可直接添加为角色")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
             Button(action: { showCharacterPanel.toggle() }) {
                 Image(systemName: showCharacterPanel ? "person.2.fill" : "person.2")
                     .font(.title3)
@@ -160,18 +183,11 @@ struct AudioReaderView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 12) {
-                    // 音色库选择
                     voiceCatalogRow
-
-                    // 自动化流程按钮
                     automationRow
-
-                    // 推荐音色
                     if !store.recommendations.isEmpty {
                         recommendationSection
                     }
-
-                    // 角色列表
                     if !store.characters.isEmpty {
                         characterListSection
                     } else {
@@ -380,7 +396,7 @@ struct AudioReaderView: View {
             VStack(spacing: 8) {
                 Image(systemName: "person.3")
                     .font(.title2).foregroundColor(.secondary)
-                Text("点击「扫描角色」自动识别小说人物")
+                Text("选中文本中的人名即可快速添加为角色")
                     .font(.caption).foregroundColor(.secondary)
             }
             .padding(.vertical, 16)
@@ -430,7 +446,7 @@ struct AudioReaderView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .background(bgColor.opacity(0.9))
-                .overlay(Divider(), alignment: .top)
+        .overlay(Divider(), alignment: .top)
     }
 
     // MARK: - Control Bar
@@ -533,6 +549,201 @@ struct AudioReaderView: View {
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryLevel = UIDevice.current.batteryLevel >= 0
             ? Int(UIDevice.current.batteryLevel * 100) : -1
+    }
+}
+
+// MARK: - Selectable Text Reader
+
+struct SelectableTextReader: UIViewRepresentable {
+    let text: String
+    let fontName: String
+    let fontSize: CGFloat
+    let textColor: UIColor
+    let lineSpacing: CGFloat
+    let onSelect: (String) -> Void
+
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.isScrollEnabled = false
+        tv.backgroundColor = .clear
+        tv.delegate = context.coordinator
+        updateTextView(tv)
+        return tv
+    }
+
+    func updateUIView(_ tv: UITextView, context: Context) {
+        updateTextView(tv)
+    }
+
+    private func updateTextView(_ tv: UITextView) {
+        let paraStyle = NSMutableParagraphStyle()
+        paraStyle.lineSpacing = lineSpacing
+        let font: UIFont
+        if let custom = UIFont(name: fontName, size: fontSize) {
+            font = custom
+        } else {
+            font = UIFont.systemFont(ofSize: fontSize)
+        }
+        tv.attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: textColor,
+                .paragraphStyle: paraStyle,
+            ]
+        )
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSelect: onSelect)
+    }
+
+    class Coordinator: NSObject, UITextViewDelegate {
+        let onSelect: (String) -> Void
+        private var lastSelection = ""
+        private var lastSelectionTime: Date = .distantPast
+        init(onSelect: @escaping (String) -> Void) {
+            self.onSelect = onSelect
+        }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard let range = textView.selectedTextRange, !range.isEmpty else { return }
+            let selected = textView.text(in: range) ?? ""
+            let trimmed = selected.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
+            // Avoid re-triggering same selection within 1 second
+            guard trimmed != lastSelection || Date().timeIntervalSince(lastSelectionTime) > 1 else { return }
+            lastSelection = trimmed
+            lastSelectionTime = Date()
+            onSelect(trimmed)
+        }
+    }
+}
+
+// MARK: - QuickCharacterAddView
+
+fileprivate struct QuickCharacterAddView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: ReaderStore
+    let candidateName: String
+    let bookText: String
+    let existingCharacters: [CharacterProfile]
+    let onAdd: (String, String, String, String) -> Void
+    let onEdit: (CharacterProfile) -> Void
+
+    @State private var gender: String
+    @State private var age: String
+    @State private var tone: String
+    @State private var recommendedVoice: String
+    @State private var showEditSheet = false
+
+    private let analyzer = CharacterAnalyzer()
+
+    init(candidateName: String, bookText: String, existingCharacters: [CharacterProfile],
+         onAdd: @escaping (String, String, String, String) -> Void,
+         onEdit: @escaping (CharacterProfile) -> Void) {
+        self.candidateName = candidateName
+        self.bookText = bookText
+        self.existingCharacters = existingCharacters
+        self.onAdd = onAdd
+        self.onEdit = onEdit
+
+        let context = bookText.contextAround(candidateName, radius: 120)
+        let attrs = CharacterAnalyzer().analyzeAttributes(for: candidateName, context: context)
+        _gender = State(initialValue: attrs.gender)
+        _age = State(initialValue: attrs.age)
+        _tone = State(initialValue: attrs.baseTone)
+        _recommendedVoice = State(initialValue: "")
+    }
+
+    private var existingMatch: CharacterProfile? {
+        existingCharacters.first(where: { $0.name == candidateName })
+    }
+
+    private let genderOptions = ["未知", "男性", "女性"]
+    private let ageOptions = ["未知", "少年", "少女", "青年", "中年", "年长"]
+    private let toneOptions = ["平稳", "温柔", "激昂", "轻松", "疑问"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("选中的文本")) {
+                    Text("\"\(candidateName)\"")
+                        .font(.headline)
+                    if let match = existingMatch {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("该角色已存在，可编辑现有角色")
+                                .font(.caption).foregroundColor(.orange)
+                        }
+                    }
+                }
+
+                if existingMatch == nil {
+                    Section(header: Text("自动分析结果")) {
+                        HStack {
+                            Text("性别")
+                            Spacer()
+                            Text(gender).foregroundColor(.secondary)
+                        }
+                        HStack {
+                            Text("年龄段")
+                            Spacer()
+                            Text(age).foregroundColor(.secondary)
+                        }
+                        HStack {
+                            Text("语气")
+                            Spacer()
+                            Text(tone).foregroundColor(.secondary)
+                        }
+                        if !recommendedVoice.isEmpty {
+                            HStack {
+                                Text("推荐音色")
+                                Spacer()
+                                Text(recommendedVoice).foregroundColor(.blue)
+                            }
+                        }
+                    }
+
+                    Section(header: Text("手动调整（可选）")) {
+                        Picker("性别", selection: $gender) {
+                            ForEach(genderOptions, id: \.self) { Text($0).tag($0) }
+                        }
+                        Picker("年龄段", selection: $age) {
+                            ForEach(ageOptions, id: \.self) { Text($0).tag($0) }
+                        }
+                        Picker("语气", selection: $tone) {
+                            ForEach(toneOptions, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+                }
+
+                if existingMatch != nil {
+                    Section {
+                        Button("编辑现有角色「\(existingMatch!.name)」") {
+                            onEdit(existingMatch!)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .navigationTitle(existingMatch != nil ? "角色已存在" : "添加新角色")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                if existingMatch == nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("添加") {
+                            onAdd(candidateName, gender, age, tone)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
