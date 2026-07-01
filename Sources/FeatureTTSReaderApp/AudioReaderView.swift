@@ -76,19 +76,24 @@ struct AudioReaderView: View {
                     characterPanel
                         .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
                 }
-                SelectableTextReader(
-                    text: chapterDisplayText,
-                    fontName: store.readerFontName,
-                    fontSize: store.readerFontSize + 2,
-                    textColor: UIColor(textColor),
-                    lineSpacing: store.readerLineSpacing + 4,
-                    onSelect: { selectedText in
-                        let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
-                        selectedTextForCharacter = trimmed
-                        showCharacterFromText = true
-                    }
-                )
+                ScrollView {
+                    SelectableTextReader(
+                        text: chapterDisplayText,
+                        fontName: store.readerFontName,
+                        fontSize: store.readerFontSize + 2,
+                        textColor: UIColor(textColor),
+                        lineSpacing: store.readerLineSpacing + 4,
+                        onSelect: { selectedText in
+                            let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
+                            selectedTextForCharacter = trimmed
+                            showCharacterFromText = true
+                        }
+                    )
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 120)
                 automationToolbar
                 audioControlBar
             }
