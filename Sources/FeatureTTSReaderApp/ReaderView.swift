@@ -964,9 +964,9 @@ struct ReaderView: View {
 
     private func onDisappearCleanup() {
         UIApplication.shared.isIdleTimerDisabled = false
-        ReaderStore.saveLastChapterIndex(anchorChapterIndex, for: bookID)
-        if anchorChapterIndex < chaptersList.count {
-            store.setChapterProgress(chaptersList[anchorChapterIndex].id, percent: 1.0)
+        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+        if currentChapterIndex < chaptersList.count {
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
         }
         store.saveState()
         if !useSystemBrightness {
@@ -1037,6 +1037,11 @@ struct ReaderView: View {
 
     private func startPlayback() async {
         guard currentChapterIndex < chaptersList.count else { return }
+        guard !store.bookText.isEmpty else {
+            store.statusMessage = "文本尚未加载，请稍后再试。"
+            isPlaying = false
+            return
+        }
         let chapter = chaptersList[currentChapterIndex]
         store.audioController.playbackRate = Float(playbackSpeed)
         if store.characters.isEmpty {
@@ -1048,6 +1053,7 @@ struct ReaderView: View {
         }
         await store.playChapterWithTTS(chapter: chapter)
         isPlaying = false
+        store.isBusy = false
     }
 
     // MARK: - Helpers

@@ -935,7 +935,9 @@ final class ReaderStore: NSObject, ObservableObject {
         let targetText: String
         if wholeBook {
             targetText = bookText
-        } else if let chapter = chapters.first(where: { $0.id == selectedChapterID }) {
+        } else if let bookID = UUID(uuidString: currentBookID),
+                  let cached = bookChaptersCache[bookID],
+                  let chapter = cached.first(where: { $0.id == selectedChapterID }) {
             targetText = chapter.text
         } else {
             targetText = bookText
