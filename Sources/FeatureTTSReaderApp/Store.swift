@@ -951,7 +951,7 @@ final class ReaderStore: NSObject, ObservableObject {
             } else {
                 statusMessage = "已生成 \(scriptSegments.count) 个朗读段落。"
             }
-            updateRecommendations(from: wholeBook ? bookText : (chapters.first(where: { $0.id == selectedChapterID })?.text ?? bookText))
+            updateRecommendations(from: targetText)
             saveState()
         }
     }
@@ -1115,9 +1115,10 @@ final class ReaderStore: NSObject, ObservableObject {
         }
 
         let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
-        let chapterTitle = chapters.first(where: { $0.id == selectedChapterID })?.title ?? "当前章节"
+        let currentChapters = UUID(uuidString: currentBookID).flatMap { bookChaptersCache[$0] } ?? []
+        let chapterTitle = currentChapters.first(where: { $0.id == selectedChapterID })?.title ?? "当前章节"
         let bookID = UUID(uuidString: currentBookID) ?? UUID()
-        let chapterIndex = chapters.firstIndex(where: { $0.id == selectedChapterID }) ?? 0
+        let chapterIndex = currentChapters.firstIndex(where: { $0.id == selectedChapterID }) ?? 0
 
         isBusy = true
         playProgress = 0

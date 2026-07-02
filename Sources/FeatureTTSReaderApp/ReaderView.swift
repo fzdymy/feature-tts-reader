@@ -17,13 +17,6 @@ enum TextAlign: Int, CaseIterable, Identifiable {
 
 // MARK: - Preference Keys
 
-private struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private struct ChapterFrameValue: Equatable {
     let index: Int
     let minY: CGFloat
@@ -73,7 +66,6 @@ struct ReaderView: View {
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var useSystemBrightness = true
 
-    @State private var scrollOffset: CGFloat = 0
     @State private var chapterFrames: [Int: ChapterFrameValue] = [:]
     @State private var chapterProgress: Double = 0
 
@@ -140,68 +132,60 @@ struct ReaderView: View {
                 readerHeader
             }
 
-            ScrollViewReader { scrollProxy in
-                ScrollView {
-                    GeometryReader { geo in
-                        Color.clear.preference(
-                            key: ScrollOffsetKey.self,
-                            value: geo.frame(in: .named("scroll")).minY
-                        )
-                    }
-                    .frame(height: 0)
-
-                    LazyVStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .bottomTrailing) {
+                ScrollViewReader { scrollProxy in
+                    List {
                         ForEach(chaptersList.indices, id: \.self) { i in
                             chapterContent(index: i)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .id("ch_\(i)")
                                 .background(GeometryReader { geo in
                                     Color.clear.preference(
                                         key: ChapterFramePrefKey.self,
                                         value: [i: ChapterFrameValue(
                                             index: i,
-                                            minY: geo.frame(in: .named("scroll")).minY,
+                                            minY: geo.frame(in: .named("readerList")).minY,
                                             height: geo.size.height
                                         )]
                                     )
                                 })
                         }
                     }
-                }
-                .coordinateSpace(name: "scroll")
-                .onPreferenceChange(ScrollOffsetKey.self) { offset in
-                    scrollOffset = offset
-                    updateChapterFromScroll()
-                }
-                .onPreferenceChange(ChapterFramePrefKey.self) { frames in
-                    chapterFrames = frames
-                    updateChapterFromScroll()
-                }
-                .simultaneousGesture(
-                    TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
-                )
-                .onChange(of: externalScrollTarget) { target in
-                    if let t = target {
-                        withAnimation { scrollProxy.scrollTo("ch_\(t)", anchor: .top) }
-                        currentChapterIndex = t
-                        externalScrollTarget = nil
+                    .listStyle(.plain)
+                    .coordinateSpace(name: "readerList")
+                    .onPreferenceChange(ChapterFramePrefKey.self) { frames in
+                        chapterFrames = frames
+                        updateChapterFromScroll()
                     }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
-                        Button(action: {
-                            isAudioMode = true
-                            isPlaying = true
-                            Task { await startPlayback() }
-                        }) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 44))
-                                .foregroundColor(.blue)
-                                .background(Circle().fill(bgColor).shadow(radius: 4))
+                    .simultaneousGesture(
+                        TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+                    )
+                    .onChange(of: externalScrollTarget) { target in
+                        if let t = target {
+                            withAnimation { scrollProxy.scrollTo("ch_\(t)", anchor: .top) }
+                            currentChapterIndex = t
+                            externalScrollTarget = nil
                         }
-                        .buttonStyle(.borderless)
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 20)
-                        .transition(.scale.combined(with: .opacity))
                     }
+                }
+
+                if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
+                    Button(action: {
+                        isAudioMode = true
+                        isPlaying = true
+                        Task { await startPlayback() }
+                    }) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 44))
+                            .foregroundColor(.blue)
+                            .background(Circle().fill(bgColor).shadow(radius: 4))
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
 
@@ -375,18 +359,13 @@ struct ReaderView: View {
     // MARK: - Scroll Tracking
 
     private func updateChapterFromScroll() {
-        let viewportTop = -scrollOffset
         var bestIndex = currentChapterIndex
-        var bestOverlap: CGFloat = 0
+        var bestDist: CGFloat = .greatestFiniteMagnitude
 
         for (i, frame) in chapterFrames {
-            let chapterStart = frame.minY
-            let chapterEnd = frame.minY + frame.height
-
-            let overlap = min(viewportTop + UIScreen.main.bounds.height, chapterEnd)
-                - max(viewportTop, chapterStart)
-            if overlap > bestOverlap {
-                bestOverlap = overlap
+            let dist = abs(frame.minY)
+            if dist < bestDist {
+                bestDist = dist
                 bestIndex = i
             }
         }
@@ -400,7 +379,7 @@ struct ReaderView: View {
         }
 
         if let frame = chapterFrames[bestIndex] {
-            let position = viewportTop - frame.minY
+            let position = -frame.minY
             chapterProgress = frame.height > 0 ? max(0, min(1, position / frame.height)) : 0
         }
     }
@@ -1128,7 +1107,7 @@ private struct ReaderSheets: ViewModifier {
                 FontPickerView().environmentObject(store).presentationDetents([.medium])
             }
             .sheet(isPresented: $showTOC) {
-                ChapterListView(currentChapterID: currentChapterID) { chapter, index in
+                ChapterListView(currentChapterID: currentChapterID, chapters: chaptersList) { chapter, index in
                     ReaderStore.debugLog("[TOC] idx=\(index)")
                     onTOCSelect(index)
                 }
