@@ -39,12 +39,44 @@ enum BookshelfLayout: String, CaseIterable, Identifiable {
 }
 
 // MARK: - Font Manager
+struct FontItem: Hashable {
+    let postScriptName: String
+    let displayName: String
+}
+
 struct FontManager {
-    static let availableFonts = [
-        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
-        "Arial", "Helvetica", "Georgia", "Times New Roman",
-        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
-    ]
+    static let availableFonts: [FontItem] = {
+        let cjkFamilies = UIFont.familyNames.filter {
+            $0.localizedCaseInsensitiveContains("PingFang") ||
+            $0.localizedCaseInsensitiveContains("Heiti") ||
+            $0.localizedCaseInsensitiveContains("STHeiti") ||
+            $0.localizedCaseInsensitiveContains("Hiragino") ||
+            $0.localizedCaseInsensitiveContains("Songti") ||
+            $0.localizedCaseInsensitiveContains("Noto") ||
+            $0.localizedCaseInsensitiveContains("Source Han") ||
+            $0.localizedCaseInsensitiveContains("Kaiti") ||
+            $0.localizedCaseInsensitiveContains("Fangsong") ||
+            $0.localizedCaseInsensitiveContains("YuanTi") ||
+            $0.localizedCaseInsensitiveContains("Xingkai")
+        }
+        var fonts: [FontItem] = []
+        for family in cjkFamilies {
+            for name in UIFont.fontNames(forFamilyName: family) {
+                fonts.append(FontItem(postScriptName: name, displayName: name
+                    .replacingOccurrences(of: "SC-", with: "SC ")
+                    .replacingOccurrences(of: "-", with: " ")))
+            }
+        }
+        if fonts.isEmpty {
+            let fallback = ["PingFangSC-Regular", "PingFangSC-Medium", "PingFangSC-Semibold",
+                           "STHeitiSC-Light", "STHeitiSC-Medium", "STSongti-SC-Regular",
+                           "HiraMinProN-W3", "HiraMinProN-W6", "NotoSansCJKsc-Regular"]
+            fonts = fallback.map { FontItem(postScriptName: $0, displayName: $0
+                .replacingOccurrences(of: "SC-", with: "SC ")
+                .replacingOccurrences(of: "-", with: " ")) }
+        }
+        return fonts
+    }()
 }
 
 struct SettingsView: View {
@@ -202,8 +234,8 @@ struct SettingsView: View {
                         get: { store.readerFontName },
                         set: { store.readerFontName = $0; store.saveState() }
                     )) {
-                        ForEach(FontManager.availableFonts, id: \.self) { font in
-                            Text(font).tag(font)
+                        ForEach(FontManager.availableFonts, id: \.postScriptName) { font in
+                            Text(font.displayName).tag(font.postScriptName)
                         }
                     }
 
@@ -584,27 +616,54 @@ struct FontManagerView: View {
     @State private var customFonts: [_CustomFont] = []
     @State private var showingFontImporter = false
 
-    private let systemFonts = [
-        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
-        "Arial", "Helvetica", "Georgia", "Times New Roman",
-        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
-    ]
+    private let systemFonts: [FontItem] = {
+        let cjkFamilies = UIFont.familyNames.filter {
+            $0.localizedCaseInsensitiveContains("PingFang") ||
+            $0.localizedCaseInsensitiveContains("Heiti") ||
+            $0.localizedCaseInsensitiveContains("STHeiti") ||
+            $0.localizedCaseInsensitiveContains("Hiragino") ||
+            $0.localizedCaseInsensitiveContains("Songti") ||
+            $0.localizedCaseInsensitiveContains("Noto") ||
+            $0.localizedCaseInsensitiveContains("Source Han") ||
+            $0.localizedCaseInsensitiveContains("Kaiti") ||
+            $0.localizedCaseInsensitiveContains("Fangsong") ||
+            $0.localizedCaseInsensitiveContains("YuanTi") ||
+            $0.localizedCaseInsensitiveContains("Xingkai")
+        }
+        var fonts: [FontItem] = []
+        for family in cjkFamilies {
+            for name in UIFont.fontNames(forFamilyName: family) {
+                fonts.append(FontItem(postScriptName: name, displayName: name
+                    .replacingOccurrences(of: "SC-", with: "SC ")
+                    .replacingOccurrences(of: "-", with: " ")))
+            }
+        }
+        if fonts.isEmpty {
+            let fallback = ["PingFangSC-Regular", "PingFangSC-Medium", "PingFangSC-Semibold",
+                           "STHeitiSC-Light", "STHeitiSC-Medium", "STSongti-SC-Regular",
+                           "HiraMinProN-W3", "HiraMinProN-W6", "NotoSansCJKsc-Regular"]
+            fonts = fallback.map { FontItem(postScriptName: $0, displayName: $0
+                .replacingOccurrences(of: "SC-", with: "SC ")
+                .replacingOccurrences(of: "-", with: " ")) }
+        }
+        return fonts
+    }()
 
     var body: some View {
         NavigationStack {
             List {
                 Section(header: Text("系统字体")) {
-                    ForEach(systemFonts, id: \.self) { font in
+                    ForEach(systemFonts, id: \.postScriptName) { font in
                         Button(action: {
-                            store.readerFontName = font
+                            store.readerFontName = font.postScriptName
                             store.saveState()
                             dismiss()
                         }) {
                             HStack {
-                                Text(font)
-                                    .font(.custom(font, size: 17))
+                                Text(font.displayName)
+                                    .font(.custom(font.postScriptName, size: 17))
                                 Spacer()
-                                if store.readerFontName == font {
+                                if store.readerFontName == font.postScriptName {
                                     Image(systemName: "checkmark").foregroundColor(.blue)
                                 }
                             }
@@ -619,15 +678,15 @@ struct FontManagerView: View {
                     } else {
                         ForEach(customFonts) { font in
                             Button(action: {
-                                store.readerFontName = font.name
+                                store.readerFontName = font.postScriptName
                                 store.saveState()
                                 dismiss()
                             }) {
                                 HStack {
                                     Text(font.name)
-                                        .font(.custom(font.name, size: 17))
+                                        .font(.custom(font.postScriptName, size: 17))
                                     Spacer()
-                                    if store.readerFontName == font.name {
+                                    if store.readerFontName == font.postScriptName {
                                         Image(systemName: "checkmark").foregroundColor(.blue)
                                     }
                                 }
@@ -668,8 +727,14 @@ struct FontManagerView: View {
         if let files = try? FileManager.default.contentsOfDirectory(at: fontsDir, includingPropertiesForKeys: nil) {
             customFonts = files.compactMap { url in
                 guard url.pathExtension.lowercased() == "ttf" || url.pathExtension.lowercased() == "otf" else { return nil }
-                let name = url.deletingPathExtension().lastPathComponent
-                return _CustomFont(name: name, url: url)
+                guard let data = try? Data(contentsOf: url),
+                      let provider = CGDataProvider(data: data as CFData),
+                      let cgFont = CGFont(provider) else {
+                    let name = url.deletingPathExtension().lastPathComponent
+                    return _CustomFont(name: name, postScriptName: name, url: url)
+                }
+                let psName = (cgFont.postScriptName as String?) ?? url.deletingPathExtension().lastPathComponent
+                return _CustomFont(name: psName, postScriptName: psName, url: url)
             }
         }
     }

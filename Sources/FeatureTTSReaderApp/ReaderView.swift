@@ -53,7 +53,7 @@ struct ReaderView: View {
     @State private var chapterProgress: Double = 0
     @State private var scrollPositionID: String?
     @State private var externalScrollTarget: Int?
-    @State private var isNavigating = false
+    @State private var scrollOffset: CGFloat = 0
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -88,6 +88,14 @@ struct ReaderView: View {
         "\u{3000}\u{3000}" + text.replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
     }
 
+    private var chapterProgressInChapter: Double {
+        guard currentChapterIndex < chaptersList.count else { return 0 }
+        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
+        let chHeight = estimatedChapterHeight(chaptersList[currentChapterIndex])
+        guard chHeight > 0 else { return 0 }
+        return min(1, max(0, Double(scrollOffset - pastHeight) / Double(chHeight)))
+    }
+
     private var chapterBookmarks: [BookBookmark] {
         store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
@@ -117,6 +125,13 @@ struct ReaderView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onChange(of: proxy.frame(in: .scrollView).minY) { newY in
+                                scrollOffset = -newY
+                            }
+                    }
+                    .frame(height: 0)
                     LazyVStack(spacing: 0) {
                         ForEach(chaptersList.indices, id: \.self) { i in
                             chapterContent(index: i)
@@ -130,7 +145,6 @@ struct ReaderView: View {
                 }
                 .scrollPosition(id: $scrollPositionID)
                 .onChange(of: scrollPositionID) { newID in
-                    guard !isNavigating else { return }
                     guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
                     if currentChapterIndex != idx {
                         currentChapterIndex = idx
@@ -143,10 +157,8 @@ struct ReaderView: View {
                 }
                 .onChange(of: externalScrollTarget) { target in
                     if let t = target {
-                        isNavigating = true
                         withAnimation { proxy.scrollTo("ch_\(t)", anchor: .top) }
                         externalScrollTarget = nil
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { isNavigating = false }
                     }
                 }
                 .onAppear {
@@ -219,11 +231,11 @@ struct ReaderView: View {
             currentChapterIndex: currentChapterIndex,
             chaptersList: chaptersList,
             onTOCSelect: { index in
-                externalScrollTarget = index
                 if !chaptersList.isEmpty {
                     store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
                 }
                 jumpTo(index, explicit: true)
+                externalScrollTarget = index
             },
             onCharacterEdit: { updated in
                 if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
@@ -356,7 +368,12 @@ struct ReaderView: View {
             HStack(spacing: 8) {
                 Button(action: {
                     guard currentChapterIndex > 0 else { return }
-                    externalScrollTarget = currentChapterIndex - 1
+                    let target = currentChapterIndex - 1
+                    currentChapterIndex = target
+                    currentChapter = chaptersList[target]
+                    store.selectedChapterID = chaptersList[target].id
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
+                    externalScrollTarget = target
                 }) {
                     Text("上一章")
                         .font(.subheadline)
@@ -364,12 +381,17 @@ struct ReaderView: View {
                 }
                 .disabled(currentChapterIndex <= 0)
 
-                ProgressView(value: chapterProgress)
+                ProgressView(value: chapterProgressInChapter)
                     .tint(.blue)
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
-                    externalScrollTarget = currentChapterIndex + 1
+                    let target = currentChapterIndex + 1
+                    currentChapterIndex = target
+                    currentChapter = chaptersList[target]
+                    store.selectedChapterID = chaptersList[target].id
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
+                    externalScrollTarget = target
                 }) {
                     Text("下一章")
                         .font(.subheadline)
@@ -446,7 +468,12 @@ struct ReaderView: View {
             HStack(spacing: 32) {
                 Button(action: {
                     guard currentChapterIndex > 0 else { return }
-                    externalScrollTarget = currentChapterIndex - 1
+                    let target = currentChapterIndex - 1
+                    currentChapterIndex = target
+                    currentChapter = chaptersList[target]
+                    store.selectedChapterID = chaptersList[target].id
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
+                    externalScrollTarget = target
                     if isPlaying { store.stopPlayback(); isPlaying = false }
                 }) {
                     Image(systemName: "backward.end.fill")
@@ -468,7 +495,12 @@ struct ReaderView: View {
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
-                    externalScrollTarget = currentChapterIndex + 1
+                    let target = currentChapterIndex + 1
+                    currentChapterIndex = target
+                    currentChapter = chaptersList[target]
+                    store.selectedChapterID = chaptersList[target].id
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
+                    externalScrollTarget = target
                     if isPlaying { store.stopPlayback(); isPlaying = false }
                 }) {
                     Image(systemName: "forward.end.fill")
@@ -983,8 +1015,8 @@ struct ReaderView: View {
     private func handleExternalNavigate(nav: ChapterNavigate?) {
         guard let nav, nav.bookID == bookID, nav.chapterIndex < chaptersList.count else { return }
         store.externalChapterNavigate = nil
-        externalScrollTarget = nav.chapterIndex
         jumpTo(nav.chapterIndex, explicit: true)
+        externalScrollTarget = nav.chapterIndex
     }
 
     // MARK: - Navigation
@@ -1477,22 +1509,44 @@ struct FontPickerView: View {
     @State private var customFonts: [_CustomFont] = []
     @State private var showingFontImporter = false
 
-    private let systemFonts = [
-        "PingFang SC", "Heiti SC", "STHeiti", "Hiragino Sans GB",
-        "Arial", "Helvetica", "Georgia", "Times New Roman",
-        "Menlo", "Courier New", "Marker Felt", "Noteworthy"
-    ]
+    private let availableCJKFonts: [String] = {
+        var fonts: [String] = []
+        // Collect CJK-relevant font families
+        let cjkFamilies = UIFont.familyNames.filter {
+            $0.localizedCaseInsensitiveContains("PingFang") ||
+            $0.localizedCaseInsensitiveContains("Heiti") ||
+            $0.localizedCaseInsensitiveContains("STHeiti") ||
+            $0.localizedCaseInsensitiveContains("Hiragino") ||
+            $0.localizedCaseInsensitiveContains("Songti") ||
+            $0.localizedCaseInsensitiveContains("Noto") ||
+            $0.localizedCaseInsensitiveContains("Source Han") ||
+            $0.localizedCaseInsensitiveContains("Kaiti") ||
+            $0.localizedCaseInsensitiveContains("Fangsong") ||
+            $0.localizedCaseInsensitiveContains("YuanTi") ||
+            $0.localizedCaseInsensitiveContains("Xingkai")
+        }
+        for family in cjkFamilies {
+            fonts.append(contentsOf: UIFont.fontNames(forFamilyName: family))
+        }
+        // Fallback: include common CJK fonts even if not found
+        if fonts.isEmpty {
+            fonts = ["PingFangSC-Regular", "PingFangSC-Medium", "PingFangSC-Semibold",
+                     "STHeitiSC-Light", "STHeitiSC-Medium", "STSongti-SC-Regular",
+                     "HiraMinProN-W3", "HiraMinProN-W6", "NotoSansCJKsc-Regular"]
+        }
+        return fonts
+    }()
 
     var body: some View {
         NavigationStack {
             List {
                 Section(header: Text("系统字体")) {
-                    ForEach(systemFonts, id: \.self) { font in
-                        Button(action: { store.readerFontName = font; dismiss() }) {
+                    ForEach(availableCJKFonts, id: \.self) { fontName in
+                        Button(action: { store.readerFontName = fontName; dismiss() }) {
                             HStack {
-                                Text(font).font(.custom(font, size: 17))
+                                Text(displayNameFor(fontName)).font(.custom(fontName, size: 17))
                                 Spacer()
-                                if store.readerFontName == font { Image(systemName: "checkmark").foregroundColor(.blue) }
+                                if store.readerFontName == fontName { Image(systemName: "checkmark").foregroundColor(.blue) }
                             }
                         }
                         .foregroundColor(.primary)
@@ -1504,11 +1558,11 @@ struct FontPickerView: View {
                         Text("暂无自定义字体").foregroundColor(.secondary)
                     } else {
                         ForEach(customFonts) { font in
-                            Button(action: { store.readerFontName = font.name; dismiss() }) {
+                            Button(action: { store.readerFontName = font.postScriptName; dismiss() }) {
                                 HStack {
-                                    Text(font.name).font(.custom(font.name, size: 17))
+                                    Text(font.name).font(.custom(font.postScriptName, size: 17))
                                     Spacer()
-                                    if store.readerFontName == font.name { Image(systemName: "checkmark").foregroundColor(.blue) }
+                                    if store.readerFontName == font.postScriptName { Image(systemName: "checkmark").foregroundColor(.blue) }
                                 }
                             }
                             .foregroundColor(.primary)
@@ -1529,14 +1583,30 @@ struct FontPickerView: View {
         }
     }
 
+    private func displayNameFor(_ postScriptName: String) -> String {
+        // Convert PostScript name like "PingFangSC-Regular" or "STHeitiSC-Light"
+        // to human readable like "PingFang SC" or "STHeiti SC"
+        let cleaned = postScriptName
+            .replacingOccurrences(of: "SC-", with: "SC ")
+            .replacingOccurrences(of: "-", with: " ")
+        return cleaned
+    }
+
     private func loadCustomFonts() {
         let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         if let files = try? FileManager.default.contentsOfDirectory(at: fontsDir, includingPropertiesForKeys: nil) {
             customFonts = files.compactMap { url in
                 guard url.pathExtension.lowercased() == "ttf" || url.pathExtension.lowercased() == "otf" else { return nil }
-                let name = url.deletingPathExtension().lastPathComponent
-                return _CustomFont(name: name, url: url)
+                // Read PostScript name from font metadata
+                guard let data = try? Data(contentsOf: url),
+                      let provider = CGDataProvider(data: data as CFData),
+                      let cgFont = CGFont(provider) else {
+                    let name = url.deletingPathExtension().lastPathComponent
+                    return _CustomFont(name: name, postScriptName: name, url: url)
+                }
+                let psName = (cgFont.postScriptName as String?) ?? url.deletingPathExtension().lastPathComponent
+                return _CustomFont(name: psName, postScriptName: psName, url: url)
             }
         }
     }
@@ -1576,6 +1646,7 @@ struct FontPickerView: View {
 struct _CustomFont: Identifiable {
     let id = UUID()
     let name: String
+    let postScriptName: String
     let url: URL
 }
 
