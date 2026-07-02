@@ -202,6 +202,24 @@ struct ReaderView: View {
             .simultaneousGesture(
                 TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
             )
+            .overlay(alignment: .bottomTrailing) {
+                if !isImmersive {
+                    Button(action: {
+                        isAudioMode = true
+                        isPlaying = true
+                        Task { await startPlayback() }
+                    }) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 44))
+                            .foregroundColor(.blue)
+                            .background(Circle().fill(bgColor).shadow(radius: 4))
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
 
             if !isImmersive {
                 silentBottomBar
@@ -291,24 +309,6 @@ struct ReaderView: View {
             .padding(.vertical, 6)
             .foregroundColor(textColor)
 
-            // Play button row
-            Divider()
-            Button(action: {
-                isAudioMode = true
-                isPlaying = true
-                Task { await startPlayback() }
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.circle.fill")
-                        .font(.title3)
-                    Text("朗读")
-                        .font(.subheadline)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-            }
-            .foregroundColor(.blue)
-            .buttonStyle(.borderless)
         }
         .background(.ultraThinMaterial)
         .animation(.easeInOut(duration: 0.2), value: showBookmarks)
