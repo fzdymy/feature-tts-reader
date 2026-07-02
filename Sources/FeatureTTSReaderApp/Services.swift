@@ -280,8 +280,6 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         try? FileManager.default.removeItem(at: ttsDir)
     }
 
-    private func cleanupAudioFiles() {
-
     private func updateNowPlayingInfo(progress: TimeInterval? = nil) {
         guard let player = player else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
