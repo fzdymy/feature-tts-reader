@@ -52,6 +52,7 @@ struct ReaderView: View {
 
     @State private var chapterProgress: Double = 0
     @State private var scrollPositionID: String?
+    @State private var externalScrollTarget: Int?
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -113,44 +114,53 @@ struct ReaderView: View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(chaptersList.indices, id: \.self) { i in
-                        chapterContent(index: i)
-                            .id("ch_\(i)")
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(chaptersList.indices, id: \.self) { i in
+                            chapterContent(index: i)
+                                .id("ch_\(i)")
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollPosition(id: $scrollPositionID)
+                .simultaneousGesture(
+                    TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+                )
+                .onChange(of: scrollPositionID) { newID in
+                    guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
+                    if currentChapterIndex != idx {
+                        currentChapterIndex = idx
+                        chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
+                        if idx < chaptersList.count {
+                            currentChapter = chaptersList[idx]
+                            store.selectedChapterID = chaptersList[idx].id
+                        }
                     }
                 }
-                .scrollTargetLayout()
-            }
-            .scrollPosition(id: $scrollPositionID)
-            .simultaneousGesture(
-                TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
-            )
-            .onChange(of: scrollPositionID) { newID in
-                guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
-                if currentChapterIndex != idx {
-                    currentChapterIndex = idx
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
-                    if idx < chaptersList.count {
-                        currentChapter = chaptersList[idx]
-                        store.selectedChapterID = chaptersList[idx].id
+                .onChange(of: externalScrollTarget) { target in
+                    if let t = target {
+                        withAnimation { proxy.scrollTo("ch_\(t)", anchor: .top) }
+                        externalScrollTarget = nil
+                    }
+                }
+                .onAppear {
+                    DispatchQueue.main.async {
+                        if currentChapterIndex > 0 {
+                            proxy.scrollTo("ch_\(currentChapterIndex)", anchor: .top)
+                        }
                     }
                 }
             }
 
             VStack {
-                if !isImmersive {
-                    readerHeader
-                }
+                if !isImmersive { readerHeader }
                 Spacer()
                 if isImmersive && (store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery) {
                     readerStatusBar
                 } else if !isImmersive {
-                    if isAudioMode {
-                        audioBottomBar
-                    } else {
-                        silentBottomBar
-                    }
+                    if isAudioMode { audioBottomBar } else { silentBottomBar }
                 }
             }
 
@@ -171,8 +181,7 @@ struct ReaderView: View {
                         }
                         .buttonStyle(.borderless)
                         .padding(.trailing, 20)
-                        .padding(.bottom, 20)
-                        .transition(.scale.combined(with: .opacity))
+                        .padding(.bottom, 100)
                     }
                 }
             }
@@ -206,7 +215,7 @@ struct ReaderView: View {
             currentChapterIndex: currentChapterIndex,
             chaptersList: chaptersList,
             onTOCSelect: { index in
-                scrollPositionID = "ch_\(index)"
+                externalScrollTarget = index
                 if !chaptersList.isEmpty {
                     store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
                 }
@@ -343,7 +352,7 @@ struct ReaderView: View {
             HStack(spacing: 8) {
                 Button(action: {
                     guard currentChapterIndex > 0 else { return }
-                    withAnimation { scrollPositionID = "ch_\(currentChapterIndex - 1)" }
+                    externalScrollTarget = currentChapterIndex - 1
                 }) {
                     Text("上一章")
                         .font(.subheadline)
@@ -356,7 +365,7 @@ struct ReaderView: View {
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
-                    withAnimation { scrollPositionID = "ch_\(currentChapterIndex + 1)" }
+                    externalScrollTarget = currentChapterIndex + 1
                 }) {
                     Text("下一章")
                         .font(.subheadline)
@@ -433,7 +442,7 @@ struct ReaderView: View {
             HStack(spacing: 32) {
                 Button(action: {
                     guard currentChapterIndex > 0 else { return }
-                    scrollPositionID = "ch_\(currentChapterIndex - 1)"
+                    externalScrollTarget = currentChapterIndex - 1
                     if isPlaying { store.stopPlayback(); isPlaying = false }
                 }) {
                     Image(systemName: "backward.end.fill")
@@ -455,7 +464,7 @@ struct ReaderView: View {
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
-                    scrollPositionID = "ch_\(currentChapterIndex + 1)"
+                    externalScrollTarget = currentChapterIndex + 1
                     if isPlaying { store.stopPlayback(); isPlaying = false }
                 }) {
                     Image(systemName: "forward.end.fill")
@@ -903,9 +912,6 @@ struct ReaderView: View {
         store.selectedChapterID = currentChapter.id
         UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
         ensureChaptersLoaded()
-        DispatchQueue.main.async {
-            scrollPositionID = "ch_\(currentChapterIndex)"
-        }
         if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
             screenBrightness = brightness
             useSystemBrightness = false
@@ -953,7 +959,7 @@ struct ReaderView: View {
             }
             guard !text.isEmpty else {
                 chaptersList = [currentChapter]
-                DispatchQueue.main.async { scrollPositionID = "ch_\(currentChapterIndex)" }
+                DispatchQueue.main.async { externalScrollTarget = currentChapterIndex }
                 return
             }
             let parsed = await Task.detached(priority: .userInitiated) {
@@ -966,14 +972,14 @@ struct ReaderView: View {
                 chaptersList = store.chaptersForBook(bookID, text: text)
             }
             if chaptersList.isEmpty { chaptersList = [currentChapter] }
-            DispatchQueue.main.async { scrollPositionID = "ch_\(currentChapterIndex)" }
+            DispatchQueue.main.async { externalScrollTarget = currentChapterIndex }
         }
     }
 
     private func handleExternalNavigate(nav: ChapterNavigate?) {
         guard let nav, nav.bookID == bookID, nav.chapterIndex < chaptersList.count else { return }
         store.externalChapterNavigate = nil
-        scrollPositionID = "ch_\(nav.chapterIndex)"
+        externalScrollTarget = nav.chapterIndex
         jumpTo(nav.chapterIndex, explicit: true)
     }
 
