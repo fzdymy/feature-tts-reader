@@ -112,83 +112,84 @@ struct ReaderView: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
-            readerHeader
-                .opacity(isImmersive ? 0 : 1)
+        ZStack {
+            backgroundContent.ignoresSafeArea()
 
-            ZStack(alignment: .bottomTrailing) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(chaptersList.indices, id: \.self) { i in
-                                chapterContent(index: i)
-                                    .id("ch_\(i)")
-                            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(chaptersList.indices, id: \.self) { i in
+                            chapterContent(index: i)
+                                .id("ch_\(i)")
                         }
-                        .scrollTargetLayout()
                     }
-                    .scrollPosition(id: $scrollPositionID)
+                    .scrollTargetLayout()
                     .simultaneousGesture(
                         TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
                     )
-                    .onChange(of: scrollPositionID) { newID in
-                        guard !isNavigating else { return }
-                        guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
-                        if currentChapterIndex != idx {
-                            currentChapterIndex = idx
-                            chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
-                            if idx < chaptersList.count {
-                                currentChapter = chaptersList[idx]
-                                store.selectedChapterID = chaptersList[idx].id
-                            }
-                        }
-                    }
-                    .onChange(of: externalScrollTarget) { target in
-                        if let t = target {
-                            isNavigating = true
-                            withAnimation { proxy.scrollTo("ch_\(t)", anchor: .top) }
-                            externalScrollTarget = nil
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { isNavigating = false }
-                        }
-                    }
-                    .onAppear {
-                        DispatchQueue.main.async {
-                            if currentChapterIndex > 0 {
-                                proxy.scrollTo("ch_\(currentChapterIndex)", anchor: .top)
-                            }
+                }
+                .scrollPosition(id: $scrollPositionID)
+                .onChange(of: scrollPositionID) { newID in
+                    guard !isNavigating else { return }
+                    guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
+                    if currentChapterIndex != idx {
+                        currentChapterIndex = idx
+                        chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
+                        if idx < chaptersList.count {
+                            currentChapter = chaptersList[idx]
+                            store.selectedChapterID = chaptersList[idx].id
                         }
                     }
                 }
-
-                if !isAudioMode && !chaptersList.isEmpty {
-                    Button(action: {
-                        isAudioMode = true
-                        isPlaying = true
-                        Task { await startPlayback() }
-                    }) {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 44))
-                            .foregroundColor(.blue)
-                            .background(Circle().fill(bgColor).shadow(radius: 4))
+                .onChange(of: externalScrollTarget) { target in
+                    if let t = target {
+                        isNavigating = true
+                        withAnimation { proxy.scrollTo("ch_\(t)", anchor: .top) }
+                        externalScrollTarget = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { isNavigating = false }
                     }
-                    .buttonStyle(.borderless)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 20)
-                    .opacity(isImmersive ? 0 : 1)
+                }
+                .onAppear {
+                    DispatchQueue.main.async {
+                        if currentChapterIndex > 0 {
+                            proxy.scrollTo("ch_\(currentChapterIndex)", anchor: .top)
+                        }
+                    }
                 }
             }
 
-            VStack(spacing: 0) {
-                if isAudioMode { audioBottomBar } else { silentBottomBar }
+            VStack {
+                if !isImmersive { readerHeader }
+                Spacer()
+                if isImmersive && (store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery) {
+                    readerStatusBar
+                } else if !isImmersive {
+                    if isAudioMode { audioBottomBar } else { silentBottomBar }
+                }
             }
-            .opacity(isImmersive ? 0 : 1)
 
-            if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                readerStatusBar
-                    .opacity(isImmersive ? 1 : 0)
+            if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            isAudioMode = true
+                            isPlaying = true
+                            Task { await startPlayback() }
+                        }) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 44))
+                                .foregroundColor(.blue)
+                                .background(Circle().fill(bgColor).shadow(radius: 4))
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 100)
+                    }
+                }
             }
         }
-        .background(backgroundContent.ignoresSafeArea())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(true)
