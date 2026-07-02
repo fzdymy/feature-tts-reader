@@ -17,16 +17,10 @@ enum TextAlign: Int, CaseIterable, Identifiable {
 
 // MARK: - Preference Keys
 
-private struct ChapterFrameValue: Equatable {
-    let index: Int
-    let minY: CGFloat
-    let height: CGFloat
-}
-
-private struct ChapterFramePrefKey: PreferenceKey {
-    static var defaultValue: [Int: ChapterFrameValue] = [:]
-    static func reduce(value: inout [Int: ChapterFrameValue], nextValue: () -> [Int: ChapterFrameValue]) {
-        value.merge(nextValue()) { $1 }
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -66,8 +60,18 @@ struct ReaderView: View {
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var useSystemBrightness = true
 
-    @State private var chapterFrames: [Int: ChapterFrameValue] = [:]
     @State private var chapterProgress: Double = 0
+    @State private var scrollOffset: CGFloat = 0
+
+    private var accumulatedOffsets: [Int: CGFloat] {
+        var result: [Int: CGFloat] = [:]
+        var y: CGFloat = 0
+        for i in 0..<chaptersList.count {
+            result[i] = y
+            y += estimatedChapterHeight(chaptersList[i])
+        }
+        return result
+    }
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -135,28 +139,29 @@ struct ReaderView: View {
             ZStack(alignment: .bottomTrailing) {
                 ScrollViewReader { scrollProxy in
                     List {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: ScrollOffsetKey.self,
+                                value: geo.frame(in: .named("readerList")).minY
+                            )
+                        }
+                        .frame(height: 0)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+
                         ForEach(chaptersList.indices, id: \.self) { i in
                             chapterContent(index: i)
                                 .listRowInsets(EdgeInsets())
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
                                 .id("ch_\(i)")
-                                .background(GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: ChapterFramePrefKey.self,
-                                        value: [i: ChapterFrameValue(
-                                            index: i,
-                                            minY: geo.frame(in: .named("readerList")).minY,
-                                            height: geo.size.height
-                                        )]
-                                    )
-                                })
                         }
                     }
                     .listStyle(.plain)
                     .coordinateSpace(name: "readerList")
-                    .onPreferenceChange(ChapterFramePrefKey.self) { frames in
-                        chapterFrames = frames
+                    .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                        scrollOffset = offset
                         updateChapterFromScroll()
                     }
                     .simultaneousGesture(
@@ -359,13 +364,17 @@ struct ReaderView: View {
     // MARK: - Scroll Tracking
 
     private func updateChapterFromScroll() {
+        let viewportTop = -scrollOffset
+        let viewportBottom = viewportTop + UIScreen.main.bounds.height
         var bestIndex = currentChapterIndex
-        var bestDist: CGFloat = .greatestFiniteMagnitude
+        var bestOverlap: CGFloat = 0
 
-        for (i, frame) in chapterFrames {
-            let dist = abs(frame.minY)
-            if dist < bestDist {
-                bestDist = dist
+        for (i, offset) in accumulatedOffsets {
+            let chStart = offset
+            let chEnd = offset + estimatedChapterHeight(chaptersList[i])
+            let overlap = min(viewportBottom, chEnd) - max(viewportTop, chStart)
+            if overlap > bestOverlap {
+                bestOverlap = overlap
                 bestIndex = i
             }
         }
@@ -378,9 +387,12 @@ struct ReaderView: View {
             }
         }
 
-        if let frame = chapterFrames[bestIndex] {
-            let position = -frame.minY
-            chapterProgress = frame.height > 0 ? max(0, min(1, position / frame.height)) : 0
+        if let offset = accumulatedOffsets[bestIndex] {
+            let chH = estimatedChapterHeight(chaptersList[bestIndex])
+            let progress = chH > 0 ? max(0, min(1, (viewportTop - offset) / chH)) : 0
+            if abs(progress - chapterProgress) > 0.001 {
+                chapterProgress = progress
+            }
         }
     }
 
@@ -942,6 +954,21 @@ struct ReaderView: View {
         }
     }
 
+    private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
+        let titleHeight: CGFloat = 58
+        let bottomPad: CGFloat = 20
+        let hPad: CGFloat = 40
+        let containerWidth = UIScreen.main.bounds.width - hPad
+        let fontSize = store.readerFontSize
+        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
+        let charWidth = fontSize * 0.5
+        let charsPerLine = max(1, Int(containerWidth / charWidth))
+        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
+        let totalChars = ch.text.count
+        let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
+        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
+    }
+
     // MARK: - Lifecycle
 
     private func onAppearSetup() {
@@ -964,6 +991,7 @@ struct ReaderView: View {
     private func onDisappearCleanup() {
         UIApplication.shared.isIdleTimerDisabled = false
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+        ReaderStore.debugLog("[POS-SAVE] onDisappear idx=\(currentChapterIndex) bookID=\(bookID.uuidString)")
         if currentChapterIndex < chaptersList.count {
             store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
         }

@@ -543,9 +543,13 @@ struct BookDetailView: View {
     }
 
     private func openReader() {
-        guard let chaps = store.bookChaptersCache[book.id], !chaps.isEmpty else { return }
+        guard let chaps = store.bookChaptersCache[book.id], !chaps.isEmpty else {
+            ReaderStore.debugLog("[OPEN-READER-FAIL] no cache for \(book.id.uuidString)")
+            return
+        }
         let saved = ReaderStore.loadLastChapterIndex(for: book.id)
         let safeIndex = min(saved, chaps.count - 1)
+        ReaderStore.debugLog("[OPEN-READER] saved=\(saved) safe=\(safeIndex) total=\(chaps.count)")
         readerCover = ReaderCoverKey(
             id: chaps[safeIndex].id,
             chapter: chaps[safeIndex],
