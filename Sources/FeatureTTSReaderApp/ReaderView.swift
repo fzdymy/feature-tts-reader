@@ -63,15 +63,8 @@ struct ReaderView: View {
     @State private var chapterProgress: Double = 0
     @State private var scrollOffset: CGFloat = 0
 
-    private var accumulatedOffsets: [Int: CGFloat] {
-        var result: [Int: CGFloat] = [:]
-        var y: CGFloat = 0
-        for i in 0..<chaptersList.count {
-            result[i] = y
-            y += estimatedChapterHeight(chaptersList[i])
-        }
-        return result
-    }
+    @State private var chapterHeights: [CGFloat] = []
+    @State private var accumulatedOffsets: [Int: CGFloat] = [:]
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -138,7 +131,7 @@ struct ReaderView: View {
 
             ZStack(alignment: .bottomTrailing) {
                 ScrollViewReader { scrollProxy in
-                    List {
+                    ScrollView {
                         GeometryReader { geo in
                             Color.clear.preference(
                                 key: ScrollOffsetKey.self,
@@ -146,19 +139,14 @@ struct ReaderView: View {
                             )
                         }
                         .frame(height: 0)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
 
-                        ForEach(chaptersList.indices, id: \.self) { i in
-                            chapterContent(index: i)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .id("ch_\(i)")
+                        LazyVStack(spacing: 0) {
+                            ForEach(chaptersList.indices, id: \.self) { i in
+                                chapterContent(index: i)
+                                    .id("ch_\(i)")
+                            }
                         }
                     }
-                    .listStyle(.plain)
                     .coordinateSpace(name: "readerList")
                     .onPreferenceChange(ScrollOffsetKey.self) { offset in
                         scrollOffset = offset
@@ -371,7 +359,7 @@ struct ReaderView: View {
 
         for (i, offset) in accumulatedOffsets {
             let chStart = offset
-            let chEnd = offset + estimatedChapterHeight(chaptersList[i])
+            let chEnd = offset + (i < chapterHeights.count ? chapterHeights[i] : 0)
             let overlap = min(viewportBottom, chEnd) - max(viewportTop, chStart)
             if overlap > bestOverlap {
                 bestOverlap = overlap
@@ -388,7 +376,7 @@ struct ReaderView: View {
         }
 
         if let offset = accumulatedOffsets[bestIndex] {
-            let chH = estimatedChapterHeight(chaptersList[bestIndex])
+            let chH = bestIndex < chapterHeights.count ? chapterHeights[bestIndex] : 0
             let progress = chH > 0 ? max(0, min(1, (viewportTop - offset) / chH)) : 0
             if abs(progress - chapterProgress) > 0.001 {
                 chapterProgress = progress
@@ -954,6 +942,20 @@ struct ReaderView: View {
         }
     }
 
+    private func computeChapterOffsets() {
+        var heights: [CGFloat] = []
+        var offsets: [Int: CGFloat] = [:]
+        var y: CGFloat = 0
+        for i in chaptersList.indices {
+            offsets[i] = y
+            let h = estimatedChapterHeight(chaptersList[i])
+            heights.append(h)
+            y += h
+        }
+        chapterHeights = heights
+        accumulatedOffsets = offsets
+    }
+
     // MARK: - Lifecycle
 
     private func onAppearSetup() {
@@ -965,6 +967,10 @@ struct ReaderView: View {
         store.selectedChapterID = currentChapter.id
         UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
         ensureChaptersLoaded()
+        computeChapterOffsets()
+        DispatchQueue.main.async {
+            externalScrollTarget = currentChapterIndex
+        }
         if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
             screenBrightness = brightness
             useSystemBrightness = false
@@ -990,6 +996,7 @@ struct ReaderView: View {
         guard chaptersList.isEmpty else { return }
         if let cached = store.chaptersForBookCached(bookID) {
             chaptersList = cached
+            computeChapterOffsets()
             return
         }
         Task {
@@ -1012,6 +1019,8 @@ struct ReaderView: View {
             }
             guard !text.isEmpty else {
                 chaptersList = [currentChapter]
+                computeChapterOffsets()
+                DispatchQueue.main.async { externalScrollTarget = currentChapterIndex }
                 return
             }
             let parsed = await Task.detached(priority: .userInitiated) {
@@ -1024,6 +1033,8 @@ struct ReaderView: View {
                 chaptersList = store.chaptersForBook(bookID, text: text)
             }
             if chaptersList.isEmpty { chaptersList = [currentChapter] }
+            computeChapterOffsets()
+            DispatchQueue.main.async { externalScrollTarget = currentChapterIndex }
         }
     }
 
