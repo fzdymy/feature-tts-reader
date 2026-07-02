@@ -576,12 +576,17 @@ struct SelectableTextReader: UIViewRepresentable {
         tv.isScrollEnabled = false
         tv.backgroundColor = .clear
         tv.delegate = context.coordinator
+        tv.textContainer.lineFragmentPadding = 0
+        tv.textContainerInset = .zero
         updateTextView(tv)
         return tv
     }
 
     func updateUIView(_ tv: UITextView, context: Context) {
         updateTextView(tv)
+        DispatchQueue.main.async {
+            tv.invalidateIntrinsicContentSize()
+        }
     }
 
     private func updateTextView(_ tv: UITextView) {
