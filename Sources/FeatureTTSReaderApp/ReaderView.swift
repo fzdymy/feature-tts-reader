@@ -15,7 +15,7 @@ enum TextAlign: Int, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - ReaderView (unified silent reading + TTS multi-character audio)
+// MARK: - ReaderView
 
 struct ReaderView: View {
     @EnvironmentObject private var store: ReaderStore
@@ -92,6 +92,18 @@ struct ReaderView: View {
         store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
 
+    private var progressText: String {
+        guard !chaptersList.isEmpty else { return "\u{2014}" }
+        return "\(currentChapterIndex + 1)/\(chaptersList.count)"
+    }
+
+    private var batteryIcon: String {
+        batteryLevel > 90 ? "battery.100" :
+        batteryLevel > 60 ? "battery.75" :
+        batteryLevel > 30 ? "battery.50" :
+        "battery.0"
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -107,19 +119,28 @@ struct ReaderView: View {
         .statusBarHidden(isImmersive || isAudioMode)
         .onReceive(timer) { _ in
             currentTime = Date()
-            updateBatteryLevel()
+            if UIDevice.current.isBatteryMonitoringEnabled {
+                batteryLevel = UIDevice.current.batteryLevel >= 0
+                    ? Int(UIDevice.current.batteryLevel * 100) : -1
+            } else {
+                UIDevice.current.isBatteryMonitoringEnabled = true
+            }
         }
         .onAppear(perform: onAppearSetup)
         .onDisappear(perform: onDisappearCleanup)
         .onChange(of: store.externalChapterNavigate, perform: handleExternalNavigate)
         .modifier(ReaderSheets(
-            showSettings: $showSettings, showFontPicker: $showFontPicker,
-            showTOC: $showTOC, editingCharacter: $editingCharacter,
+            showSettings: $showSettings,
+            showFontPicker: $showFontPicker,
+            showTOC: $showTOC,
+            editingCharacter: $editingCharacter,
             showAddCharacter: $showAddCharacter,
             showAllRecommendations: $showAllRecommendations,
             showCharacterFromText: $showCharacterFromText,
             selectedTextForCharacter: selectedTextForCharacter,
             currentChapterID: currentChapter.id,
+            currentChapterIndex: currentChapterIndex,
+            chaptersList: chaptersList,
             onTOCSelect: { index in
                 if !chaptersList.isEmpty {
                     store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
@@ -163,7 +184,7 @@ struct ReaderView: View {
                 .textSelection(.enabled)
         }
         .simultaneousGesture(
-            TapGesture().onEnded { withAnimation { isImmersive.toggle() } }
+            TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
         )
         .opacity(isAudioMode ? 0 : 1)
         .allowsHitTesting(!isAudioMode)
@@ -171,13 +192,10 @@ struct ReaderView: View {
 
     @ViewBuilder private var silentModeOverlays: some View {
         if !isImmersive && !isAudioMode {
-            VStack {
+            VStack(spacing: 0) {
                 silentReaderHeader
                 Spacer()
-            }
-            VStack {
-                Spacer()
-                controlBar
+                silentControlBar
             }
         }
         if isImmersive && !isAudioMode {
@@ -193,12 +211,14 @@ struct ReaderView: View {
                     }
                     Spacer()
                 }
+                .transition(.opacity)
             }
             if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
                 VStack {
                     Spacer()
                     readerStatusBar
                 }
+                .transition(.opacity)
             }
         }
     }
@@ -221,6 +241,78 @@ struct ReaderView: View {
         .overlay(Divider(), alignment: .bottom)
     }
 
+    private var silentControlBar: some View {
+        VStack(spacing: 0) {
+            if showBookmarks { bookmarkPanel }
+            HStack(spacing: 0) {
+                controlButton("chevron.left", disabled: currentChapterIndex <= 0, action: previousChapter)
+                Divider().frame(height: 24)
+                controlButton("list.bullet", action: { showTOC = true })
+                controlButton(chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill", action: { showBookmarks.toggle() })
+                controlButton(themeIcon(store.readerTheme), action: { store.readerTheme = nextTheme(store.readerTheme) })
+                controlButton("textformat.alt", action: { showFontPicker = true })
+                controlButton("gearshape.fill", action: { showSettings = true })
+                Divider().frame(height: 24)
+                controlButton("play.circle.fill", action: {
+                    isAudioMode = true
+                    isPlaying = true
+                    Task { await startPlayback() }
+                })
+                Divider().frame(height: 24)
+                controlButton("chevron.right", disabled: currentChapterIndex >= chaptersList.count - 1, action: nextChapter)
+            }
+            .padding(.vertical, 8).padding(.horizontal, 8)
+            .foregroundColor(textColor)
+            .background(.ultraThinMaterial)
+        }
+        .animation(.easeInOut(duration: 0.2), value: showBookmarks)
+    }
+
+    private func controlButton(_ systemName: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.title3)
+                .frame(minWidth: 40, minHeight: 40)
+        }
+        .disabled(disabled)
+        .buttonStyle(.borderless)
+    }
+
+    private var bookmarkPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("书签 (\(chapterBookmarks.count))").font(.headline).foregroundColor(textColor)
+                Spacer()
+                Button("关闭") { showBookmarks = false }.font(.caption)
+            }
+            .padding(.horizontal).padding(.top, 8)
+            if chapterBookmarks.isEmpty {
+                Text("暂无书签").foregroundColor(textColor.opacity(0.5)).padding()
+            } else {
+                List {
+                    ForEach(chapterBookmarks) { bm in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(bm.note.isEmpty ? "\(Int(bm.percent * 100))%" : bm.note)
+                                    .font(.caption).foregroundColor(textColor)
+                                Text(bm.createdAt.formatted(date: .omitted, time: .shortened))
+                                    .font(.caption2).foregroundColor(textColor.opacity(0.6))
+                            }
+                            Spacer()
+                            Button(action: { store.removeBookmark(bm.id) }) {
+                                Image(systemName: "trash").foregroundColor(.red)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        }
+                        .listRowBackground(bgColor)
+                    }
+                }
+                .listStyle(.plain).frame(maxHeight: 180)
+            }
+        }
+        .background(bgColor)
+    }
+
     // MARK: - Audio Mode
 
     private var audioModeLayer: some View {
@@ -229,6 +321,7 @@ struct ReaderView: View {
             if showCharacterPanel {
                 characterPanel
                     .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
             ScrollView {
                 SelectableTextReader(
@@ -247,33 +340,44 @@ struct ReaderView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            automationToolbar
-            audioControlBar
+            VStack(spacing: 0) {
+                automationToolbar
+                Divider()
+                audioPlaybackBar
+            }
+            .background(bgColor.opacity(0.95))
         }
         .opacity(isAudioMode ? 1 : 0)
         .allowsHitTesting(isAudioMode)
+        .animation(.easeInOut(duration: 0.25), value: showCharacterPanel)
     }
 
     private var audioReaderHeader: some View {
         HStack {
             Button(action: { isAudioMode = false; isPlaying = false; store.stopPlayback() }) {
-                Image(systemName: "chevron.left")
-                    .font(.title3)
-                    .foregroundColor(textColor.opacity(0.7))
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.title3)
+                    Text("退出朗读")
+                        .font(.subheadline)
+                }
+                .foregroundColor(textColor.opacity(0.7))
             }
             Text(displayedChapterTitle)
                 .font(.headline).lineLimit(1)
                 .foregroundColor(textColor)
                 .padding(.leading, 8)
             Spacer()
-            Text("选中文本中的人名可直接添加为角色")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
             Button(action: { showCharacterPanel.toggle() }) {
-                Image(systemName: showCharacterPanel ? "person.2.fill" : "person.2")
-                    .font(.title3)
-                    .foregroundColor(showCharacterPanel ? .blue : textColor.opacity(0.7))
+                HStack(spacing: 4) {
+                    Image(systemName: showCharacterPanel ? "person.2.fill" : "person.2")
+                        .font(.title3)
+                    if !store.characters.isEmpty {
+                        Text("\(store.characters.count)")
+                            .font(.caption2)
+                    }
+                }
+                .foregroundColor(showCharacterPanel ? .blue : textColor.opacity(0.7))
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
@@ -281,132 +385,123 @@ struct ReaderView: View {
         .overlay(Divider(), alignment: .bottom)
     }
 
-    // MARK: - Lifecycle
+    // MARK: - Automation Toolbar
 
-    private func onAppearSetup() {
-        updateBatteryLevel()
-        store.selectedChapterID = currentChapter.id
-        UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
-        ensureChaptersLoaded()
-        if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
-            screenBrightness = brightness
-            useSystemBrightness = false
-            UIScreen.main.brightness = brightness
-        }
-        ReaderStore.debugLog("[RVIEW-APPEAR] idx=\(currentChapterIndex) chaptersList.count=\(chaptersList.count)")
-    }
-
-    private func onDisappearCleanup() {
-        UIApplication.shared.isIdleTimerDisabled = false
-        ReaderStore.saveLastChapterIndex(anchorChapterIndex, for: bookID)
-        if anchorChapterIndex < chaptersList.count {
-            store.setChapterProgress(chaptersList[anchorChapterIndex].id, percent: 1.0)
-        }
-        store.saveState()
-        if !useSystemBrightness {
-            UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
-        }
-    }
-
-    private func ensureChaptersLoaded() {
-        guard chaptersList.isEmpty else { return }
-        if let cached = store.chaptersForBookCached(bookID) {
-            chaptersList = cached
-            return
-        }
-        let text: String
-        if store.bookText.isEmpty || store.currentBookID != bookID.uuidString {
-            if let fileText = store.loadBookTextFromFile(bookID: bookID), !fileText.isEmpty {
-                text = fileText
-                store.bookText = fileText
-                store.currentBookID = bookID.uuidString
-            } else {
-                text = book.text
+    private var automationToolbar: some View {
+        HStack(spacing: 8) {
+            Button(action: { showCharacterPanel.toggle() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "person.2")
+                    Text("角色")
+                }
+                .font(.caption)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(showCharacterPanel ? Color.blue.opacity(0.2) : Color.gray.opacity(0.15))
+                .cornerRadius(8)
             }
-        } else {
-            text = store.bookText
-        }
-        chaptersList = store.chaptersForBook(bookID, text: text)
-        if chaptersList.isEmpty { chaptersList = [currentChapter] }
-    }
+            .buttonStyle(.borderless)
+            .foregroundColor(showCharacterPanel ? .blue : textColor)
 
-    private func handleExternalNavigate(nav: ChapterNavigate?) {
-        guard let nav, nav.bookID == bookID, nav.chapterIndex < chaptersList.count else { return }
-        store.externalChapterNavigate = nil
-        jumpTo(nav.chapterIndex, explicit: true)
-    }
+            Divider().frame(height: 20)
 
-    // MARK: - Navigation
+            Button(action: { Task { await store.scanCharacters() } }) {
+                Label("扫描", systemImage: "person.badge.plus")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(textColor)
 
-    private func jumpTo(_ index: Int, explicit: Bool) {
-        guard index >= 0, index < chaptersList.count else { return }
-        if isPlaying { store.stopPlayback(); isPlaying = false }
-        currentChapterIndex = index
-        currentChapter = chaptersList[index]
-        displayedChapterTitle = chaptersList[index].title
-        store.selectedChapterID = chaptersList[index].id
-        ReaderStore.saveLastChapterIndex(index, for: bookID)
-        if explicit { anchorChapterIndex = index }
-        let lower = max(0, index - 2)
-        let upper = min(chaptersList.count - 1, index + 2)
-        DispatchQueue.global(qos: .background).async {
-            for i in lower...upper where i != index {
-                _ = chaptersList[i].text
+            Button(action: { Task { await store.buildScript(for: true) } }) {
+                Label("脚本", systemImage: "doc.richtext")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(textColor)
+
+            if !store.scriptSegments.isEmpty {
+                Text("\(store.scriptSegments.count)段")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+            }
+
+            Spacer()
+
+            if store.isBusy {
+                ProgressView()
+                    .scaleEffect(0.7)
             }
         }
-        ReaderStore.debugLog("[JUMP] idx=\(index)")
+        .padding(.horizontal, 16).padding(.vertical, 8)
     }
 
-    private func previousChapter() {
-        guard currentChapterIndex > 0, currentChapterIndex < chaptersList.count else { return }
-        let idx = currentChapterIndex - 1
-        if isAudioMode {
-            displayedChapterTitle = chaptersList[idx].title
-            store.selectedChapterID = chaptersList[idx].id
-            ReaderStore.saveLastChapterIndex(idx, for: bookID)
-            isPlaying = false
-            store.stopPlayback()
-            currentChapterIndex = idx
-            currentChapter = chaptersList[idx]
-        } else {
-            if idx + 1 < chaptersList.count {
-                store.setChapterProgress(chaptersList[idx + 1].id, percent: 1.0)
+    // MARK: - Audio Playback Bar
+
+    private var audioPlaybackBar: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Text("00:00")
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.5))
+                    .monospacedDigit()
+                    .frame(width: 36, alignment: .leading)
+                Slider(value: $playbackProgress, in: 0...1)
+                    .accentColor(.blue)
+                Text("--:--")
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.5))
+                    .monospacedDigit()
+                    .frame(width: 36, alignment: .trailing)
             }
-            jumpTo(idx, explicit: true)
-        }
-    }
+            .padding(.horizontal, 20)
 
-    private func nextChapter() {
-        guard currentChapterIndex < chaptersList.count - 1 else { return }
-        let idx = currentChapterIndex + 1
-        if isAudioMode {
-            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
-            displayedChapterTitle = chaptersList[idx].title
-            store.selectedChapterID = chaptersList[idx].id
-            ReaderStore.saveLastChapterIndex(idx, for: bookID)
-            isPlaying = false
-            store.stopPlayback()
-            currentChapterIndex = idx
-            currentChapter = chaptersList[idx]
-        } else {
-            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
-            jumpTo(idx, explicit: true)
-        }
-    }
+            HStack(spacing: 32) {
+                Button(action: previousChapter) {
+                    Image(systemName: "backward.end.fill")
+                        .font(.title3)
+                }
+                .disabled(currentChapterIndex <= 0)
 
-    private func startPlayback() async {
-        guard currentChapterIndex < chaptersList.count else { return }
-        let chapter = chaptersList[currentChapterIndex]
-        store.audioController.playbackRate = Float(playbackSpeed)
-        if store.characters.isEmpty {
-            store.statusMessage = "未检测到角色，正在自动扫描..."
-            await store.scanCharacters()
+                Button(action: {
+                    isPlaying.toggle()
+                    if isPlaying {
+                        Task { await startPlayback() }
+                    } else {
+                        store.stopPlayback()
+                    }
+                }) {
+                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 44))
+                }
+
+                Button(action: nextChapter) {
+                    Image(systemName: "forward.end.fill")
+                        .font(.title3)
+                }
+                .disabled(currentChapterIndex >= chaptersList.count - 1)
+            }
+            .foregroundColor(textColor)
+
+            HStack(spacing: 12) {
+                ForEach([0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
+                    Button(action: { playbackSpeed = speed }) {
+                        Text(String(format: "%.2g", speed) + "x")
+                            .font(.caption)
+                            .fontWeight(playbackSpeed == speed ? .semibold : .regular)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(playbackSpeed == speed ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(playbackSpeed == speed ? .blue : textColor.opacity(0.6))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
         }
-        if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
-            await store.buildScript(for: false)
-        }
-        await store.playChapterWithTTS(chapter: chapter)
-        isPlaying = false
+        .padding(.vertical, 10)
     }
 
     // MARK: - Character Panel
@@ -628,106 +723,7 @@ struct ReaderView: View {
         }
     }
 
-    // MARK: - Automation Toolbar
-
-    private var automationToolbar: some View {
-        HStack(spacing: 12) {
-            Button(action: { showCharacterPanel.toggle() }) {
-                Label(
-                    store.characters.isEmpty ? "角色管理" : "角色(\(store.characters.count))",
-                    systemImage: "person.2"
-                )
-                .font(.caption)
-            }
-            .buttonStyle(.borderless)
-            .foregroundColor(showCharacterPanel ? .blue : textColor)
-            Spacer()
-            Button(action: { Task { await store.scanCharacters() } }) {
-                Label("扫描", systemImage: "person.badge.plus")
-                    .font(.caption)
-            }
-            .buttonStyle(.borderless)
-            .foregroundColor(textColor)
-            Button(action: { Task { await store.buildScript(for: true) } }) {
-                Label("脚本", systemImage: "doc.richtext")
-                    .font(.caption)
-            }
-            .buttonStyle(.borderless)
-            .foregroundColor(textColor)
-            if !store.scriptSegments.isEmpty {
-                Text("\(store.scriptSegments.count)段")
-                    .font(.caption2).foregroundColor(.secondary)
-            }
-            if store.isBusy {
-                ProgressView()
-                    .scaleEffect(0.7)
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 6)
-        .background(bgColor.opacity(0.9))
-        .overlay(Divider(), alignment: .top)
-    }
-
-    // MARK: - Audio Control Bar
-
-    private var audioControlBar: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("00:00").font(.caption2).foregroundColor(textColor.opacity(0.5)).monospacedDigit()
-                Slider(value: $playbackProgress, in: 0...1)
-                    .accentColor(.blue)
-                Text("--:--").font(.caption2).foregroundColor(textColor.opacity(0.5)).monospacedDigit()
-            }
-            .padding(.horizontal, 20)
-            HStack(spacing: 24) {
-                Button(action: previousChapter) {
-                    Image(systemName: "backward.end.fill").font(.title2)
-                }
-                .disabled(currentChapterIndex <= 0)
-                Button(action: {
-                    isPlaying.toggle()
-                    if isPlaying {
-                        Task { await startPlayback() }
-                    } else {
-                        store.stopPlayback()
-                    }
-                }) {
-                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 48))
-                }
-                Button(action: nextChapter) {
-                    Image(systemName: "forward.end.fill").font(.title2)
-                }
-                .disabled(currentChapterIndex >= chaptersList.count - 1)
-            }
-            .foregroundColor(textColor)
-            HStack(spacing: 16) {
-                speedButton("0.75x", speed: 0.75)
-                speedButton("1.0x", speed: 1.0)
-                speedButton("1.25x", speed: 1.25)
-                speedButton("1.5x", speed: 1.5)
-                speedButton("2.0x", speed: 2.0)
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-        }
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-    }
-
-    private func speedButton(_ label: String, speed: Double) -> some View {
-        Button(action: { playbackSpeed = speed }) {
-            Text(label)
-                .font(.caption)
-                .fontWeight(playbackSpeed == speed ? .bold : .regular)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(playbackSpeed == speed ? Color.blue.opacity(0.2) : Color.clear)
-                .cornerRadius(6)
-                .foregroundColor(playbackSpeed == speed ? .blue : textColor.opacity(0.6))
-        }
-    }
-
-    // MARK: - Status Bar
+    // MARK: - Status Bar (immersive silent mode)
 
     private var readerStatusBar: some View {
         HStack(spacing: 8) {
@@ -759,87 +755,136 @@ struct ReaderView: View {
         .background(bgColor.opacity(0.9))
     }
 
-    private var batteryIcon: String {
-        batteryLevel > 90 ? "battery.100" :
-        batteryLevel > 60 ? "battery.75" :
-        batteryLevel > 30 ? "battery.50" :
-        "battery.0"
-    }
+    // MARK: - Lifecycle
 
-    private var progressText: String {
-        guard !chaptersList.isEmpty else { return "\u{2014}" }
-        return "\(currentChapterIndex + 1)/\(chaptersList.count)"
-    }
-
-    // MARK: - Control Bar (silent reading)
-
-    private var controlBar: some View {
-        VStack(spacing: 0) {
-            if showBookmarks { bookmarkPanel }
-            HStack(spacing: 12) {
-                controlButton("chevron.left", disabled: currentChapterIndex <= 0, action: previousChapter)
-                controlButton("list.bullet", action: { showTOC = true })
-                controlButton(
-                    chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill",
-                    action: { showBookmarks.toggle() }
-                )
-                controlButton(themeIcon(store.readerTheme), action: { store.readerTheme = nextTheme(store.readerTheme) })
-                controlButton("textformat.alt", action: { showFontPicker = true })
-                controlButton("gearshape.fill", action: { showSettings = true })
-                controlButton("play.circle.fill", action: {
-                    isAudioMode = true
-                    isPlaying = true
-                    Task { await startPlayback() }
-                })
-                controlButton("chevron.right", disabled: currentChapterIndex >= chaptersList.count - 1, action: nextChapter)
-            }
-            .padding(.vertical, 8).padding(.horizontal, 12)
-            .foregroundColor(textColor)
-            .background(.ultraThinMaterial)
+    private func onAppearSetup() {
+        if !UIDevice.current.isBatteryMonitoringEnabled {
+            UIDevice.current.isBatteryMonitoringEnabled = true
         }
-        .animation(.easeInOut(duration: 0.2), value: showBookmarks)
-    }
-
-    private func controlButton(_ systemName: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName).font(.title2)
+        batteryLevel = UIDevice.current.batteryLevel >= 0
+            ? Int(UIDevice.current.batteryLevel * 100) : -1
+        store.selectedChapterID = currentChapter.id
+        UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
+        ensureChaptersLoaded()
+        if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
+            screenBrightness = brightness
+            useSystemBrightness = false
+            UIScreen.main.brightness = brightness
         }
-        .disabled(disabled)
+        ReaderStore.debugLog("[RVIEW-APPEAR] idx=\(currentChapterIndex) chaptersList.count=\(chaptersList.count)")
     }
 
-    private var bookmarkPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("书签 (\(chapterBookmarks.count))").font(.headline).foregroundColor(textColor)
-                Spacer()
-                Button("关闭") { showBookmarks = false }.font(.caption)
-            }
-            .padding(.horizontal).padding(.top, 8)
-            if chapterBookmarks.isEmpty {
-                Text("暂无书签").foregroundColor(textColor.opacity(0.5)).padding()
+    private func onDisappearCleanup() {
+        UIApplication.shared.isIdleTimerDisabled = false
+        ReaderStore.saveLastChapterIndex(anchorChapterIndex, for: bookID)
+        if anchorChapterIndex < chaptersList.count {
+            store.setChapterProgress(chaptersList[anchorChapterIndex].id, percent: 1.0)
+        }
+        store.saveState()
+        if !useSystemBrightness {
+            UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
+        }
+    }
+
+    private func ensureChaptersLoaded() {
+        guard chaptersList.isEmpty else { return }
+        if let cached = store.chaptersForBookCached(bookID) {
+            chaptersList = cached
+            return
+        }
+        let text: String
+        if store.bookText.isEmpty || store.currentBookID != bookID.uuidString {
+            if let fileText = store.loadBookTextFromFile(bookID: bookID), !fileText.isEmpty {
+                text = fileText
+                store.bookText = fileText
+                store.currentBookID = bookID.uuidString
             } else {
-                List {
-                    ForEach(chapterBookmarks) { bm in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(bm.note.isEmpty ? "\(Int(bm.percent * 100))%" : bm.note)
-                                    .font(.caption).foregroundColor(textColor)
-                                Text(bm.createdAt.formatted(date: .omitted, time: .shortened))
-                                    .font(.caption2).foregroundColor(textColor.opacity(0.6))
-                            }
-                            Spacer()
-                            Button(action: { store.removeBookmark(bm.id) }) {
-                                Image(systemName: "trash").foregroundColor(.red)
-                            }
-                            .buttonStyle(BorderlessButtonStyle())
-                        }
-                        .listRowBackground(bgColor)
-                    }
-                }
-                .listStyle(.plain).frame(maxHeight: 180)
+                text = book.text
+            }
+        } else {
+            text = store.bookText
+        }
+        chaptersList = store.chaptersForBook(bookID, text: text)
+        if chaptersList.isEmpty { chaptersList = [currentChapter] }
+    }
+
+    private func handleExternalNavigate(nav: ChapterNavigate?) {
+        guard let nav, nav.bookID == bookID, nav.chapterIndex < chaptersList.count else { return }
+        store.externalChapterNavigate = nil
+        jumpTo(nav.chapterIndex, explicit: true)
+    }
+
+    // MARK: - Navigation
+
+    private func jumpTo(_ index: Int, explicit: Bool) {
+        guard index >= 0, index < chaptersList.count else { return }
+        if isPlaying { store.stopPlayback(); isPlaying = false }
+        currentChapterIndex = index
+        currentChapter = chaptersList[index]
+        displayedChapterTitle = chaptersList[index].title
+        store.selectedChapterID = chaptersList[index].id
+        ReaderStore.saveLastChapterIndex(index, for: bookID)
+        if explicit { anchorChapterIndex = index }
+        let lower = max(0, index - 2)
+        let upper = min(chaptersList.count - 1, index + 2)
+        DispatchQueue.global(qos: .background).async {
+            for i in lower...upper where i != index {
+                _ = chaptersList[i].text
             }
         }
-        .background(bgColor)
+        ReaderStore.debugLog("[JUMP] idx=\(index)")
+    }
+
+    private func previousChapter() {
+        guard currentChapterIndex > 0, currentChapterIndex < chaptersList.count else { return }
+        let idx = currentChapterIndex - 1
+        if isAudioMode {
+            displayedChapterTitle = chaptersList[idx].title
+            store.selectedChapterID = chaptersList[idx].id
+            ReaderStore.saveLastChapterIndex(idx, for: bookID)
+            isPlaying = false
+            store.stopPlayback()
+            currentChapterIndex = idx
+            currentChapter = chaptersList[idx]
+        } else {
+            if idx + 1 < chaptersList.count {
+                store.setChapterProgress(chaptersList[idx + 1].id, percent: 1.0)
+            }
+            jumpTo(idx, explicit: true)
+        }
+    }
+
+    private func nextChapter() {
+        guard currentChapterIndex < chaptersList.count - 1 else { return }
+        let idx = currentChapterIndex + 1
+        if isAudioMode {
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
+            displayedChapterTitle = chaptersList[idx].title
+            store.selectedChapterID = chaptersList[idx].id
+            ReaderStore.saveLastChapterIndex(idx, for: bookID)
+            isPlaying = false
+            store.stopPlayback()
+            currentChapterIndex = idx
+            currentChapter = chaptersList[idx]
+        } else {
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
+            jumpTo(idx, explicit: true)
+        }
+    }
+
+    private func startPlayback() async {
+        guard currentChapterIndex < chaptersList.count else { return }
+        let chapter = chaptersList[currentChapterIndex]
+        store.audioController.playbackRate = Float(playbackSpeed)
+        if store.characters.isEmpty {
+            store.statusMessage = "未检测到角色，正在自动扫描..."
+            await store.scanCharacters()
+        }
+        if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
+            await store.buildScript(for: false)
+        }
+        await store.playChapterWithTTS(chapter: chapter)
+        isPlaying = false
     }
 
     // MARK: - Helpers
@@ -859,14 +904,6 @@ struct ReaderView: View {
         case .dark: return "moon.fill"
         }
     }
-
-    private func updateBatteryLevel() {
-        if !UIDevice.current.isBatteryMonitoringEnabled {
-            UIDevice.current.isBatteryMonitoringEnabled = true
-        }
-        batteryLevel = UIDevice.current.batteryLevel >= 0
-            ? Int(UIDevice.current.batteryLevel * 100) : -1
-    }
 }
 
 // MARK: - ReaderSheets ViewModifier
@@ -881,6 +918,8 @@ private struct ReaderSheets: ViewModifier {
     @Binding var showCharacterFromText: Bool
     let selectedTextForCharacter: String
     let currentChapterID: UUID
+    let currentChapterIndex: Int
+    let chaptersList: [BookChapter]
     let onTOCSelect: (Int) -> Void
     let onCharacterEdit: (CharacterProfile) -> Void
     let store: ReaderStore
