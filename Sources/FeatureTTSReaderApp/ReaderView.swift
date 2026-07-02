@@ -17,13 +17,6 @@ enum TextAlign: Int, CaseIterable, Identifiable {
 
 // MARK: - Preference Keys
 
-private struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 private struct ChapterFrameValue: Equatable {
     let index: Int
     let minY: CGFloat
@@ -37,29 +30,6 @@ private struct ChapterFramePrefKey: PreferenceKey {
     }
 }
 
-// MARK: - Scroll Offset Controller (UIKit proxy for accurate scroll navigation)
-
-private struct ScrollOffsetController: UIViewRepresentable {
-    @Binding var targetOffset: CGFloat?
-
-    func makeUIView(context: Context) -> UIView {
-        UIView()
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        guard let offset = targetOffset else { return }
-        var current: UIView? = uiView
-        while current != nil {
-            if let sv = current as? UIScrollView {
-                sv.setContentOffset(CGPoint(x: 0, y: offset), animated: true)
-                DispatchQueue.main.async { targetOffset = nil }
-                return
-            }
-            current = current?.superview
-        }
-    }
-}
-
 // MARK: - ReaderView
 
 struct ReaderView: View {
@@ -70,6 +40,7 @@ struct ReaderView: View {
 
     @State private var currentChapter: BookChapter
     @State private var currentChapterIndex: Int
+    @State private var anchorChapterIndex: Int
     @State private var chaptersList: [BookChapter] = []
 
     @State private var showBookmarks = false
@@ -95,20 +66,8 @@ struct ReaderView: View {
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var useSystemBrightness = true
 
-    @State private var scrollOffset: CGFloat = 0
     @State private var chapterFrames: [Int: ChapterFrameValue] = [:]
     @State private var chapterProgress: Double = 0
-    @State private var pendingScrollOffset: CGFloat?
-
-    private var accumulatedOffsets: [Int: CGFloat] {
-        var result: [Int: CGFloat] = [:]
-        var y: CGFloat = 0
-        for i in 0..<chaptersList.count {
-            result[i] = y
-            y += estimatedChapterHeight(chaptersList[i])
-        }
-        return result
-    }
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -118,6 +77,7 @@ struct ReaderView: View {
         ReaderStore.debugLog("[RVIEW-INIT] bookID=\(bookID.uuidString) chapterIndex=\(chapterIndex)")
         _currentChapter = State(initialValue: chapter)
         _currentChapterIndex = State(initialValue: chapterIndex)
+        _anchorChapterIndex = State(initialValue: chapterIndex)
     }
 
     // MARK: - Computed Properties
@@ -174,37 +134,27 @@ struct ReaderView: View {
 
             ZStack(alignment: .bottomTrailing) {
                 ScrollViewReader { scrollProxy in
-                    ScrollView {
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: ScrollOffsetKey.self,
-                                value: geo.frame(in: .named("scroll")).minY
-                            )
-                        }
-                        .frame(height: 0)
-
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(chaptersList.indices, id: \.self) { i in
-                                chapterContent(index: i)
-                                    .background(GeometryReader { geo in
-                                        Color.clear.preference(
-                                            key: ChapterFramePrefKey.self,
-                                            value: [i: ChapterFrameValue(
-                                                index: i,
-                                                minY: geo.frame(in: .named("scroll")).minY,
-                                                height: geo.size.height
-                                            )]
-                                        )
-                                    })
-                                    .id("ch_\(i)")
-                            }
+                    List {
+                        ForEach(chaptersList.indices, id: \.self) { i in
+                            chapterContent(index: i)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .id("ch_\(i)")
+                                .background(GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: ChapterFramePrefKey.self,
+                                        value: [i: ChapterFrameValue(
+                                            index: i,
+                                            minY: geo.frame(in: .named("readerList")).minY,
+                                            height: geo.size.height
+                                        )]
+                                    )
+                                })
                         }
                     }
-                    .coordinateSpace(name: "scroll")
-                    .onPreferenceChange(ScrollOffsetKey.self) { offset in
-                        scrollOffset = offset
-                        updateChapterFromScroll()
-                    }
+                    .listStyle(.plain)
+                    .coordinateSpace(name: "readerList")
                     .onPreferenceChange(ChapterFramePrefKey.self) { frames in
                         chapterFrames = frames
                         updateChapterFromScroll()
@@ -213,17 +163,12 @@ struct ReaderView: View {
                         TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
                     )
                     .onChange(of: externalScrollTarget) { target in
-                        guard let t = target else { return }
-                        currentChapterIndex = t
-                        externalScrollTarget = nil
-                        pendingScrollOffset = accumulatedOffsets[t, default: 0]
+                        if let t = target {
+                            withAnimation { scrollProxy.scrollTo("ch_\(t)", anchor: .top) }
+                            currentChapterIndex = t
+                            externalScrollTarget = nil
+                        }
                     }
-                    .background(ScrollOffsetController(
-                        targetOffset: Binding(
-                            get: { pendingScrollOffset },
-                            set: { pendingScrollOffset = $0 }
-                        )
-                    ))
                 }
 
                 if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
@@ -333,7 +278,6 @@ struct ReaderView: View {
             } else {
                 Button(action: {
                     ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
-                    ReaderStore.debugLog("[SAVE] Dismiss: index=\(currentChapterIndex) bookID=\(bookID.uuidString)")
                     store.saveState()
                     dismiss()
                 }) {
@@ -415,18 +359,13 @@ struct ReaderView: View {
     // MARK: - Scroll Tracking
 
     private func updateChapterFromScroll() {
-        let viewportTop = -scrollOffset
         var bestIndex = currentChapterIndex
-        var bestOverlap: CGFloat = 0
+        var bestDist: CGFloat = .greatestFiniteMagnitude
 
         for (i, frame) in chapterFrames {
-            let chapterStart = frame.minY
-            let chapterEnd = frame.minY + frame.height
-
-            let overlap = min(viewportTop + UIScreen.main.bounds.height, chapterEnd)
-                - max(viewportTop, chapterStart)
-            if overlap > bestOverlap {
-                bestOverlap = overlap
+            let dist = abs(frame.minY)
+            if dist < bestDist {
+                bestDist = dist
                 bestIndex = i
             }
         }
@@ -440,12 +379,8 @@ struct ReaderView: View {
         }
 
         if let frame = chapterFrames[bestIndex] {
-            let position = viewportTop - frame.minY
-            let oldProgress = chapterProgress
-            let newProgress = frame.height > 0 ? max(0, min(1, position / frame.height)) : 0
-            if abs(newProgress - oldProgress) > 0.001 {
-                chapterProgress = newProgress
-            }
+            let position = -frame.minY
+            chapterProgress = frame.height > 0 ? max(0, min(1, position / frame.height)) : 0
         }
     }
 
@@ -1029,7 +964,6 @@ struct ReaderView: View {
     private func onDisappearCleanup() {
         UIApplication.shared.isIdleTimerDisabled = false
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
-        ReaderStore.debugLog("[SAVE] onDisappear: index=\(currentChapterIndex) bookID=\(bookID.uuidString)")
         if currentChapterIndex < chaptersList.count {
             store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
         }
@@ -1096,6 +1030,7 @@ struct ReaderView: View {
         currentChapter = chaptersList[index]
         store.selectedChapterID = chaptersList[index].id
         ReaderStore.saveLastChapterIndex(index, for: bookID)
+        if explicit { anchorChapterIndex = index }
         ReaderStore.debugLog("[JUMP] idx=\(index)")
     }
 
