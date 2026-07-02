@@ -86,10 +86,13 @@ struct BookshelfView: View {
                     .environmentObject(store)
             }
             .navigationDestination(for: ReaderNavigationKey.self) { key in
-                ReaderView(book: key.book,
-                           chapter: key.chapter,
+                let book = store.books.first { $0.id == key.bookID } ?? Book(id: key.bookID, title: "", text: "", importedAt: Date())
+                let chaps = store.bookChaptersCache[key.bookID] ?? []
+                let chapter = chaps.indices.contains(key.chapterIndex) ? chaps[key.chapterIndex] : BookChapter(id: key.chapterID, title: "", text: "")
+                ReaderView(book: book,
+                           chapter: chapter,
                            bookID: key.bookID,
-                           chapterIndex: key.index)
+                           chapterIndex: key.chapterIndex)
                     .environmentObject(store)
             }
         }
@@ -507,26 +510,24 @@ struct BookDetailView: View {
         let safeIndex = min(saved, chaps.count - 1)
         store.navigationPath.append(ReaderNavigationKey(
             bookID: book.id,
-            book: book,
-            chapter: chaps[safeIndex],
-            index: safeIndex
+            chapterID: chaps[safeIndex].id,
+            chapterIndex: safeIndex
         ))
     }
 }
 
 struct ReaderNavigationKey: Hashable {
     let bookID: UUID
-    let book: Book
-    let chapter: BookChapter
-    let index: Int
+    let chapterID: UUID
+    let chapterIndex: Int
 
     static func == (lhs: ReaderNavigationKey, rhs: ReaderNavigationKey) -> Bool {
-        lhs.bookID == rhs.bookID && lhs.chapter.id == rhs.chapter.id
+        lhs.bookID == rhs.bookID && lhs.chapterID == rhs.chapterID
     }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(bookID)
-        hasher.combine(chapter.id)
+        hasher.combine(chapterID)
     }
 }
 

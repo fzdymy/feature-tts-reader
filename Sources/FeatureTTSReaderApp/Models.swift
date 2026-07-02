@@ -18,7 +18,28 @@ enum SortOption: String, CaseIterable, Identifiable {
 struct BookChapter: Identifiable, Hashable, Codable {
     let id: UUID
     let title: String
-    let text: String
+    var text: String
+
+    enum CodingKeys: String, CodingKey { case id, title }
+
+    init(id: UUID, title: String, text: String) {
+        self.id = id
+        self.title = title
+        self.text = text
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        text = ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+    }
 
     var preview: String {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
