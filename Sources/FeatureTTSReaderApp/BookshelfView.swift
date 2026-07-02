@@ -6,7 +6,6 @@ struct BookshelfView: View {
     @State private var viewMode: ViewMode = .grid
     @State private var sortOption: SortOption = .recent
     @State private var searchText = ""
-    @State private var showBookDetail = false
 
     enum ViewMode: String, CaseIterable, Identifiable {
         case grid, list
@@ -84,6 +83,13 @@ struct BookshelfView: View {
             }
             .navigationDestination(for: Book.self) { book in
                 BookDetailView(book: book)
+                    .environmentObject(store)
+            }
+            .navigationDestination(for: ReaderNavigationKey.self) { key in
+                ReaderView(book: key.book,
+                           chapter: key.chapter,
+                           bookID: key.bookID,
+                           chapterIndex: key.index)
                     .environmentObject(store)
             }
         }
@@ -365,11 +371,11 @@ struct BookListRow: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .task {
-            await loadChapterCounts()
+            await loadChapterCount()
         }
     }
 
-    private func loadChapterCounts() async {
+    private func loadChapterCount() async {
         if let cached = store.bookChaptersCache[book.id] {
             chapterCount = cached.count
             return
@@ -475,10 +481,6 @@ struct BookDetailView: View {
         .task {
             await loadChapters()
         }
-        .navigationDestination(for: ReaderNavigationKey.self) { key in
-            ReaderView(book: book, chapter: key.chapter, bookID: book.id, chapterIndex: key.index)
-                .environmentObject(store)
-        }
     }
 
     private func loadChapters() async {
@@ -509,6 +511,7 @@ struct BookDetailView: View {
         let safeIndex = min(saved, chaps.count - 1)
         store.navigationPath.append(ReaderNavigationKey(
             bookID: book.id,
+            book: book,
             chapter: chaps[safeIndex],
             index: safeIndex
         ))
@@ -517,6 +520,7 @@ struct BookDetailView: View {
 
 struct ReaderNavigationKey: Hashable {
     let bookID: UUID
+    let book: Book
     let chapter: BookChapter
     let index: Int
 
