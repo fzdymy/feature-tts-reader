@@ -292,27 +292,22 @@ struct ReaderView: View {
     private func chapterContent(index: Int) -> some View {
         let ch = chaptersList[index]
         VStack(alignment: .leading, spacing: 0) {
-            Text(ch.title)
-                .font(.title2).fontWeight(.bold)
-                .foregroundColor(textColor)
-                .padding(.top, 24)
-                .padding(.bottom, 12)
-                .id("ch_\(index)")
-
             Text(indentedText(ch.text))
                 .font(Font.custom(store.readerFontName, size: store.readerFontSize))
                 .foregroundColor(textColor)
                 .lineSpacing(store.readerLineSpacing + 2)
                 .textSelection(.enabled)
-                .padding(.bottom, 20)
+
+            Divider()
+                .foregroundColor(textColor.opacity(0.2))
+                .padding(.vertical, 16)
         }
         .padding(.horizontal, 20)
         .frame(minHeight: estimatedChapterHeight(ch))
     }
 
     private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
-        let titleHeight: CGFloat = 58
-        let bottomPad: CGFloat = 20
+        let bottomPad: CGFloat = 40
         let hPad: CGFloat = 40
         let containerWidth = UIScreen.main.bounds.width - hPad
         let fontSize = store.readerFontSize
@@ -322,7 +317,7 @@ struct ReaderView: View {
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
         let totalChars = ch.text.count
         let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
-        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
+        return CGFloat(lineCount) * lineHeight + bottomPad
     }
 
     // MARK: - Silent Bottom Bar
