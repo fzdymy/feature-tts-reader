@@ -24,44 +24,13 @@ struct VoiceFineTuneView: View {
 
             Section(header: Text("已创建的微调音色")) {
                 ForEach(store.voiceProfiles) { profile in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(profile.alias.isEmpty ? profile.sourceVoiceID : profile.alias)
-                                .font(.headline)
-                            Spacer()
-                            if !profile.tags.isEmpty {
-                                HStack(spacing: 4) {
-                                    ForEach(profile.tags.prefix(3), id: \.self) { tag in
-                                        Text(tag)
-                                            .font(.caption2)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.blue.opacity(0.15))
-                                            .cornerRadius(4)
-                                    }
-                                    if profile.tags.count > 3 {
-                                        Text("+\(profile.tags.count - 3)")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                        Text("源自: \(profile.sourceVoiceID)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("语速\(profile.rateOffset) · 音调\(profile.pitchOffset) · 风格\(profile.style)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                    VoiceProfileRow(profile: profile) {
+                        editingProfile = profile
                     }
-                    .padding(.vertical, 4)
                     .swipeActions(edge: .trailing) {
                         Button("删除", role: .destructive) {
                             store.removeVoiceProfile(profile.id)
                         }
-                    }
-                    .onTapGesture {
-                        editingProfile = profile
                     }
                 }
             }
@@ -330,5 +299,49 @@ struct JSONDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+}
+
+// MARK: - VoiceProfileRow
+
+struct VoiceProfileRow: View {
+    let profile: VoiceProfileTuning
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(profile.alias.isEmpty ? profile.sourceVoiceID : profile.alias)
+                        .font(.headline)
+                    Spacer()
+                    if !profile.tags.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(Array(profile.tags.prefix(3)), id: \.self) { tag in
+                                Text(tag)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue.opacity(0.15))
+                                    .cornerRadius(4)
+                            }
+                            if profile.tags.count > 3 {
+                                Text("+\(profile.tags.count - 3)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+                Text("源自: \(profile.sourceVoiceID)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("语速\(profile.rateOffset) · 音调\(profile.pitchOffset) · 风格\(profile.style)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+        .foregroundColor(.primary)
     }
 }
