@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ContentView: View {
+struct TTSView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var rawText: String = ""
     @State private var selectedCharacter: CharacterProfile?
@@ -349,9 +349,9 @@ struct ContentView: View {
     }
 }
 
-struct ContentView_Previews: PreviewProvider {
+struct TTSView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView()
+        TTSView()
             .environmentObject(ReaderStore())
     }
 }

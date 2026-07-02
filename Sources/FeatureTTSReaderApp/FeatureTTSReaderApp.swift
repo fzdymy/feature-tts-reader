@@ -11,9 +11,9 @@ struct FeatureTTSReaderApp: App {
                     .environmentObject(store)
                     .tabItem { Label("书架", systemImage: "books.vertical") }
 
-                ContentView()
+                TTSView()
                     .environmentObject(store)
-                    .tabItem { Label("朗读", systemImage: "play.circle") }
+                    .tabItem { Label("TTS", systemImage: "play.circle") }
 
                 SettingsView()
                     .environmentObject(store)
