@@ -28,6 +28,7 @@ struct ReaderView: View {
     @State private var currentChapterIndex: Int
     @State private var anchorChapterIndex: Int
     @State private var displayedChapterTitle: String
+    @State private var chaptersList: [BookChapter] = []
 
     // UI state – silent reading
     @State private var showBookmarks = false
@@ -66,15 +67,6 @@ struct ReaderView: View {
         self._currentChapterIndex = State(initialValue: chapterIndex)
         self._anchorChapterIndex = State(initialValue: chapterIndex)
         self._displayedChapterTitle = State(initialValue: chapter.title)
-    }
-
-    private var chapters: [BookChapter]? {
-        store.chaptersForBookCached(bookID)
-    }
-
-    private var currentChapterOptional: BookChapter? {
-        guard let chs = chapters, currentChapterIndex < chs.count else { return nil }
-        return chs[currentChapterIndex]
     }
 
     private var textColor: Color {
@@ -211,6 +203,14 @@ struct ReaderView: View {
             updateBatteryLevel()
             store.selectedChapterID = currentChapter.id
             UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
+            if chaptersList.isEmpty {
+                if let cached = store.chaptersForBookCached(bookID) {
+                    chaptersList = cached
+                } else {
+                    chaptersList = store.chaptersForBook(bookID, text: store.bookText)
+                    if chaptersList.isEmpty { chaptersList = [currentChapter] }
+                }
+            }
             if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
                 screenBrightness = brightness
                 useSystemBrightness = false
@@ -221,8 +221,8 @@ struct ReaderView: View {
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             ReaderStore.saveLastChapterIndex(anchorChapterIndex, for: bookID)
-            if let chs = chapters, anchorChapterIndex < chs.count {
-                store.setChapterProgress(chs[anchorChapterIndex].id, percent: 1.0)
+            if anchorChapterIndex < chaptersList.count {
+                store.setChapterProgress(chaptersList[anchorChapterIndex].id, percent: 1.0)
             }
             store.saveState()
             if !useSystemBrightness {
@@ -231,7 +231,7 @@ struct ReaderView: View {
         }
         .onChange(of: store.externalChapterNavigate) { nav in
             guard let nav, nav.bookID == bookID,
-                  let chs = chapters, nav.chapterIndex < chs.count else { return }
+                   nav.chapterIndex < chaptersList.count else { return }
             store.externalChapterNavigate = nil
             jumpTo(nav.chapterIndex, explicit: true)
         }
@@ -244,8 +244,8 @@ struct ReaderView: View {
         .sheet(isPresented: $showTOC) {
             ChapterListView(currentChapterID: currentChapter.id) { chapter, index in
                 ReaderStore.debugLog("[TOC] idx=\(index)")
-                if let chs = chapters {
-                    store.setChapterProgress(chs[min(currentChapterIndex, chs.count - 1)].id, percent: 1.0)
+                if !chaptersList.isEmpty {
+                    store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
                 }
                 jumpTo(index, explicit: true)
             }
@@ -294,64 +294,64 @@ struct ReaderView: View {
     // MARK: - Navigation
 
     private func jumpTo(_ index: Int, explicit: Bool) {
-        guard let chs = chapters, index >= 0, index < chs.count else { return }
+        guard index >= 0, index < chaptersList.count else { return }
         if isPlaying { store.stopPlayback(); isPlaying = false }
         currentChapterIndex = index
-        currentChapter = chs[index]
-        displayedChapterTitle = chs[index].title
-        store.selectedChapterID = chs[index].id
+        currentChapter = chaptersList[index]
+        displayedChapterTitle = chaptersList[index].title
+        store.selectedChapterID = chaptersList[index].id
         ReaderStore.saveLastChapterIndex(index, for: bookID)
         if explicit { anchorChapterIndex = index }
         let lower = max(0, index - 2)
-        let upper = min(chs.count - 1, index + 2)
+        let upper = min(chaptersList.count - 1, index + 2)
         DispatchQueue.global(qos: .background).async {
             for i in lower...upper where i != index {
-                _ = chs[i].text
+                _ = chaptersList[i].text
             }
         }
         ReaderStore.debugLog("[JUMP] idx=\(index)")
     }
 
     private func previousChapter() {
-        guard let chs = chapters, currentChapterIndex > 0 else { return }
+        guard currentChapterIndex > 0, currentChapterIndex < chaptersList.count else { return }
+        let idx = currentChapterIndex - 1
         if isAudioMode {
-            let idx = currentChapterIndex - 1
-            displayedChapterTitle = chs[idx].title
-            store.selectedChapterID = chs[idx].id
+            displayedChapterTitle = chaptersList[idx].title
+            store.selectedChapterID = chaptersList[idx].id
             ReaderStore.saveLastChapterIndex(idx, for: bookID)
             isPlaying = false
             store.stopPlayback()
             currentChapterIndex = idx
-            currentChapter = chs[idx]
+            currentChapter = chaptersList[idx]
         } else {
-            let idx = currentChapterIndex - 1
-            if idx + 1 < chs.count {
-                store.setChapterProgress(chs[idx + 1].id, percent: 1.0)
+            if idx + 1 < chaptersList.count {
+                store.setChapterProgress(chaptersList[idx + 1].id, percent: 1.0)
             }
             jumpTo(idx, explicit: true)
         }
     }
 
     private func nextChapter() {
-        guard let chs = chapters, currentChapterIndex < chs.count - 1 else { return }
+        guard currentChapterIndex < chaptersList.count - 1 else { return }
+        let idx = currentChapterIndex + 1
         if isAudioMode {
-            store.setChapterProgress(chs[currentChapterIndex].id, percent: 1.0)
-            let idx = currentChapterIndex + 1
-            displayedChapterTitle = chs[idx].title
-            store.selectedChapterID = chs[idx].id
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
+            displayedChapterTitle = chaptersList[idx].title
+            store.selectedChapterID = chaptersList[idx].id
             ReaderStore.saveLastChapterIndex(idx, for: bookID)
             isPlaying = false
             store.stopPlayback()
             currentChapterIndex = idx
-            currentChapter = chs[idx]
+            currentChapter = chaptersList[idx]
         } else {
-            store.setChapterProgress(chs[currentChapterIndex].id, percent: 1.0)
-            jumpTo(currentChapterIndex + 1, explicit: true)
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
+            jumpTo(idx, explicit: true)
         }
     }
 
     private func startPlayback() async {
-        guard let chapter = currentChapterOptional else { return }
+        guard currentChapterIndex < chaptersList.count else { return }
+        let chapter = chaptersList[currentChapterIndex]
         store.audioController.playbackRate = Float(playbackSpeed)
         if store.characters.isEmpty {
             store.statusMessage = "未检测到角色，正在自动扫描..."
@@ -700,7 +700,7 @@ struct ReaderView: View {
                 Button(action: nextChapter) {
                     Image(systemName: "forward.end.fill").font(.title2)
                 }
-                .disabled(currentChapterIndex >= (chapters?.count ?? 1) - 1)
+                .disabled(currentChapterIndex >= chaptersList.count - 1)
             }
             .foregroundColor(textColor)
 
@@ -739,8 +739,8 @@ struct ReaderView: View {
                     .font(.caption2).foregroundColor(textColor.opacity(0.6)).monospacedDigit()
             }
             if store.showPageNumber {
-                let pct = chapters?.isEmpty ?? true ? 0
-                    : min(Double(currentChapterIndex + 1) / Double(max(chapters?.count ?? 1, 1)), 1)
+                let pct = chaptersList.isEmpty ? 0
+                    : min(Double(currentChapterIndex + 1) / Double(max(chaptersList.count, 1)), 1)
                 Text("\(Int(pct * 100))%")
                     .font(.caption2).foregroundColor(textColor.opacity(0.5))
             }
@@ -770,8 +770,8 @@ struct ReaderView: View {
     }
 
     private var progressText: String {
-        guard let chs = chapters, !chs.isEmpty else { return "—" }
-        return "\(currentChapterIndex + 1)/\(chs.count)"
+        guard !chaptersList.isEmpty else { return "—" }
+        return "\(currentChapterIndex + 1)/\(chaptersList.count)"
     }
 
     // MARK: - Control Bar (silent reading)
@@ -801,7 +801,7 @@ struct ReaderView: View {
                 )
                 controlButton(
                     systemName: "chevron.right",
-                    disabled: currentChapterIndex >= (chapters?.count ?? 1) - 1,
+                    disabled: currentChapterIndex >= chaptersList.count - 1,
                     action: nextChapter
                 )
             }

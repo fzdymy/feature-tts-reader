@@ -429,8 +429,9 @@ struct BookDetailView: View {
         return sum / Double(chapters.count)
     }
 
-    private var readChapters: Int {
-        chapters.filter { store.bookProgressByChapter[$0.id] ?? 0 > 0.95 }.count
+    private var currentChapterNumber: Int {
+        let lastIdx = chapters.lastIndex { store.bookProgressByChapter[$0.id] ?? 0 > 0 }
+        return (lastIdx ?? -1) + 2
     }
 
     private var totalReadingTime: String {
@@ -481,7 +482,7 @@ struct BookDetailView: View {
                         // Stats
                         HStack(spacing: 24) {
                             StatView(value: "\(chapters.count)", label: "章节")
-                            StatView(value: "\(readChapters)", label: "已读")
+                            StatView(value: "\(currentChapterNumber)", label: "已读")
                             StatView(value: "\(Int(totalProgress * 100))%", label: "进度")
                             StatView(value: totalReadingTime, label: "预计")
                         }
@@ -508,11 +509,11 @@ struct BookDetailView: View {
                         )
                     }) {
                         HStack {
-                            Image(systemName: readChapters > 0 ? "bookmark.fill" : "book.fill")
-                            Text(readChapters > 0 ? "继续阅读" : "开始阅读")
+                            Image(systemName: currentChapterNumber > 1 ? "bookmark.fill" : "book.fill")
+                            Text(currentChapterNumber > 1 ? "继续阅读" : "开始阅读")
                             Spacer()
-                            if readChapters > 0 {
-                                Text("第 \(readChapters + 1) 章")
+                            if currentChapterNumber > 1 {
+                                Text("第 \(currentChapterNumber) 章")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
