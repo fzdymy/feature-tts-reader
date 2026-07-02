@@ -428,7 +428,8 @@ struct ReaderState: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        chapters = try container.decodeIfPresent([BookChapter].self, forKey: .chapters) ?? []
+        chapters = []
+        bookText = ""
         characters = try container.decodeIfPresent([CharacterProfile].self, forKey: .characters) ?? []
         scriptSegments = try container.decodeIfPresent([ScriptSegment].self, forKey: .scriptSegments) ?? []
         selectedChapterID = try container.decodeIfPresent(UUID.self, forKey: .selectedChapterID)
