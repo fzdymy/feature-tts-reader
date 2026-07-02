@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 enum TextAlign: Int, CaseIterable, Identifiable {
     case leading = 0, center = 1, trailing = 2, justified = 3
@@ -14,36 +15,49 @@ enum TextAlign: Int, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - ReaderView
+// MARK: - ReaderView (unified silent reading + TTS multi-character audio)
 
 struct ReaderView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
     let book: Book
     let bookID: UUID
-    
-    // Chapter state – single source of truth
+
+    // Chapter state
     @State private var currentChapter: BookChapter
     @State private var currentChapterIndex: Int
     @State private var anchorChapterIndex: Int
     @State private var displayedChapterTitle: String
-    
-    // UI state
+
+    // UI state – silent reading
     @State private var showBookmarks = false
     @State private var showSettings = false
     @State private var showFontPicker = false
     @State private var showTOC = false
     @State private var isImmersive = false
-    @State private var showAudioReader = false
-    
+
+    // UI state – TTS audio mode
+    @State private var isAudioMode = false
+    @State private var isPlaying = false
+    @State private var playbackSpeed: Double = 1.0
+    @State private var playbackProgress: Double = 0
+
+    // Character management
+    @State private var showCharacterPanel = false
+    @State private var editingCharacter: CharacterProfile?
+    @State private var showAddCharacter = false
+    @State private var showAllRecommendations = false
+    @State private var selectedTextForCharacter = ""
+    @State private var showCharacterFromText = false
+
     // Status
     @State private var currentTime = Date()
     @State private var batteryLevel: Int = 100
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var useSystemBrightness = true
-    
+
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
-    
+
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
         self.book = book
         self.bookID = bookID
@@ -53,11 +67,16 @@ struct ReaderView: View {
         self._anchorChapterIndex = State(initialValue: chapterIndex)
         self._displayedChapterTitle = State(initialValue: chapter.title)
     }
-    
+
     private var chapters: [BookChapter]? {
         store.chaptersForBookCached(bookID)
     }
-    
+
+    private var currentChapterOptional: BookChapter? {
+        guard let chs = chapters, currentChapterIndex < chs.count else { return nil }
+        return chs[currentChapterIndex]
+    }
+
     private var textColor: Color {
         switch store.readerTheme {
         case .dark: return .white
@@ -65,7 +84,7 @@ struct ReaderView: View {
         case .sepia: return Color(red: 0.2, green: 0.18, blue: 0.15)
         }
     }
-    
+
     private var bgColor: Color {
         if store.customBackgroundImage != nil { return Color.clear }
         switch store.readerTheme {
@@ -74,79 +93,96 @@ struct ReaderView: View {
         case .sepia: return Color(red: 0.98, green: 0.93, blue: 0.82)
         }
     }
-    
+
     private var chapterDisplayText: String {
         "\u{3000}\u{3000}" + currentChapter.text
             .replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
     }
-    
+
     private var chapterBookmarks: [BookBookmark] {
         store.bookmarks.filter { $0.chapterID == currentChapter.id }
     }
-    
+
     var body: some View {
         ZStack {
-            // Background
             if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)
                     .resizable().scaledToFill().ignoresSafeArea()
             } else {
                 bgColor.ignoresSafeArea()
             }
-            
-            // Main content – single SwiftUI Text for entire chapter
-            ScrollView {
-                Text(chapterDisplayText)
-                    .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-                    .foregroundColor(textColor)
-                    .lineSpacing(store.readerLineSpacing + 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 80)
-                    .textSelection(.enabled)
-            }
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    withAnimation { isImmersive.toggle() }
+
+            VStack(spacing: 0) {
+                if isAudioMode || !isImmersive { readerHeader }
+                if isAudioMode && showCharacterPanel {
+                    characterPanel
+                        .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
                 }
-            )
-            
-            // Immersive: floating chapter title
-            if isImmersive, store.showChapterTitle {
-                VStack {
-                    HStack {
-                        Text(displayedChapterTitle)
-                            .font(.caption)
-                            .foregroundColor(textColor.opacity(0.6))
-                            .lineLimit(1)
-                            .padding(.horizontal, 16).padding(.vertical, 6)
+                ScrollView {
+                    if isAudioMode {
+                        SelectableTextReader(
+                            text: chapterDisplayText,
+                            fontName: store.readerFontName,
+                            fontSize: store.readerFontSize + 2,
+                            textColor: UIColor(textColor),
+                            lineSpacing: store.readerLineSpacing + 4,
+                            onSelect: { selectedText in
+                                let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
+                                selectedTextForCharacter = trimmed
+                                showCharacterFromText = true
+                            }
+                        )
+                    } else {
+                        Text(chapterDisplayText)
+                            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+                            .foregroundColor(textColor)
+                            .lineSpacing(store.readerLineSpacing + 2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                            .padding(.bottom, 80)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(.horizontal, isAudioMode ? 20 : 0)
+                .padding(.top, isAudioMode ? 12 : 0)
+                .padding(.bottom, isAudioMode ? 120 : 0)
+
+                if isAudioMode {
+                    automationToolbar
+                    audioControlBar
+                } else if !isImmersive {
+                    controlBar
+                }
+            }
+
+            if isImmersive && !isAudioMode {
+                if store.showChapterTitle {
+                    VStack {
+                        HStack {
+                            Text(displayedChapterTitle)
+                                .font(.caption)
+                                .foregroundColor(textColor.opacity(0.6))
+                                .lineLimit(1)
+                                .padding(.horizontal, 16).padding(.vertical, 6)
+                            Spacer()
+                        }
                         Spacer()
                     }
-                    Spacer()
                 }
-            }
-            
-            // Non-immersive: header + control bar
-            VStack {
-                if !isImmersive, store.showChapterTitle { readerHeader }
-                Spacer()
-                if !isImmersive { controlBar }
-            }
-            
-            // Immersive: mini status bar
-            if isImmersive,
-               store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                VStack {
-                    Spacer()
-                    readerStatusBar
+                if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
+                    VStack {
+                        Spacer()
+                        readerStatusBar
+                    }
                 }
             }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(isImmersive)
-        .statusBarHidden(isImmersive)
+        .navigationBarHidden(isImmersive && !isAudioMode)
+        .statusBarHidden(isImmersive && !isAudioMode)
         .onReceive(timer) { _ in
             currentTime = Date()
             updateBatteryLevel()
@@ -196,50 +232,119 @@ struct ReaderView: View {
             .environmentObject(store)
             .presentationDetents([.large])
         }
-        .fullScreenCover(isPresented: $showAudioReader) {
-            AudioReaderView(book: book, bookID: bookID, chapterIndex: currentChapterIndex)
+        .sheet(item: $editingCharacter) { character in
+            CharacterEditorView(
+                character: character,
+                voices: store.voices.isEmpty ? VoiceItem.defaultItems() : store.voices
+            ) { updated in
+                if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
+                    store.characters[idx] = updated
+                    store.updateRecommendations()
+                    store.saveState()
+                }
+            }
+            .environmentObject(store)
+        }
+        .sheet(isPresented: $showAddCharacter) {
+            AddCharacterView { name, gender, age, tone in
+                store.addCharacter(name: name, gender: gender, age: age, tone: tone)
+                showAddCharacter = false
+            }
+        }
+        .sheet(isPresented: $showAllRecommendations) {
+            AllRecommendationsView()
                 .environmentObject(store)
         }
+        .sheet(isPresented: $showCharacterFromText) {
+            QuickCharacterAddView(
+                candidateName: selectedTextForCharacter,
+                bookText: store.bookText,
+                existingCharacters: store.characters,
+                onAdd: { name, gender, age, tone in
+                    store.addCharacter(name: name, gender: gender, age: age, tone: tone)
+                },
+                onEdit: { character in
+                    editingCharacter = character
+                }
+            )
+            .environmentObject(store)
+        }
     }
-    
+
     // MARK: - Navigation
-    
+
     private func jumpTo(_ index: Int, explicit: Bool) {
         guard let chs = chapters, index >= 0, index < chs.count else { return }
+        if isPlaying { store.stopPlayback(); isPlaying = false }
         currentChapterIndex = index
         currentChapter = chs[index]
         displayedChapterTitle = chs[index].title
         store.selectedChapterID = chs[index].id
         ReaderStore.saveLastChapterIndex(index, for: bookID)
         if explicit { anchorChapterIndex = index }
-        // Preload adjacent texts in background
         let lower = max(0, index - 2)
         let upper = min(chs.count - 1, index + 2)
         DispatchQueue.global(qos: .background).async {
             for i in lower...upper where i != index {
-                _ = chs[i].text // trigger text load
+                _ = chs[i].text
             }
         }
         ReaderStore.debugLog("[JUMP] idx=\(index)")
     }
-    
+
     private func previousChapter() {
         guard let chs = chapters, currentChapterIndex > 0 else { return }
-        let idx = currentChapterIndex - 1
-        if idx + 1 < chs.count {
-            store.setChapterProgress(chs[idx + 1].id, percent: 1.0)
+        if isAudioMode {
+            let idx = currentChapterIndex - 1
+            displayedChapterTitle = chs[idx].title
+            store.selectedChapterID = chs[idx].id
+            ReaderStore.saveLastChapterIndex(idx, for: bookID)
+            isPlaying = false
+            store.stopPlayback()
+            currentChapterIndex = idx
+            currentChapter = chs[idx]
+        } else {
+            let idx = currentChapterIndex - 1
+            if idx + 1 < chs.count {
+                store.setChapterProgress(chs[idx + 1].id, percent: 1.0)
+            }
+            jumpTo(idx, explicit: true)
         }
-        jumpTo(idx, explicit: true)
     }
-    
+
     private func nextChapter() {
         guard let chs = chapters, currentChapterIndex < chs.count - 1 else { return }
-        store.setChapterProgress(chs[currentChapterIndex].id, percent: 1.0)
-        jumpTo(currentChapterIndex + 1, explicit: true)
+        if isAudioMode {
+            store.setChapterProgress(chs[currentChapterIndex].id, percent: 1.0)
+            let idx = currentChapterIndex + 1
+            displayedChapterTitle = chs[idx].title
+            store.selectedChapterID = chs[idx].id
+            ReaderStore.saveLastChapterIndex(idx, for: bookID)
+            isPlaying = false
+            store.stopPlayback()
+            currentChapterIndex = idx
+            currentChapter = chs[idx]
+        } else {
+            store.setChapterProgress(chs[currentChapterIndex].id, percent: 1.0)
+            jumpTo(currentChapterIndex + 1, explicit: true)
+        }
     }
-    
-    // MARK: - Subviews
-    
+
+    private func startPlayback() async {
+        guard let chapter = currentChapterOptional else { return }
+        if store.characters.isEmpty {
+            store.statusMessage = "未检测到角色，正在自动扫描..."
+            await store.scanCharacters()
+        }
+        if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
+            await store.buildScript(for: false)
+        }
+        await store.playChapterWithTTS(chapter: chapter)
+        isPlaying = false
+    }
+
+    // MARK: - Header
+
     private var readerHeader: some View {
         HStack {
             Button(action: { dismiss() }) {
@@ -252,12 +357,352 @@ struct ReaderView: View {
                 .foregroundColor(textColor)
                 .padding(.leading, 8)
             Spacer()
+            if isAudioMode {
+                Text("选中文本中的人名可直接添加为角色")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                Button(action: { showCharacterPanel.toggle() }) {
+                    Image(systemName: showCharacterPanel ? "person.2.fill" : "person.2")
+                        .font(.title3)
+                        .foregroundColor(showCharacterPanel ? .blue : textColor.opacity(0.7))
+                }
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(bgColor.opacity(0.9))
         .overlay(Divider(), alignment: .bottom)
     }
-    
+
+    // MARK: - Character Panel
+
+    private var characterPanel: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 12) {
+                    voiceCatalogRow
+                    automationRow
+                    if !store.recommendations.isEmpty {
+                        recommendationSection
+                    }
+                    if !store.characters.isEmpty {
+                        characterListSection
+                    } else {
+                        emptyStateHint
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            Divider()
+        }
+        .background(bgColor.opacity(0.95))
+    }
+
+    private var voiceCatalogRow: some View {
+        HStack(spacing: 10) {
+            Text("音色库")
+                .font(.subheadline)
+                .foregroundColor(textColor)
+            Button(action: { store.switchCatalog(to: .chinese35) }) {
+                Text("经典(40)")
+                    .font(.caption).padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(store.selectedVoiceCatalog == .chinese35 ? Color.blue : Color.gray.opacity(0.2))
+                    .foregroundColor(store.selectedVoiceCatalog == .chinese35 ? .white : textColor)
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.borderless)
+            Button(action: { store.switchCatalog(to: .fullChinese) }) {
+                Text("全音色(76)")
+                    .font(.caption).padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(store.selectedVoiceCatalog == .fullChinese ? Color.blue : Color.gray.opacity(0.2))
+                    .foregroundColor(store.selectedVoiceCatalog == .fullChinese ? .white : textColor)
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.borderless)
+            Spacer()
+            Text("\(store.voices.count)个")
+                .font(.caption2).foregroundColor(.secondary)
+        }
+    }
+
+    private var automationRow: some View {
+        HStack(spacing: 8) {
+            Button(action: { Task { await store.scanCharacters() } }) {
+                Label("扫描角色", systemImage: "person.badge.plus")
+                    .font(.caption).padding(.horizontal, 8).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue.opacity(0.15))
+                    .cornerRadius(8)
+            }
+            .buttonStyle(.borderless)
+            Button(action: { Task { await store.buildScript(for: true) } }) {
+                Label("生成脚本", systemImage: "doc.richtext")
+                    .font(.caption).padding(.horizontal, 8).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.green.opacity(0.15))
+                    .cornerRadius(8)
+            }
+            .buttonStyle(.borderless)
+            Button(action: {
+                store.autoApplyRecommendedToAll()
+                Task { await store.buildScript(for: true) }
+            }) {
+                Label("一键配音", systemImage: "wand.and.stars")
+                    .font(.caption).padding(.horizontal, 8).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange.opacity(0.15))
+                    .cornerRadius(8)
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private var recommendationSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("推荐音色")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(textColor)
+                Spacer()
+                Button("应用到未映射") { store.applyRecommendationsToUnmapped() }
+                    .font(.caption).buttonStyle(.borderless)
+                Button("全部应用") { store.autoApplyRecommendedToAll() }
+                    .font(.caption).buttonStyle(.borderless)
+            }
+            ForEach(store.recommendations.prefix(3)) { rec in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(rec.profile.name)
+                            .font(.caption).fontWeight(.medium)
+                            .foregroundColor(textColor)
+                        Text("x\(rec.count)")
+                            .font(.caption2).foregroundColor(.secondary)
+                        Spacer()
+                        if let v = rec.suggestedVoices.first {
+                            Text(v.name)
+                                .font(.caption2).foregroundColor(.blue)
+                        }
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(rec.suggestedVoices.prefix(4)) { voice in
+                                Button(action: { store.applyVoice(voice.id, toCharacterID: rec.id) }) {
+                                    Text(voice.name)
+                                        .font(.caption2)
+                                        .padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(Color.blue.opacity(0.1))
+                                        .cornerRadius(6)
+                                        .foregroundColor(.blue)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                }
+                .padding(8)
+                .background(textColor.opacity(0.05))
+                .cornerRadius(8)
+            }
+            if store.recommendations.count > 3 {
+                Button("查看全部 \(store.recommendations.count) 个推荐") {
+                    showAllRecommendations = true
+                }
+                .font(.caption).foregroundColor(.secondary)
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private var characterListSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("角色列表")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(textColor)
+                Spacer()
+                Button(action: { store.sortCharactersByAppearance() }) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.secondary)
+                Button(action: { showAddCharacter = true }) {
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.blue)
+            }
+            ForEach(store.characters) { character in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(character.name)
+                                .font(.caption).fontWeight(.medium)
+                                .foregroundColor(textColor)
+                            if character.isNarrator {
+                                Text("旁白")
+                                    .font(.caption2).foregroundColor(.orange)
+                                    .padding(.horizontal, 4).padding(.vertical, 1)
+                                    .background(Color.orange.opacity(0.15))
+                                    .cornerRadius(4)
+                            }
+                        }
+                        Text("\(character.voice)")
+                            .font(.caption2).foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button(action: { Task { await store.previewVoice(for: character) } }) {
+                        Image(systemName: "play.circle")
+                            .foregroundColor(.green)
+                    }
+                    .buttonStyle(.borderless)
+                    Button(action: { editingCharacter = character }) {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(.borderless)
+                    Button(action: { store.deleteCharacter(at: character.id) }) {
+                        Image(systemName: "trash")
+                            .font(.caption)
+                            .foregroundColor(.red.opacity(0.6))
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background(textColor.opacity(0.05))
+                .cornerRadius(6)
+            }
+        }
+    }
+
+    private var emptyStateHint: some View {
+        HStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "person.3")
+                    .font(.title2).foregroundColor(.secondary)
+                Text("选中文本中的人名即可快速添加为角色")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+            .padding(.vertical, 16)
+            Spacer()
+        }
+    }
+
+    // MARK: - Automation Toolbar
+
+    private var automationToolbar: some View {
+        HStack(spacing: 12) {
+            Button(action: { showCharacterPanel.toggle() }) {
+                Label(
+                    store.characters.isEmpty ? "角色管理" : "角色(\(store.characters.count))",
+                    systemImage: "person.2"
+                )
+                .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(showCharacterPanel ? .blue : textColor)
+
+            Spacer()
+
+            Button(action: { Task { await store.scanCharacters() } }) {
+                Label("扫描", systemImage: "person.badge.plus")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(textColor)
+
+            Button(action: { Task { await store.buildScript(for: true) } }) {
+                Label("脚本", systemImage: "doc.richtext")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(textColor)
+
+            if !store.scriptSegments.isEmpty {
+                Text("\(store.scriptSegments.count)段")
+                    .font(.caption2).foregroundColor(.secondary)
+            }
+
+            if store.isBusy {
+                ProgressView()
+                    .scaleEffect(0.7)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 6)
+        .background(bgColor.opacity(0.9))
+        .overlay(Divider(), alignment: .top)
+    }
+
+    // MARK: - Audio Control Bar
+
+    private var audioControlBar: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("00:00").font(.caption2).foregroundColor(textColor.opacity(0.5)).monospacedDigit()
+                Slider(value: $playbackProgress, in: 0...1)
+                    .accentColor(.blue)
+                Text("--:--").font(.caption2).foregroundColor(textColor.opacity(0.5)).monospacedDigit()
+            }
+            .padding(.horizontal, 20)
+
+            HStack(spacing: 24) {
+                Button(action: previousChapter) {
+                    Image(systemName: "backward.end.fill").font(.title2)
+                }
+                .disabled(currentChapterIndex <= 0)
+
+                Button(action: {
+                    isPlaying.toggle()
+                    if isPlaying {
+                        Task { await startPlayback() }
+                    } else {
+                        store.stopPlayback()
+                    }
+                }) {
+                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 48))
+                }
+
+                Button(action: nextChapter) {
+                    Image(systemName: "forward.end.fill").font(.title2)
+                }
+                .disabled(currentChapterIndex >= (chapters?.count ?? 1) - 1)
+            }
+            .foregroundColor(textColor)
+
+            HStack(spacing: 16) {
+                speedButton("0.75x", speed: 0.75)
+                speedButton("1.0x", speed: 1.0)
+                speedButton("1.25x", speed: 1.25)
+                speedButton("1.5x", speed: 1.5)
+                speedButton("2.0x", speed: 2.0)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+        }
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+    }
+
+    private func speedButton(_ label: String, speed: Double) -> some View {
+        Button(action: { playbackSpeed = speed }) {
+            Text(label)
+                .font(.caption)
+                .fontWeight(playbackSpeed == speed ? .bold : .regular)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(playbackSpeed == speed ? Color.blue.opacity(0.2) : Color.clear)
+                .cornerRadius(6)
+                .foregroundColor(playbackSpeed == speed ? .blue : textColor.opacity(0.6))
+        }
+    }
+
+    // MARK: - Status Bar
+
     private var readerStatusBar: some View {
         HStack(spacing: 8) {
             if store.showProgressBar {
@@ -287,19 +732,21 @@ struct ReaderView: View {
         .padding(.horizontal, 16).padding(.vertical, 4)
         .background(bgColor.opacity(0.9))
     }
-    
+
     private var batteryIcon: String {
         batteryLevel > 90 ? "battery.100" :
         batteryLevel > 60 ? "battery.75" :
         batteryLevel > 30 ? "battery.50" :
         "battery.0"
     }
-    
+
     private var progressText: String {
         guard let chs = chapters, !chs.isEmpty else { return "—" }
         return "\(currentChapterIndex + 1)/\(chs.count)"
     }
-    
+
+    // MARK: - Control Bar (silent reading)
+
     private var controlBar: some View {
         VStack(spacing: 0) {
             if showBookmarks { bookmarkPanel }
@@ -317,7 +764,11 @@ struct ReaderView: View {
                 controlButton(systemName: "gearshape.fill", action: { showSettings = true })
                 controlButton(
                     systemName: "play.circle.fill",
-                    action: { showAudioReader = true }
+                    action: {
+                        isAudioMode = true
+                        isPlaying = true
+                        Task { await startPlayback() }
+                    }
                 )
                 controlButton(
                     systemName: "chevron.right",
@@ -331,14 +782,14 @@ struct ReaderView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showBookmarks)
     }
-    
+
     private func controlButton(systemName: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName).font(.title2)
         }
         .disabled(disabled)
     }
-    
+
     private var bookmarkPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -373,9 +824,9 @@ struct ReaderView: View {
         }
         .background(bgColor)
     }
-    
+
     // MARK: - Helpers
-    
+
     private func nextTheme(_ t: ReaderTheme) -> ReaderTheme {
         switch t {
         case .light: return .sepia
@@ -383,7 +834,7 @@ struct ReaderView: View {
         case .dark: return .light
         }
     }
-    
+
     private func themeIcon(_ t: ReaderTheme) -> String {
         switch t {
         case .light: return "sun.max"
@@ -391,11 +842,303 @@ struct ReaderView: View {
         case .dark: return "moon.fill"
         }
     }
-    
+
     private func updateBatteryLevel() {
+        guard !UIDevice.current.isBatteryMonitoringEnabled else { return }
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryLevel = UIDevice.current.batteryLevel >= 0
             ? Int(UIDevice.current.batteryLevel * 100) : -1
+    }
+}
+
+// MARK: - Selectable Text Reader
+
+struct SelectableTextReader: UIViewRepresentable {
+    let text: String
+    let fontName: String
+    let fontSize: CGFloat
+    let textColor: UIColor
+    let lineSpacing: CGFloat
+    let onSelect: (String) -> Void
+
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.isScrollEnabled = false
+        tv.backgroundColor = .clear
+        tv.delegate = context.coordinator
+        tv.textContainer.lineFragmentPadding = 0
+        tv.textContainerInset = .zero
+        updateTextView(tv)
+        return tv
+    }
+
+    func updateUIView(_ tv: UITextView, context: Context) {
+        updateTextView(tv)
+        DispatchQueue.main.async {
+            tv.invalidateIntrinsicContentSize()
+        }
+    }
+
+    private func updateTextView(_ tv: UITextView) {
+        let paraStyle = NSMutableParagraphStyle()
+        paraStyle.lineSpacing = lineSpacing
+        let font: UIFont
+        if let custom = UIFont(name: fontName, size: fontSize) {
+            font = custom
+        } else {
+            font = UIFont.systemFont(ofSize: fontSize)
+        }
+        tv.attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: textColor,
+                .paragraphStyle: paraStyle,
+            ]
+        )
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSelect: onSelect)
+    }
+
+    class Coordinator: NSObject, UITextViewDelegate {
+        let onSelect: (String) -> Void
+        private var lastSelection = ""
+        private var lastSelectionTime: Date = .distantPast
+        init(onSelect: @escaping (String) -> Void) {
+            self.onSelect = onSelect
+        }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard let range = textView.selectedTextRange, !range.isEmpty else { return }
+            let selected = textView.text(in: range) ?? ""
+            let trimmed = selected.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
+            guard trimmed != lastSelection || Date().timeIntervalSince(lastSelectionTime) > 1 else { return }
+            lastSelection = trimmed
+            lastSelectionTime = Date()
+            onSelect(trimmed)
+        }
+    }
+}
+
+// MARK: - QuickCharacterAddView
+
+fileprivate struct QuickCharacterAddView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: ReaderStore
+    let candidateName: String
+    let bookText: String
+    let existingCharacters: [CharacterProfile]
+    let onAdd: (String, String, String, String) -> Void
+    let onEdit: (CharacterProfile) -> Void
+
+    @State private var gender: String
+    @State private var age: String
+    @State private var tone: String
+    @State private var recommendedVoice: String
+    @State private var showEditSheet = false
+
+    init(candidateName: String, bookText: String, existingCharacters: [CharacterProfile],
+         onAdd: @escaping (String, String, String, String) -> Void,
+         onEdit: @escaping (CharacterProfile) -> Void) {
+        self.candidateName = candidateName
+        self.bookText = bookText
+        self.existingCharacters = existingCharacters
+        self.onAdd = onAdd
+        self.onEdit = onEdit
+
+        let context = bookText.contextAround(candidateName, radius: 120)
+        let attrs = CharacterAnalyzer().analyzeAttributes(for: candidateName, context: context)
+        _gender = State(initialValue: attrs.gender)
+        _age = State(initialValue: attrs.age)
+        _tone = State(initialValue: attrs.baseTone)
+        _recommendedVoice = State(initialValue: "")
+    }
+
+    private var existingMatch: CharacterProfile? {
+        existingCharacters.first(where: { $0.name == candidateName })
+    }
+
+    private let genderOptions = ["未知", "男性", "女性"]
+    private let ageOptions = ["未知", "少年", "少女", "青年", "中年", "年长"]
+    private let toneOptions = ["平稳", "温柔", "激昂", "轻松", "疑问"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("选中的文本")) {
+                    Text("\"\(candidateName)\"")
+                        .font(.headline)
+                    if let match = existingMatch {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("该角色已存在，可编辑现有角色")
+                                .font(.caption).foregroundColor(.orange)
+                        }
+                    }
+                }
+
+                if existingMatch == nil {
+                    Section(header: Text("自动分析结果")) {
+                        HStack {
+                            Text("性别")
+                            Spacer()
+                            Text(gender).foregroundColor(.secondary)
+                        }
+                        HStack {
+                            Text("年龄段")
+                            Spacer()
+                            Text(age).foregroundColor(.secondary)
+                        }
+                        HStack {
+                            Text("语气")
+                            Spacer()
+                            Text(tone).foregroundColor(.secondary)
+                        }
+                        if !recommendedVoice.isEmpty {
+                            HStack {
+                                Text("推荐音色")
+                                Spacer()
+                                Text(recommendedVoice).foregroundColor(.blue)
+                            }
+                        }
+                    }
+
+                    Section(header: Text("手动调整（可选）")) {
+                        Picker("性别", selection: $gender) {
+                            ForEach(genderOptions, id: \.self) { Text($0).tag($0) }
+                        }
+                        Picker("年龄段", selection: $age) {
+                            ForEach(ageOptions, id: \.self) { Text($0).tag($0) }
+                        }
+                        Picker("语气", selection: $tone) {
+                            ForEach(toneOptions, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+                }
+
+                if existingMatch != nil {
+                    Section {
+                        Button("编辑现有角色「\(existingMatch!.name)」") {
+                            onEdit(existingMatch!)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .navigationTitle(existingMatch != nil ? "角色已存在" : "添加新角色")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                if existingMatch == nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("添加") {
+                            onAdd(candidateName, gender, age, tone)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - AddCharacterView
+
+fileprivate struct AddCharacterView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var gender = "未知"
+    @State private var age = "未知"
+    @State private var tone = "平稳"
+    let onAdd: (String, String, String, String) -> Void
+
+    private let genderOptions = ["未知", "男性", "女性"]
+    private let ageOptions = ["未知", "少年", "少女", "青年", "中年", "年长"]
+    private let toneOptions = ["平稳", "温柔", "激昂", "轻松", "疑问"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("角色信息")) {
+                    TextField("角色名称", text: $name)
+                    Picker("性别", selection: $gender) {
+                        ForEach(genderOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                    Picker("年龄段", selection: $age) {
+                        ForEach(ageOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                    Picker("语气", selection: $tone) {
+                        ForEach(toneOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+            }
+            .navigationTitle("新增角色")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("添加") {
+                        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                        onAdd(name.trimmingCharacters(in: .whitespaces), gender, age, tone)
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - AllRecommendationsView
+
+fileprivate struct AllRecommendationsView: View {
+    @EnvironmentObject private var store: ReaderStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(store.recommendations) { rec in
+                    Section(header: Text("\(rec.profile.name)（出现 \(rec.count) 次）")) {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(rec.suggestedVoices) { voice in
+                                    Button(action: {
+                                        store.applyVoice(voice.id, toCharacterID: rec.id)
+                                    }) {
+                                        VStack(spacing: 2) {
+                                            Text(voice.name)
+                                                .font(.caption).fontWeight(.medium)
+                                            Text(VoiceCatalog.tier(for: voice.id).displayName)
+                                                .font(.caption2)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color.blue.opacity(0.1))
+                                        .cornerRadius(10)
+                                        .foregroundColor(.blue)
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("全部推荐")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
     }
 }
 
@@ -768,7 +1511,7 @@ struct BackgroundPickerView: View {
             }
             .navigationTitle("阅读背景").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
             }
             .sheet(isPresented: $showingImagePicker) { ImagePicker(image: $selectedImage) }
             .onChange(of: selectedImage) { newImage in
