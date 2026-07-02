@@ -292,7 +292,11 @@ struct ReaderView: View {
                     .foregroundColor(textColor.opacity(0.7))
                 }
             } else {
-                Button(action: { dismiss() }) {
+                Button(action: {
+                    ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+                    store.saveState()
+                    dismiss()
+                }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
                         .foregroundColor(textColor.opacity(0.7))
@@ -350,6 +354,22 @@ struct ReaderView: View {
                 .padding(.bottom, 20)
         }
         .padding(.horizontal, 20)
+        .frame(minHeight: estimatedChapterHeight(ch))
+    }
+
+    private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
+        let titleHeight: CGFloat = 58
+        let bottomPad: CGFloat = 20
+        let hPad: CGFloat = 40
+        let containerWidth = UIScreen.main.bounds.width - hPad
+        let fontSize = store.readerFontSize
+        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
+        let charWidth = fontSize * 0.5
+        let charsPerLine = max(1, Int(containerWidth / charWidth))
+        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
+        let totalChars = ch.text.count
+        let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
+        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
     }
 
     // MARK: - Scroll Tracking
@@ -1036,24 +1056,30 @@ struct ReaderView: View {
     }
 
     private func startPlayback() async {
-        guard currentChapterIndex < chaptersList.count else { return }
-        guard !store.bookText.isEmpty else {
-            store.statusMessage = "文本尚未加载，请稍后再试。"
+        do {
+            guard currentChapterIndex < chaptersList.count else { return }
+            guard !store.bookText.isEmpty else {
+                store.statusMessage = "文本尚未加载，请稍后再试。"
+                isPlaying = false
+                return
+            }
+            let chapter = chaptersList[currentChapterIndex]
+            store.audioController.playbackRate = Float(playbackSpeed)
+            if store.characters.isEmpty {
+                store.statusMessage = "未检测到角色，正在自动扫描..."
+                await store.scanCharacters()
+            }
+            if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
+                await store.buildScript(for: false)
+            }
+            await store.playChapterWithTTS(chapter: chapter)
             isPlaying = false
-            return
+            store.isBusy = false
+        } catch {
+            store.statusMessage = "朗读失败：\(error.localizedDescription)"
+            isPlaying = false
+            store.isBusy = false
         }
-        let chapter = chaptersList[currentChapterIndex]
-        store.audioController.playbackRate = Float(playbackSpeed)
-        if store.characters.isEmpty {
-            store.statusMessage = "未检测到角色，正在自动扫描..."
-            await store.scanCharacters()
-        }
-        if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
-            await store.buildScript(for: false)
-        }
-        await store.playChapterWithTTS(chapter: chapter)
-        isPlaying = false
-        store.isBusy = false
     }
 
     // MARK: - Helpers
