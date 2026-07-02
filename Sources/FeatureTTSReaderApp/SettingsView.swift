@@ -348,8 +348,6 @@ struct SettingsView: View {
 
     // MARK: - Helper Methods
     private func loadAppSettings() {
-        localEndpoint = store.apiEndpoint
-        localAPIKey = store.apiKey
         selectedAppTheme = AppTheme(rawValue: UserDefaults.standard.string(forKey: "appTheme") ?? "system") ?? .system
         selectedBookshelfLayout = BookshelfLayout(rawValue: UserDefaults.standard.string(forKey: "bookshelfLayout") ?? "grid") ?? .grid
         enableHaptics = UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true

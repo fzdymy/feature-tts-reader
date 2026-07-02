@@ -297,6 +297,89 @@ struct CharacterRecommendation: Identifiable, Hashable, Codable {
     var suggestedVoices: [VoiceItem]
 }
 
+// MARK: - TTS 服务器
+
+struct TTSServer: Identifiable, Hashable, Codable {
+    let id: UUID
+    var name: String
+    var baseURL: String
+    var apiKey: String
+    var isActive: Bool
+    var maxTextLength: Int
+
+    init(id: UUID = UUID(), name: String, baseURL: String, apiKey: String = "", isActive: Bool = false, maxTextLength: Int = 1024) {
+        self.id = id
+        self.name = name
+        self.baseURL = baseURL
+        self.apiKey = apiKey
+        self.isActive = isActive
+        self.maxTextLength = maxTextLength
+    }
+}
+
+// MARK: - 音色微调档案
+
+struct VoiceProfileTuning: Identifiable, Hashable, Codable {
+    let id: UUID
+    var sourceVoiceID: String
+    var alias: String
+    var tags: [String]
+    var rateOffset: Int
+    var pitchOffset: Int
+    var style: String
+
+    init(id: UUID = UUID(), sourceVoiceID: String, alias: String, tags: [String] = [],
+         rateOffset: Int = 0, pitchOffset: Int = 0, style: String = "neutral") {
+        self.id = id
+        self.sourceVoiceID = sourceVoiceID
+        self.alias = alias
+        self.tags = tags
+        self.rateOffset = rateOffset
+        self.pitchOffset = pitchOffset
+        self.style = style
+    }
+}
+
+// MARK: - 标签预设
+
+enum TagCategory: String, Codable, CaseIterable, Identifiable {
+    case role       // 角色定位
+    case age        // 年龄段
+    case trait      // 性格
+    case roleType   // 角色类型
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .role: return "角色定位"
+        case .age: return "年龄段"
+        case .trait: return "性格"
+        case .roleType: return "角色类型"
+        }
+    }
+}
+
+struct TagPreset: Identifiable, Codable {
+    let id: UUID
+    var name: String
+    var category: TagCategory
+
+    init(id: UUID = UUID(), name: String, category: TagCategory) {
+        self.id = id
+        self.name = name
+        self.category = category
+    }
+}
+
+// MARK: - 导出格式
+
+struct TTSExport: Codable {
+    let version: Int
+    let exportedAt: Date
+    var profiles: [VoiceProfileTuning]
+    var tags: [TagPreset]
+}
+
 struct ReaderState: Codable {
     var bookText: String = ""
     var chapters: [BookChapter]
