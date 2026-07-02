@@ -416,6 +416,7 @@ struct BookDetailView: View {
     @State private var readerNavigation: ReaderNavigation?
     @State private var showCharacterEditor = false
     @State private var showChapterList = false
+    @State private var isLoadingChapters = false
 
     struct ReaderNavigation: Identifiable {
         let id: UUID
@@ -498,7 +499,30 @@ struct BookDetailView: View {
                 Section {
                     Button(action: {
                         let chaps = chapters.isEmpty ? store.chapters : chapters
-                        guard !chaps.isEmpty else { return }
+                        guard !chaps.isEmpty else {
+                            // Chapters not ready yet — kick off sync extraction
+                            if !isLoadingChapters {
+                                isLoadingChapters = true
+                                Task {
+                                    let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+                                    if !text.isEmpty {
+                                        let parsed = await Task.detached(priority: .userInitiated) {
+                                            store.extractChapters(from: text)
+                                        }.value
+                                        await MainActor.run {
+                                            chapters = parsed
+                                            store.chapters = parsed
+                                            store.bookChaptersCache[book.id] = parsed
+                                            store.bookIDForChapters = book.id
+                                            isLoadingChapters = false
+                                        }
+                                    } else {
+                                        await MainActor.run { isLoadingChapters = false }
+                                    }
+                                }
+                            }
+                            return
+                        }
                         let saved = ReaderStore.loadLastChapterIndex(for: book.id)
                         let safeIndex = min(saved, chaps.count - 1)
                         ReaderStore.debugLog("[BUTTON] book.id=\(book.id.uuidString) saved=\(saved) chaps.count=\(chaps.count) safeIndex=\(safeIndex)")
@@ -510,7 +534,12 @@ struct BookDetailView: View {
                     }) {
                         HStack {
                             Image(systemName: currentChapterNumber > 1 ? "bookmark.fill" : "book.fill")
-                            Text(currentChapterNumber > 1 ? "继续阅读" : "开始阅读")
+                            if isLoadingChapters {
+                                ProgressView().scaleEffect(0.8)
+                                Text("解析章节中...")
+                            } else {
+                                Text(currentChapterNumber > 1 ? "继续阅读" : "开始阅读")
+                            }
                             Spacer()
                             if currentChapterNumber > 1 {
                                 Text("第 \(currentChapterNumber) 章")
@@ -519,6 +548,7 @@ struct BookDetailView: View {
                             }
                         }
                     }
+                    .disabled(chapters.isEmpty && store.chapters.isEmpty)
                     .foregroundColor(.blue)
                     .fullScreenCover(item: $readerNavigation) { nav in
                         ReaderView(
