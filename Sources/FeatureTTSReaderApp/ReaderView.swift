@@ -112,14 +112,15 @@ struct ReaderView: View {
                 bgColor.ignoresSafeArea()
             }
 
-            VStack(spacing: 0) {
-                if isAudioMode || !isImmersive { readerHeader }
-                if isAudioMode && showCharacterPanel {
-                    characterPanel
-                        .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
-                }
-                ScrollView {
-                    if isAudioMode {
+            if isAudioMode {
+                // ── Audio mode: VStack layout ──
+                VStack(spacing: 0) {
+                    readerHeader
+                    if showCharacterPanel {
+                        characterPanel
+                            .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
+                    }
+                    ScrollView {
                         SelectableTextReader(
                             text: chapterDisplayText,
                             fontName: store.readerFontName,
@@ -133,48 +134,67 @@ struct ReaderView: View {
                                 showCharacterFromText = true
                             }
                         )
-                    } else {
-                        Text(chapterDisplayText)
-                            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-                            .foregroundColor(textColor)
-                            .lineSpacing(store.readerLineSpacing + 2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 12)
-                            .padding(.bottom, 80)
-                            .textSelection(.enabled)
                     }
-                }
-                .padding(.horizontal, isAudioMode ? 20 : 0)
-                .padding(.top, isAudioMode ? 12 : 0)
-                .padding(.bottom, isAudioMode ? 120 : 0)
-
-                if isAudioMode {
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
                     automationToolbar
                     audioControlBar
-                } else if !isImmersive {
-                    controlBar
                 }
-            }
+            } else {
+                // ── Silent reading: original ZStack overlay layout ──
+                ScrollView {
+                    Text(chapterDisplayText)
+                        .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+                        .foregroundColor(textColor)
+                        .lineSpacing(store.readerLineSpacing + 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 80)
+                        .textSelection(.enabled)
+                }
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        withAnimation { isImmersive.toggle() }
+                    }
+                )
 
-            if isImmersive && !isAudioMode {
-                if store.showChapterTitle {
+                // Header overlay (pinned to top)
+                if !isImmersive {
                     VStack {
-                        HStack {
-                            Text(displayedChapterTitle)
-                                .font(.caption)
-                                .foregroundColor(textColor.opacity(0.6))
-                                .lineLimit(1)
-                                .padding(.horizontal, 16).padding(.vertical, 6)
-                            Spacer()
-                        }
+                        readerHeader
                         Spacer()
                     }
                 }
-                if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
+
+                // Control bar overlay (pinned to bottom)
+                if !isImmersive {
                     VStack {
                         Spacer()
-                        readerStatusBar
+                        controlBar
+                    }
+                }
+
+                // Immersive overlays
+                if isImmersive {
+                    if store.showChapterTitle {
+                        VStack {
+                            HStack {
+                                Text(displayedChapterTitle)
+                                    .font(.caption)
+                                    .foregroundColor(textColor.opacity(0.6))
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 16).padding(.vertical, 6)
+                                Spacer()
+                            }
+                            Spacer()
+                        }
+                    }
+                    if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
+                        VStack {
+                            Spacer()
+                            readerStatusBar
+                        }
                     }
                 }
             }
@@ -332,6 +352,7 @@ struct ReaderView: View {
 
     private func startPlayback() async {
         guard let chapter = currentChapterOptional else { return }
+        store.audioController.playbackRate = Float(playbackSpeed)
         if store.characters.isEmpty {
             store.statusMessage = "未检测到角色，正在自动扫描..."
             await store.scanCharacters()
@@ -347,10 +368,18 @@ struct ReaderView: View {
 
     private var readerHeader: some View {
         HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .foregroundColor(textColor.opacity(0.7))
+            if isAudioMode {
+                Button(action: { isAudioMode = false; isPlaying = false; store.stopPlayback() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.title3)
+                        .foregroundColor(textColor.opacity(0.7))
+                }
+            } else {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(textColor.opacity(0.7))
+                }
             }
             Text(displayedChapterTitle)
                 .font(.headline).lineLimit(1)

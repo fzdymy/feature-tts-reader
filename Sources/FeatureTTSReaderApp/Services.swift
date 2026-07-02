@@ -57,6 +57,7 @@ final class AudioPlaybackController: NSObject, ObservableObject {
     @Published private(set) var currentIndex: Int = 0
 
     private var player: AVAudioPlayer?
+    var playbackRate: Float = 1.0
     private var playbackContinuation: CheckedContinuation<Void, Never>?
     private var progressTimer: Timer?
     private let session = AVAudioSession.sharedInstance()
@@ -157,6 +158,8 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         do {
             player = try AVAudioPlayer(contentsOf: item.audioURL)
             player?.delegate = self
+            player?.enableRate = true
+            player?.rate = playbackRate
             player?.prepareToPlay()
             player?.play()
             isPlaying = true
