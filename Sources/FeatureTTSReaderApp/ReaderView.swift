@@ -15,6 +15,28 @@ enum TextAlign: Int, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Preference Keys
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ChapterFrameValue: Equatable {
+    let index: Int
+    let minY: CGFloat
+    let height: CGFloat
+}
+
+private struct ChapterFramePrefKey: PreferenceKey {
+    static var defaultValue: [Int: ChapterFrameValue] = [:]
+    static func reduce(value: inout [Int: ChapterFrameValue], nextValue: () -> [Int: ChapterFrameValue]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
 // MARK: - ReaderView
 
 struct ReaderView: View {
@@ -26,7 +48,6 @@ struct ReaderView: View {
     @State private var currentChapter: BookChapter
     @State private var currentChapterIndex: Int
     @State private var anchorChapterIndex: Int
-    @State private var displayedChapterTitle: String
     @State private var chaptersList: [BookChapter] = []
 
     @State private var showBookmarks = false
@@ -39,7 +60,6 @@ struct ReaderView: View {
     @State private var isPlaying = false
     @State private var playbackSpeed: Double = 1.0
     @State private var playbackProgress: Double = 0
-    @State private var chapterSliderValue: Double = 0
 
     @State private var showCharacterPanel = false
     @State private var editingCharacter: CharacterProfile?
@@ -53,6 +73,10 @@ struct ReaderView: View {
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var useSystemBrightness = true
 
+    @State private var scrollOffset: CGFloat = 0
+    @State private var chapterFrames: [Int: ChapterFrameValue] = [:]
+    @State private var chapterProgress: Double = 0
+
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
@@ -62,7 +86,6 @@ struct ReaderView: View {
         _currentChapter = State(initialValue: chapter)
         _currentChapterIndex = State(initialValue: chapterIndex)
         _anchorChapterIndex = State(initialValue: chapterIndex)
-        _displayedChapterTitle = State(initialValue: chapter.title)
     }
 
     // MARK: - Computed Properties
@@ -84,9 +107,8 @@ struct ReaderView: View {
         }
     }
 
-    private var chapterDisplayText: String {
-        "\u{3000}\u{3000}" + currentChapter.text
-            .replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
+    private func indentedText(_ text: String) -> String {
+        "\u{3000}\u{3000}" + text.replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
     }
 
     private var chapterBookmarks: [BookBookmark] {
@@ -105,14 +127,92 @@ struct ReaderView: View {
         "battery.0"
     }
 
+    private var displayedChapterTitle: String {
+        guard currentChapterIndex < chaptersList.count else { return currentChapter.title }
+        return chaptersList[currentChapterIndex].title
+    }
+
     // MARK: - Body
 
     var body: some View {
-        Group {
-            if isAudioMode {
-                audioLayout
-            } else {
-                silentLayout
+        VStack(spacing: 0) {
+            if !isImmersive {
+                readerHeader
+            }
+
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: ScrollOffsetKey.self,
+                            value: geo.frame(in: .named("scroll")).minY
+                        )
+                    }
+                    .frame(height: 0)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(chaptersList.indices, id: \.self) { i in
+                            chapterContent(index: i)
+                                .background(GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: ChapterFramePrefKey.self,
+                                        value: [i: ChapterFrameValue(
+                                            index: i,
+                                            minY: geo.frame(in: .named("scroll")).minY,
+                                            height: geo.size.height
+                                        )]
+                                    )
+                                })
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
+                            Button(action: {
+                                isAudioMode = true
+                                isPlaying = true
+                                Task { await startPlayback() }
+                            }) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 44))
+                                    .foregroundColor(.blue)
+                                    .background(Circle().fill(bgColor).shadow(radius: 4))
+                            }
+                            .buttonStyle(.borderless)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 20)
+                            .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                }
+                .coordinateSpace(name: "scroll")
+                .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                    scrollOffset = offset
+                    updateChapterFromScroll()
+                }
+                .onPreferenceChange(ChapterFramePrefKey.self) { frames in
+                    chapterFrames = frames
+                    updateChapterFromScroll()
+                }
+                .simultaneousGesture(
+                    TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+                )
+                .onChange(of: externalScrollTarget) { target in
+                    if let t = target {
+                        withAnimation { scrollProxy.scrollTo("ch_\(t)", anchor: .top) }
+                        currentChapterIndex = t
+                        externalScrollTarget = nil
+                    }
+                }
+            }
+
+            if !isImmersive {
+                if isAudioMode {
+                    audioBottomBar
+                } else {
+                    silentBottomBar
+                }
+            } else if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
+                readerStatusBar
             }
         }
         .navigationTitle("")
@@ -145,6 +245,7 @@ struct ReaderView: View {
             currentChapterIndex: currentChapterIndex,
             chaptersList: chaptersList,
             onTOCSelect: { index in
+                externalScrollTarget = index
                 if !chaptersList.isEmpty {
                     store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
                 }
@@ -161,6 +262,8 @@ struct ReaderView: View {
         ))
     }
 
+    @State private var externalScrollTarget: Int?
+
     @ViewBuilder private var backgroundContent: some View {
         if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
             Image(uiImage: uiImage)
@@ -170,117 +273,142 @@ struct ReaderView: View {
         }
     }
 
-    // MARK: - Silent Layout
+    // MARK: - Header
 
-    private var silentLayout: some View {
-        VStack(spacing: 0) {
-            if !isImmersive {
-                silentHeader
-            } else if store.showChapterTitle {
-                HStack {
-                    Text(displayedChapterTitle)
-                        .font(.caption)
-                        .foregroundColor(textColor.opacity(0.6))
-                        .lineLimit(1)
-                        .padding(.horizontal, 16).padding(.vertical, 6)
-                    Spacer()
-                }
-                .transition(.opacity)
-            }
-
-            ScrollView {
-                Text(chapterDisplayText)
-                    .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-                    .foregroundColor(textColor)
-                    .lineSpacing(store.readerLineSpacing + 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 80)
-                    .textSelection(.enabled)
-            }
-            .simultaneousGesture(
-                TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
-            )
-            .overlay(alignment: .bottomTrailing) {
-                if !isImmersive {
-                    Button(action: {
-                        isAudioMode = true
-                        isPlaying = true
-                        Task { await startPlayback() }
-                    }) {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 44))
-                            .foregroundColor(.blue)
-                            .background(Circle().fill(bgColor).shadow(radius: 4))
-                    }
-                    .buttonStyle(.borderless)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 20)
-                    .transition(.scale.combined(with: .opacity))
-                }
-            }
-
-            if !isImmersive {
-                silentBottomBar
-            } else {
-                if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                    readerStatusBar
-                        .transition(.opacity)
-                }
-            }
-        }
-    }
-
-    private var silentHeader: some View {
+    private var readerHeader: some View {
         HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
+            if isAudioMode {
+                Button(action: {
+                    isAudioMode = false
+                    isPlaying = false
+                    store.stopPlayback()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.title3)
+                        Text("退出朗读")
+                            .font(.subheadline)
+                    }
                     .foregroundColor(textColor.opacity(0.7))
+                }
+            } else {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(textColor.opacity(0.7))
+                }
             }
+
             Text(displayedChapterTitle)
                 .font(.headline).lineLimit(1)
                 .foregroundColor(textColor)
                 .padding(.leading, 8)
+
             Spacer()
+
+            if isAudioMode {
+                Button(action: { showCharacterPanel.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: showCharacterPanel ? "person.2.fill" : "person.2")
+                            .font(.title3)
+                        if !store.characters.isEmpty {
+                            Text("\(store.characters.count)")
+                                .font(.caption2)
+                        }
+                    }
+                    .foregroundColor(showCharacterPanel ? .blue : textColor.opacity(0.7))
+                }
+                .sheet(isPresented: $showCharacterPanel) {
+                    characterPanelSheet
+                        .presentationDetents([.medium, .large])
+                }
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(bgColor.opacity(0.9))
         .overlay(Divider(), alignment: .bottom)
     }
 
-    // MARK: - Bottom Bar (User Spec)
+    // MARK: - Chapter Content
+
+    @ViewBuilder
+    private func chapterContent(index: Int) -> some View {
+        let ch = chaptersList[index]
+        VStack(alignment: .leading, spacing: 0) {
+            Text(ch.title)
+                .font(.title2).fontWeight(.bold)
+                .foregroundColor(textColor)
+                .padding(.top, 24)
+                .padding(.bottom, 12)
+                .id("ch_\(index)")
+
+            Text(indentedText(ch.text))
+                .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+                .foregroundColor(textColor)
+                .lineSpacing(store.readerLineSpacing + 2)
+                .textSelection(.enabled)
+                .padding(.bottom, 20)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    // MARK: - Scroll Tracking
+
+    private func updateChapterFromScroll() {
+        let viewportTop = -scrollOffset
+        var bestIndex = currentChapterIndex
+        var bestOverlap: CGFloat = 0
+
+        for (i, frame) in chapterFrames {
+            let chapterStart = frame.minY
+            let chapterEnd = frame.minY + frame.height
+
+            let overlap = min(viewportTop + UIScreen.main.bounds.height, chapterEnd)
+                - max(viewportTop, chapterStart)
+            if overlap > bestOverlap {
+                bestOverlap = overlap
+                bestIndex = i
+            }
+        }
+
+        if bestIndex != currentChapterIndex {
+            currentChapterIndex = bestIndex
+            if bestIndex < chaptersList.count {
+                currentChapter = chaptersList[bestIndex]
+                store.selectedChapterID = chaptersList[bestIndex].id
+            }
+        }
+
+        if let frame = chapterFrames[bestIndex] {
+            let position = viewportTop - frame.minY
+            chapterProgress = frame.height > 0 ? max(0, min(1, position / frame.height)) : 0
+        }
+    }
+
+    // MARK: - Silent Bottom Bar
 
     private var silentBottomBar: some View {
         VStack(spacing: 0) {
             if showBookmarks { bookmarkPanel }
 
-            // Row 1: 上一章 | Progress Slider | 下一章
             HStack(spacing: 8) {
-                Button(action: previousChapter) {
+                Button(action: {
+                    guard currentChapterIndex > 0 else { return }
+                    externalScrollTarget = currentChapterIndex - 1
+                }) {
                     Text("上一章")
                         .font(.subheadline)
                         .frame(minWidth: 50, minHeight: 36)
                 }
                 .disabled(currentChapterIndex <= 0)
 
-                Slider(
-                    value: $chapterSliderValue,
-                    in: 0...max(Double(chaptersList.count - 1), 1),
-                    step: 1,
-                    onEditingChanged: { editing in
-                        if !editing {
-                            let idx = Int(chapterSliderValue.rounded())
-                            if idx != currentChapterIndex {
-                                jumpTo(idx, explicit: true)
-                            }
-                        }
-                    }
-                )
-                .accentColor(.blue)
+                ProgressView(value: chapterProgress)
+                    .tint(.blue)
 
-                Button(action: nextChapter) {
+                Button(action: {
+                    guard currentChapterIndex < chaptersList.count - 1 else { return }
+                    externalScrollTarget = currentChapterIndex + 1
+                }) {
                     Text("下一章")
                         .font(.subheadline)
                         .frame(minWidth: 50, minHeight: 36)
@@ -292,7 +420,6 @@ struct ReaderView: View {
 
             Divider()
 
-            // Row 2: TOC | Theme | Settings | Bookmark | Font
             HStack(spacing: 0) {
                 barButton("list.bullet", label: "目录", action: { showTOC = true })
                 Divider().frame(height: 20)
@@ -308,7 +435,6 @@ struct ReaderView: View {
             }
             .padding(.vertical, 6)
             .foregroundColor(textColor)
-
         }
         .background(.ultraThinMaterial)
         .animation(.easeInOut(duration: 0.2), value: showBookmarks)
@@ -326,6 +452,230 @@ struct ReaderView: View {
             .frame(minHeight: 40)
         }
         .buttonStyle(.borderless)
+    }
+
+    // MARK: - Audio Bottom Bar
+
+    private var audioBottomBar: some View {
+        VStack(spacing: 0) {
+            characterPanelInline
+
+            Divider()
+
+            // Progress + Time
+            HStack(spacing: 12) {
+                Text("00:00")
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.5))
+                    .monospacedDigit()
+                    .frame(width: 36, alignment: .leading)
+                Slider(value: $playbackProgress, in: 0...1)
+                    .accentColor(.blue)
+                Text("--:--")
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.5))
+                    .monospacedDigit()
+                    .frame(width: 36, alignment: .trailing)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+
+            // Playback Controls
+            HStack(spacing: 32) {
+                Button(action: {
+                    guard currentChapterIndex > 0 else { return }
+                    externalScrollTarget = currentChapterIndex - 1
+                    if isPlaying { store.stopPlayback(); isPlaying = false }
+                }) {
+                    Image(systemName: "backward.end.fill")
+                        .font(.title3)
+                }
+                .disabled(currentChapterIndex <= 0)
+
+                Button(action: {
+                    isPlaying.toggle()
+                    if isPlaying {
+                        Task { await startPlayback() }
+                    } else {
+                        store.stopPlayback()
+                    }
+                }) {
+                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 44))
+                }
+
+                Button(action: {
+                    guard currentChapterIndex < chaptersList.count - 1 else { return }
+                    externalScrollTarget = currentChapterIndex + 1
+                    if isPlaying { store.stopPlayback(); isPlaying = false }
+                }) {
+                    Image(systemName: "forward.end.fill")
+                        .font(.title3)
+                }
+                .disabled(currentChapterIndex >= chaptersList.count - 1)
+            }
+            .foregroundColor(textColor)
+
+            // Speed
+            HStack(spacing: 12) {
+                ForEach([0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
+                    Button(action: { playbackSpeed = speed }) {
+                        Text(String(format: "%.2g", speed) + "x")
+                            .font(.caption)
+                            .fontWeight(playbackSpeed == speed ? .semibold : .regular)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(playbackSpeed == speed ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(playbackSpeed == speed ? .blue : textColor.opacity(0.6))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 6)
+
+            // Automation
+            HStack(spacing: 8) {
+                Button(action: { Task { await store.scanCharacters() } }) {
+                    Label("扫描", systemImage: "person.badge.plus")
+                        .font(.caption)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.gray.opacity(0.15))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(textColor)
+
+                Button(action: { Task { await store.buildScript(for: true) } }) {
+                    Label("脚本", systemImage: "doc.richtext")
+                        .font(.caption)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.gray.opacity(0.15))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(textColor)
+
+                Button(action: {
+                    store.autoApplyRecommendedToAll()
+                    Task { await store.buildScript(for: true) }
+                }) {
+                    Label("配音", systemImage: "wand.and.stars")
+                        .font(.caption)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.15))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.orange)
+
+                if !store.scriptSegments.isEmpty {
+                    Text("\(store.scriptSegments.count)段")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(4)
+                }
+
+                Spacer()
+
+                if store.isBusy {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 6)
+        }
+        .background(bgColor.opacity(0.95))
+    }
+
+    // MARK: - Character Panel (Inline in Audio Bar)
+
+    @ViewBuilder
+    private var characterPanelInline: some View {
+        if showCharacterPanel {
+            characterPanelContent
+                .frame(maxHeight: 200)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private var characterPanelContent: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                voiceCatalogRow
+                automationRow
+                if !store.recommendations.isEmpty {
+                    recommendationSection
+                }
+                if !store.characters.isEmpty {
+                    characterListSection
+                } else {
+                    emptyStateHint
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var characterPanelSheet: some View {
+        NavigationStack {
+            List {
+                if !store.recommendations.isEmpty {
+                    Section("推荐音色") {
+                        ForEach(store.recommendations) { rec in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(rec.profile.name).font(.headline)
+                                    Text("x\(rec.count)").font(.caption).foregroundColor(.secondary)
+                                    Spacer()
+                                }
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(rec.suggestedVoices.prefix(4)) { voice in
+                                            Button(voice.name) {
+                                                store.applyVoice(voice.id, toCharacterID: rec.id)
+                                            }
+                                            .buttonStyle(.bordered).tint(.blue)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("角色列表 (\(store.characters.count))") {
+                    ForEach(store.characters) { character in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(character.name).font(.subheadline)
+                                Text(character.voice).font(.caption2).foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button("试听") { Task { await store.previewVoice(for: character) } }
+                                .font(.caption).buttonStyle(.borderless)
+                            Button("编辑") { editingCharacter = character }
+                                .font(.caption).buttonStyle(.borderless)
+                        }
+                    }
+                    .onDelete { offsets in
+                        for i in offsets {
+                            store.deleteCharacter(at: store.characters[i].id)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("角色音色")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showCharacterPanel = false }
+                }
+            }
+        }
     }
 
     // MARK: - Bookmark Panel
@@ -365,219 +715,39 @@ struct ReaderView: View {
         .background(bgColor)
     }
 
-    // MARK: - Audio Layout
+    // MARK: - Status Bar (immersive)
 
-    private var audioLayout: some View {
-        VStack(spacing: 0) {
-            audioHeader
-            if showCharacterPanel {
-                characterPanel
-                    .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            ScrollView {
-                SelectableTextReader(
-                    text: chapterDisplayText,
-                    fontName: store.readerFontName,
-                    fontSize: store.readerFontSize + 2,
-                    textColor: UIColor(textColor),
-                    lineSpacing: store.readerLineSpacing + 4,
-                    onSelect: { selectedText in
-                        let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
-                        selectedTextForCharacter = trimmed
-                        showCharacterFromText = true
-                    }
-                )
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            VStack(spacing: 0) {
-                automationToolbar
-                Divider()
-                audioPlaybackBar
-            }
-            .background(bgColor.opacity(0.95))
-        }
-        .animation(.easeInOut(duration: 0.25), value: showCharacterPanel)
-    }
-
-    private var audioHeader: some View {
-        HStack {
-            Button(action: { isAudioMode = false; isPlaying = false; store.stopPlayback() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                        .font(.title3)
-                    Text("退出朗读")
-                        .font(.subheadline)
-                }
-                .foregroundColor(textColor.opacity(0.7))
-            }
-            Text(displayedChapterTitle)
-                .font(.headline).lineLimit(1)
-                .foregroundColor(textColor)
-                .padding(.leading, 8)
-            Spacer()
-            Button(action: { showCharacterPanel.toggle() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: showCharacterPanel ? "person.2.fill" : "person.2")
-                        .font(.title3)
-                    if !store.characters.isEmpty {
-                        Text("\(store.characters.count)")
-                            .font(.caption2)
-                    }
-                }
-                .foregroundColor(showCharacterPanel ? .blue : textColor.opacity(0.7))
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 8)
-        .background(bgColor.opacity(0.9))
-        .overlay(Divider(), alignment: .bottom)
-    }
-
-    // MARK: - Automation Toolbar
-
-    private var automationToolbar: some View {
+    private var readerStatusBar: some View {
         HStack(spacing: 8) {
-            Button(action: { showCharacterPanel.toggle() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "person.2")
-                    Text("角色")
-                }
-                .font(.caption)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(showCharacterPanel ? Color.blue.opacity(0.2) : Color.gray.opacity(0.15))
-                .cornerRadius(8)
+            if store.showProgressBar {
+                Text(progressText)
+                    .font(.caption2).foregroundColor(textColor.opacity(0.6)).monospacedDigit()
             }
-            .buttonStyle(.borderless)
-            .foregroundColor(showCharacterPanel ? .blue : textColor)
-
-            Divider().frame(height: 20)
-
-            Button(action: { Task { await store.scanCharacters() } }) {
-                Label("扫描", systemImage: "person.badge.plus")
-                    .font(.caption)
+            if store.showPageNumber {
+                let pct = chaptersList.isEmpty ? 0
+                    : min(Double(currentChapterIndex + 1) / Double(max(chaptersList.count, 1)), 1)
+                Text("\(Int(pct * 100))%")
+                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
             }
-            .buttonStyle(.borderless)
-            .foregroundColor(textColor)
-
-            Button(action: { Task { await store.buildScript(for: true) } }) {
-                Label("脚本", systemImage: "doc.richtext")
-                    .font(.caption)
-            }
-            .buttonStyle(.borderless)
-            .foregroundColor(textColor)
-
-            if !store.scriptSegments.isEmpty {
-                Text("\(store.scriptSegments.count)段")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(4)
-            }
-
             Spacer()
-
-            if store.isBusy {
-                ProgressView()
-                    .scaleEffect(0.7)
+            if store.showTime {
+                Text(currentTime, style: .time)
+                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
+            }
+            if store.showBattery, batteryLevel >= 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: batteryIcon)
+                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
+                    Text("\(batteryLevel)%")
+                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
+                }
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .background(bgColor.opacity(0.9))
     }
 
-    // MARK: - Audio Playback Bar
-
-    private var audioPlaybackBar: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Text("00:00")
-                    .font(.caption2)
-                    .foregroundColor(textColor.opacity(0.5))
-                    .monospacedDigit()
-                    .frame(width: 36, alignment: .leading)
-                Slider(value: $playbackProgress, in: 0...1)
-                    .accentColor(.blue)
-                Text("--:--")
-                    .font(.caption2)
-                    .foregroundColor(textColor.opacity(0.5))
-                    .monospacedDigit()
-                    .frame(width: 36, alignment: .trailing)
-            }
-            .padding(.horizontal, 20)
-
-            HStack(spacing: 32) {
-                Button(action: previousChapter) {
-                    Image(systemName: "backward.end.fill")
-                        .font(.title3)
-                }
-                .disabled(currentChapterIndex <= 0)
-
-                Button(action: {
-                    isPlaying.toggle()
-                    if isPlaying {
-                        Task { await startPlayback() }
-                    } else {
-                        store.stopPlayback()
-                    }
-                }) {
-                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 44))
-                }
-
-                Button(action: nextChapter) {
-                    Image(systemName: "forward.end.fill")
-                        .font(.title3)
-                }
-                .disabled(currentChapterIndex >= chaptersList.count - 1)
-            }
-            .foregroundColor(textColor)
-
-            HStack(spacing: 12) {
-                ForEach([0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
-                    Button(action: { playbackSpeed = speed }) {
-                        Text(String(format: "%.2g", speed) + "x")
-                            .font(.caption)
-                            .fontWeight(playbackSpeed == speed ? .semibold : .regular)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
-                            .background(playbackSpeed == speed ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(6)
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundColor(playbackSpeed == speed ? .blue : textColor.opacity(0.6))
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-        }
-        .padding(.vertical, 10)
-    }
-
-    // MARK: - Character Panel
-
-    private var characterPanel: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 12) {
-                    voiceCatalogRow
-                    automationRow
-                    if !store.recommendations.isEmpty {
-                        recommendationSection
-                    }
-                    if !store.characters.isEmpty {
-                        characterListSection
-                    } else {
-                        emptyStateHint
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
-            Divider()
-        }
-        .background(bgColor.opacity(0.95))
-    }
+    // MARK: - Character Panel Components
 
     private var voiceCatalogRow: some View {
         HStack(spacing: 10) {
@@ -773,38 +943,6 @@ struct ReaderView: View {
         }
     }
 
-    // MARK: - Status Bar (immersive silent mode)
-
-    private var readerStatusBar: some View {
-        HStack(spacing: 8) {
-            if store.showProgressBar {
-                Text(progressText)
-                    .font(.caption2).foregroundColor(textColor.opacity(0.6)).monospacedDigit()
-            }
-            if store.showPageNumber {
-                let pct = chaptersList.isEmpty ? 0
-                    : min(Double(currentChapterIndex + 1) / Double(max(chaptersList.count, 1)), 1)
-                Text("\(Int(pct * 100))%")
-                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
-            }
-            Spacer()
-            if store.showTime {
-                Text(currentTime, style: .time)
-                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
-            }
-            if store.showBattery, batteryLevel >= 0 {
-                HStack(spacing: 2) {
-                    Image(systemName: batteryIcon)
-                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
-                    Text("\(batteryLevel)%")
-                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
-                }
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 4)
-        .background(bgColor.opacity(0.9))
-    }
-
     // MARK: - Lifecycle
 
     private func onAppearSetup() {
@@ -815,7 +953,6 @@ struct ReaderView: View {
             ? Int(UIDevice.current.batteryLevel * 100) : -1
         store.selectedChapterID = currentChapter.id
         UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
-        chapterSliderValue = Double(currentChapterIndex)
         ensureChaptersLoaded()
         if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
             screenBrightness = brightness
@@ -862,6 +999,7 @@ struct ReaderView: View {
     private func handleExternalNavigate(nav: ChapterNavigate?) {
         guard let nav, nav.bookID == bookID, nav.chapterIndex < chaptersList.count else { return }
         store.externalChapterNavigate = nil
+        externalScrollTarget = nav.chapterIndex
         jumpTo(nav.chapterIndex, explicit: true)
     }
 
@@ -872,32 +1010,10 @@ struct ReaderView: View {
         if isPlaying { store.stopPlayback(); isPlaying = false }
         currentChapterIndex = index
         currentChapter = chaptersList[index]
-        displayedChapterTitle = chaptersList[index].title
-        chapterSliderValue = Double(index)
         store.selectedChapterID = chaptersList[index].id
         ReaderStore.saveLastChapterIndex(index, for: bookID)
         if explicit { anchorChapterIndex = index }
         ReaderStore.debugLog("[JUMP] idx=\(index)")
-    }
-
-    private func previousChapter() {
-        guard currentChapterIndex > 0, currentChapterIndex < chaptersList.count else { return }
-        let idx = currentChapterIndex - 1
-        if chaptersList.indices.contains(idx) {
-            if idx + 1 < chaptersList.count {
-                store.setChapterProgress(chaptersList[idx + 1].id, percent: 1.0)
-            }
-            jumpTo(idx, explicit: true)
-        }
-    }
-
-    private func nextChapter() {
-        guard currentChapterIndex < chaptersList.count - 1 else { return }
-        let idx = currentChapterIndex + 1
-        if chaptersList.indices.contains(idx) {
-            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
-            jumpTo(idx, explicit: true)
-        }
     }
 
     private func startPlayback() async {
@@ -1004,79 +1120,6 @@ private struct ReaderSheets: ViewModifier {
     }
 }
 
-// MARK: - Selectable Text Reader
-
-struct SelectableTextReader: UIViewRepresentable {
-    let text: String
-    let fontName: String
-    let fontSize: CGFloat
-    let textColor: UIColor
-    let lineSpacing: CGFloat
-    let onSelect: (String) -> Void
-
-    func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isSelectable = true
-        tv.isScrollEnabled = false
-        tv.backgroundColor = .clear
-        tv.delegate = context.coordinator
-        tv.textContainer.lineFragmentPadding = 0
-        tv.textContainerInset = .zero
-        updateTextView(tv)
-        return tv
-    }
-
-    func updateUIView(_ tv: UITextView, context: Context) {
-        updateTextView(tv)
-        DispatchQueue.main.async {
-            tv.invalidateIntrinsicContentSize()
-        }
-    }
-
-    private func updateTextView(_ tv: UITextView) {
-        let paraStyle = NSMutableParagraphStyle()
-        paraStyle.lineSpacing = lineSpacing
-        let font: UIFont
-        if let custom = UIFont(name: fontName, size: fontSize) {
-            font = custom
-        } else {
-            font = UIFont.systemFont(ofSize: fontSize)
-        }
-        tv.attributedText = NSAttributedString(
-            string: text,
-            attributes: [
-                .font: font,
-                .foregroundColor: textColor,
-                .paragraphStyle: paraStyle,
-            ]
-        )
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onSelect: onSelect)
-    }
-
-    class Coordinator: NSObject, UITextViewDelegate {
-        let onSelect: (String) -> Void
-        private var lastSelection = ""
-        private var lastSelectionTime: Date = .distantPast
-        init(onSelect: @escaping (String) -> Void) {
-            self.onSelect = onSelect
-        }
-        func textViewDidChangeSelection(_ textView: UITextView) {
-            guard let range = textView.selectedTextRange, !range.isEmpty else { return }
-            let selected = textView.text(in: range) ?? ""
-            let trimmed = selected.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
-            guard trimmed != lastSelection || Date().timeIntervalSince(lastSelectionTime) > 1 else { return }
-            lastSelection = trimmed
-            lastSelectionTime = Date()
-            onSelect(trimmed)
-        }
-    }
-}
-
 // MARK: - QuickCharacterAddView
 
 fileprivate struct QuickCharacterAddView: View {
@@ -1092,7 +1135,6 @@ fileprivate struct QuickCharacterAddView: View {
     @State private var age: String
     @State private var tone: String
     @State private var recommendedVoice: String
-    @State private var showEditSheet = false
 
     init(candidateName: String, bookText: String, existingCharacters: [CharacterProfile],
          onAdd: @escaping (String, String, String, String) -> Void,
@@ -1102,7 +1144,6 @@ fileprivate struct QuickCharacterAddView: View {
         self.existingCharacters = existingCharacters
         self.onAdd = onAdd
         self.onEdit = onEdit
-
         let context = bookText.contextAround(candidateName, radius: 120)
         let attrs = CharacterAnalyzer().analyzeAttributes(for: candidateName, context: context)
         _gender = State(initialValue: attrs.gender)
@@ -1123,57 +1164,29 @@ fileprivate struct QuickCharacterAddView: View {
         NavigationStack {
             Form {
                 Section(header: Text("选中的文本")) {
-                    Text("\"\(candidateName)\"")
-                        .font(.headline)
+                    Text("\"\(candidateName)\"").font(.headline)
                     if let match = existingMatch {
                         HStack {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundColor(.orange)
-                            Text("该角色已存在，可编辑现有角色")
-                                .font(.caption).foregroundColor(.orange)
+                            Image(systemName: "exclamationmark.triangle").foregroundColor(.orange)
+                            Text("该角色已存在，可编辑现有角色").font(.caption).foregroundColor(.orange)
                         }
                     }
                 }
-
                 if existingMatch == nil {
                     Section(header: Text("自动分析结果")) {
-                        HStack {
-                            Text("性别")
-                            Spacer()
-                            Text(gender).foregroundColor(.secondary)
-                        }
-                        HStack {
-                            Text("年龄段")
-                            Spacer()
-                            Text(age).foregroundColor(.secondary)
-                        }
-                        HStack {
-                            Text("语气")
-                            Spacer()
-                            Text(tone).foregroundColor(.secondary)
-                        }
+                        HStack { Text("性别"); Spacer(); Text(gender).foregroundColor(.secondary) }
+                        HStack { Text("年龄段"); Spacer(); Text(age).foregroundColor(.secondary) }
+                        HStack { Text("语气"); Spacer(); Text(tone).foregroundColor(.secondary) }
                         if !recommendedVoice.isEmpty {
-                            HStack {
-                                Text("推荐音色")
-                                Spacer()
-                                Text(recommendedVoice).foregroundColor(.blue)
-                            }
+                            HStack { Text("推荐音色"); Spacer(); Text(recommendedVoice).foregroundColor(.blue) }
                         }
                     }
-
                     Section(header: Text("手动调整（可选）")) {
-                        Picker("性别", selection: $gender) {
-                            ForEach(genderOptions, id: \.self) { Text($0).tag($0) }
-                        }
-                        Picker("年龄段", selection: $age) {
-                            ForEach(ageOptions, id: \.self) { Text($0).tag($0) }
-                        }
-                        Picker("语气", selection: $tone) {
-                            ForEach(toneOptions, id: \.self) { Text($0).tag($0) }
-                        }
+                        Picker("性别", selection: $gender) { ForEach(genderOptions, id: \.self) { Text($0).tag($0) } }
+                        Picker("年龄段", selection: $age) { ForEach(ageOptions, id: \.self) { Text($0).tag($0) } }
+                        Picker("语气", selection: $tone) { ForEach(toneOptions, id: \.self) { Text($0).tag($0) } }
                     }
                 }
-
                 if existingMatch != nil {
                     Section {
                         Button("编辑现有角色「\(existingMatch!.name)」") {
@@ -1185,9 +1198,7 @@ fileprivate struct QuickCharacterAddView: View {
             }
             .navigationTitle(existingMatch != nil ? "角色已存在" : "添加新角色")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 if existingMatch == nil {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("添加") {
@@ -1210,7 +1221,6 @@ fileprivate struct AddCharacterView: View {
     @State private var age = "未知"
     @State private var tone = "平稳"
     let onAdd: (String, String, String, String) -> Void
-
     private let genderOptions = ["未知", "男性", "女性"]
     private let ageOptions = ["未知", "少年", "少女", "青年", "中年", "年长"]
     private let toneOptions = ["平稳", "温柔", "激昂", "轻松", "疑问"]
@@ -1220,22 +1230,14 @@ fileprivate struct AddCharacterView: View {
             Form {
                 Section(header: Text("角色信息")) {
                     TextField("角色名称", text: $name)
-                    Picker("性别", selection: $gender) {
-                        ForEach(genderOptions, id: \.self) { Text($0).tag($0) }
-                    }
-                    Picker("年龄段", selection: $age) {
-                        ForEach(ageOptions, id: \.self) { Text($0).tag($0) }
-                    }
-                    Picker("语气", selection: $tone) {
-                        ForEach(toneOptions, id: \.self) { Text($0).tag($0) }
-                    }
+                    Picker("性别", selection: $gender) { ForEach(genderOptions, id: \.self) { Text($0).tag($0) } }
+                    Picker("年龄段", selection: $age) { ForEach(ageOptions, id: \.self) { Text($0).tag($0) } }
+                    Picker("语气", selection: $tone) { ForEach(toneOptions, id: \.self) { Text($0).tag($0) } }
                 }
             }
             .navigationTitle("新增角色")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("添加") {
                         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
@@ -1262,19 +1264,13 @@ fileprivate struct AllRecommendationsView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(rec.suggestedVoices) { voice in
-                                    Button(action: {
-                                        store.applyVoice(voice.id, toCharacterID: rec.id)
-                                    }) {
+                                    Button(action: { store.applyVoice(voice.id, toCharacterID: rec.id) }) {
                                         VStack(spacing: 2) {
-                                            Text(voice.name)
-                                                .font(.caption).fontWeight(.medium)
-                                            Text(VoiceCatalog.tier(for: voice.id).displayName)
-                                                .font(.caption2)
+                                            Text(voice.name).font(.caption).fontWeight(.medium)
+                                            Text(VoiceCatalog.tier(for: voice.id).displayName).font(.caption2)
                                         }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.blue.opacity(0.1))
-                                        .cornerRadius(10)
+                                        .padding(.horizontal, 12).padding(.vertical, 8)
+                                        .background(Color.blue.opacity(0.1)).cornerRadius(10)
                                         .foregroundColor(.blue)
                                     }
                                     .buttonStyle(.borderless)
@@ -1286,11 +1282,7 @@ fileprivate struct AllRecommendationsView: View {
                 }
             }
             .navigationTitle("全部推荐")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
     }
 }
@@ -1443,18 +1435,14 @@ struct ReaderSettingsView: View {
                 }
 
                 Section {
-                    Button("保存并应用") {
-                        dismiss()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center).foregroundColor(.blue)
+                    Button("保存并应用") { dismiss() }
+                        .frame(maxWidth: .infinity, alignment: .center).foregroundColor(.blue)
                 }
             }
             .navigationTitle("阅读设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
             }
             .sheet(isPresented: $showFontPicker) {
                 FontPickerView().environmentObject(store).presentationDetents([.medium])
@@ -1538,9 +1526,7 @@ struct FontPickerView: View {
                 }
             }
             .navigationTitle("选择字体").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-            }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
             .fileImporter(isPresented: $showingFontImporter, allowedContentTypes: [.font], allowsMultipleSelection: true) { result in
                 handleFontImport(result)
             }
@@ -1587,9 +1573,7 @@ struct FontPickerView: View {
     private func removeCustomFonts(at offsets: IndexSet) {
         let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
         let fontsDir = docs.appendingPathComponent("CustomFonts")
-        for index in offsets {
-            try? FileManager.default.removeItem(at: customFonts[index].url)
-        }
+        for index in offsets { try? FileManager.default.removeItem(at: customFonts[index].url) }
         loadCustomFonts()
     }
 }
@@ -1656,16 +1640,12 @@ struct BackgroundPickerView: View {
                     .foregroundColor(.primary)
 
                     if store.customBackgroundImage != nil {
-                        Button("清除自定义背景", role: .destructive) {
-                            store.customBackgroundImage = nil
-                        }
+                        Button("清除自定义背景", role: .destructive) { store.customBackgroundImage = nil }
                     }
                 }
             }
             .navigationTitle("阅读背景").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
-            }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .sheet(isPresented: $showingImagePicker) { ImagePicker(image: $selectedImage) }
             .onChange(of: selectedImage) { newImage in
                 if let img = newImage, let data = img.pngData() {
