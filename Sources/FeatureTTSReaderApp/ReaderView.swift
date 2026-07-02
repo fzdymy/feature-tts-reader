@@ -954,21 +954,6 @@ struct ReaderView: View {
         }
     }
 
-    private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
-        let titleHeight: CGFloat = 58
-        let bottomPad: CGFloat = 20
-        let hPad: CGFloat = 40
-        let containerWidth = UIScreen.main.bounds.width - hPad
-        let fontSize = store.readerFontSize
-        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
-        let charWidth = fontSize * 0.5
-        let charsPerLine = max(1, Int(containerWidth / charWidth))
-        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let totalChars = ch.text.count
-        let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
-        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
-    }
-
     // MARK: - Lifecycle
 
     private func onAppearSetup() {
