@@ -1007,8 +1007,9 @@ final class ReaderStore: NSObject, ObservableObject {
         let currentCharacters = characters
         let currentVoices = voices
         let currentSensitivity = defaultSensitivity
-        return await Task.detached { [weak self, text, currentCharacters, currentVoices, currentSensitivity] in
-            return self?.createScriptSegments(from: text, characters: currentCharacters, defaultSensitivity: currentSensitivity, voices: currentVoices) ?? []
+        let currentVoiceProfiles = voiceProfiles
+        return await Task.detached { [weak self, text, currentCharacters, currentVoices, currentSensitivity, currentVoiceProfiles] in
+            return self?.createScriptSegments(from: text, characters: currentCharacters, defaultSensitivity: currentSensitivity, voices: currentVoices, voiceProfiles: currentVoiceProfiles) ?? []
         }.value
     }
 
@@ -1495,7 +1496,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return result
     }
 
-    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem]) -> [ScriptSegment] {
+    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], voiceProfiles: [VoiceProfileTuning] = []) -> [ScriptSegment] {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
@@ -1528,13 +1529,25 @@ final class ReaderStore: NSObject, ObservableObject {
                 let finalPitch = profile.pitch + scaledPitchAdjustment
                 let finalRate = profile.rate + (sensitivityValue > 50 ? toneResult.rateAdjust : 0)
 
+                // Check for VoiceProfileTuning match by alias → character name
+                var activeVoice = profile.voice
+                var activeRate = finalRate
+                var activePitch = finalPitch
+                var activeStyle = finalStyle
+                if let tuning = voiceProfiles.first(where: { $0.alias == speaker || $0.alias == profile.name }) {
+                    activeVoice = tuning.sourceVoiceID
+                    activeRate += tuning.rateOffset
+                    activePitch += tuning.pitchOffset
+                    if tuning.style != "neutral" { activeStyle = tuning.style }
+                }
+
                 segments.append(ScriptSegment(
                     id: UUID(),
                     characterName: profile.name,
-                    voice: profile.voice,
-                    rate: finalRate,
-                    pitch: finalPitch,
-                    style: finalStyle,
+                    voice: activeVoice,
+                    rate: activeRate,
+                    pitch: activePitch,
+                    style: activeStyle,
                     text: line
                 ))
             }
