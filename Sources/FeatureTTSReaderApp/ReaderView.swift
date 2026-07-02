@@ -165,24 +165,6 @@ struct ReaderView: View {
                                 })
                         }
                     }
-                    .overlay(alignment: .bottomTrailing) {
-                        if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
-                            Button(action: {
-                                isAudioMode = true
-                                isPlaying = true
-                                Task { await startPlayback() }
-                            }) {
-                                Image(systemName: "play.circle.fill")
-                                    .font(.system(size: 44))
-                                    .foregroundColor(.blue)
-                                    .background(Circle().fill(bgColor).shadow(radius: 4))
-                            }
-                            .buttonStyle(.borderless)
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 20)
-                            .transition(.scale.combined(with: .opacity))
-                        }
-                    }
                 }
                 .coordinateSpace(name: "scroll")
                 .onPreferenceChange(ScrollOffsetKey.self) { offset in
@@ -201,6 +183,24 @@ struct ReaderView: View {
                         withAnimation { scrollProxy.scrollTo("ch_\(t)", anchor: .top) }
                         currentChapterIndex = t
                         externalScrollTarget = nil
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
+                        Button(action: {
+                            isAudioMode = true
+                            isPlaying = true
+                            Task { await startPlayback() }
+                        }) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 44))
+                                .foregroundColor(.blue)
+                                .background(Circle().fill(bgColor).shadow(radius: 4))
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 20)
+                        .transition(.scale.combined(with: .opacity))
                     }
                 }
             }
