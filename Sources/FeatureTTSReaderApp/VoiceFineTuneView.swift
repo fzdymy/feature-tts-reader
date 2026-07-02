@@ -293,11 +293,7 @@ struct JSONDocument: FileDocument {
     init(data: Data) { self.data = data }
 
     init(configuration: ReadConfiguration) throws {
-        if let file = configuration.file {
-            data = file.regularFileContents ?? Data()
-        } else {
-            data = Data()
-        }
+        data = configuration.file.regularFileContents ?? Data()
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
