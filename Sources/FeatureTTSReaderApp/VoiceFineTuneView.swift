@@ -79,8 +79,7 @@ struct VoiceFineTuneView: View {
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
+            case .success(let url):
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else { return }
@@ -294,7 +293,11 @@ struct JSONDocument: FileDocument {
     init(data: Data) { self.data = data }
 
     init(configuration: ReadConfiguration) throws {
-        data = configuration.file?.regularFileContents ?? Data()
+        if let file = configuration.file {
+            data = file.regularFileContents ?? Data()
+        } else {
+            data = Data()
+        }
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
