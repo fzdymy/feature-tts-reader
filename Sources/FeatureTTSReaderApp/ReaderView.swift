@@ -52,8 +52,25 @@ struct ReaderView: View {
 
     @State private var chapterProgress: Double = 0
     @State private var scrollPositionID: String?
-    @State private var externalScrollTarget: Int?
+    @State private var navigationTarget: Int?
     @State private var scrollOffset: CGFloat = 0
+    @StateObject private var scrollCoordinator = ScrollCoordinator()
+
+    private func navigateToChapter(_ target: Int) {
+        guard target >= 0, target < chaptersList.count else { return }
+        if isPlaying { store.stopPlayback(); isPlaying = false }
+        currentChapterIndex = target
+        currentChapter = chaptersList[target]
+        store.selectedChapterID = chaptersList[target].id
+        chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
+        ReaderStore.saveLastChapterIndex(target, for: bookID)
+        ReaderStore.debugLog("[NAV] idx=\(target)")
+        navigationTarget = target
+        withAnimation { scrollPositionID = "ch_\(target)" }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            if self.navigationTarget == target { self.navigationTarget = nil }
+        }
+    }
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
@@ -123,49 +140,47 @@ struct ReaderView: View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    GeometryReader { proxy in
-                        Color.clear
-                            .onChange(of: proxy.frame(in: .scrollView).minY) { newY in
-                                scrollOffset = -newY
-                            }
-                    }
-                    .frame(height: 0)
-                    LazyVStack(spacing: 0) {
-                        ForEach(chaptersList.indices, id: \.self) { i in
-                            chapterContent(index: i)
-                                .id("ch_\(i)")
+            ScrollView {
+                GeometryReader { proxy in
+                    Color.clear
+                        .onChange(of: proxy.frame(in: .scrollView).minY) { newY in
+                            scrollOffset = -newY
                         }
-                    }
-                    .scrollTargetLayout()
-                    .simultaneousGesture(
-                        TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
-                    )
                 }
-                .scrollPosition(id: $scrollPositionID)
-                .onChange(of: scrollPositionID) { newID in
-                    guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
-                    if currentChapterIndex != idx {
-                        currentChapterIndex = idx
-                        chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
-                        if idx < chaptersList.count {
-                            currentChapter = chaptersList[idx]
-                            store.selectedChapterID = chaptersList[idx].id
-                        }
+                .frame(height: 0)
+                LazyVStack(spacing: 0) {
+                    ForEach(chaptersList.indices, id: \.self) { i in
+                        chapterContent(index: i)
+                            .id("ch_\(i)")
                     }
                 }
-                .onChange(of: externalScrollTarget) { target in
-                    if let t = target {
-                        withAnimation { proxy.scrollTo("ch_\(t)", anchor: .top) }
-                        externalScrollTarget = nil
+                .scrollTargetLayout()
+                .simultaneousGesture(
+                    TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+                )
+            }
+            .scrollPosition(id: $scrollPositionID)
+            .background(ScrollViewAccessor(coordinator: scrollCoordinator))
+            .onChange(of: scrollPositionID) { newID in
+                guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
+                // While navigating to a target, ignore intermediate chapters
+                if let target = navigationTarget {
+                    if idx == target { navigationTarget = nil }
+                    return
+                }
+                if currentChapterIndex != idx {
+                    currentChapterIndex = idx
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
+                    if idx < chaptersList.count {
+                        currentChapter = chaptersList[idx]
+                        store.selectedChapterID = chaptersList[idx].id
                     }
                 }
-                .onAppear {
-                    DispatchQueue.main.async {
-                        if currentChapterIndex > 0 {
-                            proxy.scrollTo("ch_\(currentChapterIndex)", anchor: .top)
-                        }
+            }
+            .onAppear {
+                DispatchQueue.main.async {
+                    if currentChapterIndex > 0 {
+                        scrollPositionID = "ch_\(currentChapterIndex)"
                     }
                 }
             }
@@ -234,8 +249,7 @@ struct ReaderView: View {
                 if !chaptersList.isEmpty {
                     store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
                 }
-                jumpTo(index, explicit: true)
-                externalScrollTarget = index
+                navigateToChapter(index)
             },
             onCharacterEdit: { updated in
                 if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
@@ -368,12 +382,7 @@ struct ReaderView: View {
             HStack(spacing: 8) {
                 Button(action: {
                     guard currentChapterIndex > 0 else { return }
-                    let target = currentChapterIndex - 1
-                    currentChapterIndex = target
-                    currentChapter = chaptersList[target]
-                    store.selectedChapterID = chaptersList[target].id
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
-                    externalScrollTarget = target
+                    navigateToChapter(currentChapterIndex - 1)
                 }) {
                     Text("上一章")
                         .font(.subheadline)
@@ -381,17 +390,22 @@ struct ReaderView: View {
                 }
                 .disabled(currentChapterIndex <= 0)
 
-                ProgressView(value: chapterProgressInChapter)
+                Slider(value: Binding(
+                    get: { chapterProgressInChapter },
+                    set: { newValue in
+                        guard currentChapterIndex < chaptersList.count else { return }
+                        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
+                        let chHeight = estimatedChapterHeight(chaptersList[currentChapterIndex])
+                        guard chHeight > 0 else { return }
+                        let targetOffset = pastHeight + CGFloat(newValue) * chHeight
+                        scrollCoordinator.scrollTo(offset: targetOffset, animated: false)
+                    }
+                ))
                     .tint(.blue)
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
-                    let target = currentChapterIndex + 1
-                    currentChapterIndex = target
-                    currentChapter = chaptersList[target]
-                    store.selectedChapterID = chaptersList[target].id
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
-                    externalScrollTarget = target
+                    navigateToChapter(currentChapterIndex + 1)
                 }) {
                     Text("下一章")
                         .font(.subheadline)
@@ -468,12 +482,7 @@ struct ReaderView: View {
             HStack(spacing: 32) {
                 Button(action: {
                     guard currentChapterIndex > 0 else { return }
-                    let target = currentChapterIndex - 1
-                    currentChapterIndex = target
-                    currentChapter = chaptersList[target]
-                    store.selectedChapterID = chaptersList[target].id
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
-                    externalScrollTarget = target
+                    navigateToChapter(currentChapterIndex - 1)
                     if isPlaying { store.stopPlayback(); isPlaying = false }
                 }) {
                     Image(systemName: "backward.end.fill")
@@ -495,12 +504,7 @@ struct ReaderView: View {
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
-                    let target = currentChapterIndex + 1
-                    currentChapterIndex = target
-                    currentChapter = chaptersList[target]
-                    store.selectedChapterID = chaptersList[target].id
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
-                    externalScrollTarget = target
+                    navigateToChapter(currentChapterIndex + 1)
                     if isPlaying { store.stopPlayback(); isPlaying = false }
                 }) {
                     Image(systemName: "forward.end.fill")
@@ -995,7 +999,7 @@ struct ReaderView: View {
             }
             guard !text.isEmpty else {
                 chaptersList = [currentChapter]
-                DispatchQueue.main.async { externalScrollTarget = currentChapterIndex }
+                DispatchQueue.main.async { scrollPositionID = "ch_\(currentChapterIndex)" }
                 return
             }
             let parsed = await Task.detached(priority: .userInitiated) {
@@ -1008,28 +1012,18 @@ struct ReaderView: View {
                 chaptersList = store.chaptersForBook(bookID, text: text)
             }
             if chaptersList.isEmpty { chaptersList = [currentChapter] }
-            DispatchQueue.main.async { externalScrollTarget = currentChapterIndex }
+            DispatchQueue.main.async { scrollPositionID = "ch_\(currentChapterIndex)" }
         }
     }
 
     private func handleExternalNavigate(nav: ChapterNavigate?) {
         guard let nav, nav.bookID == bookID, nav.chapterIndex < chaptersList.count else { return }
         store.externalChapterNavigate = nil
-        jumpTo(nav.chapterIndex, explicit: true)
-        externalScrollTarget = nav.chapterIndex
+        navigateToChapter(nav.chapterIndex)
     }
 
     // MARK: - Navigation
 
-    private func jumpTo(_ index: Int, explicit: Bool) {
-        guard index >= 0, index < chaptersList.count else { return }
-        if isPlaying { store.stopPlayback(); isPlaying = false }
-        currentChapterIndex = index
-        currentChapter = chaptersList[index]
-        store.selectedChapterID = chaptersList[index].id
-        ReaderStore.saveLastChapterIndex(index, for: bookID)
-        ReaderStore.debugLog("[JUMP] idx=\(index)")
-    }
 
     private func startPlayback() async {
         do {
@@ -1584,8 +1578,19 @@ struct FontPickerView: View {
     }
 
     private func displayNameFor(_ postScriptName: String) -> String {
-        // Convert PostScript name like "PingFangSC-Regular" or "STHeitiSC-Light"
-        // to human readable like "PingFang SC" or "STHeiti SC"
+        let known: [String: String] = [
+            "PingFangSC-Regular": "苹方", "PingFangSC-Medium": "苹方中黑",
+            "PingFangSC-Semibold": "苹方粗体",
+            "STHeitiSC-Light": "黑体", "STHeitiSC-Medium": "黑体中",
+            "STSongti-SC-Regular": "宋体", "STSongti-SC-Bold": "宋体粗",
+            "STKaitiSC-Regular": "楷体", "STKaitiSC-Bold": "楷体粗",
+            "STFangsong": "仿宋",
+            "HiraMinProN-W3": "明朝", "HiraMinProN-W6": "明朝粗",
+            "NotoSansCJKsc-Regular": "思源黑体", "NotoSansCJKsc-Medium": "思源黑体中",
+            "NotoSerifCJKsc-Regular": "思源宋体", "NotoSerifCJKsc-Bold": "思源宋体粗",
+            "SourceHanSerifSC-Regular": "源ノ明朝", "SourceHanSerifSC-Bold": "源ノ明朝粗",
+        ]
+        if let chinese = known[postScriptName] { return chinese }
         let cleaned = postScriptName
             .replacingOccurrences(of: "SC-", with: "SC ")
             .replacingOccurrences(of: "-", with: " ")
@@ -1617,6 +1622,8 @@ struct FontPickerView: View {
         let fontsDir = docs.appendingPathComponent("CustomFonts")
         try? FileManager.default.createDirectory(at: fontsDir, withIntermediateDirectories: true)
         for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let dest = fontsDir.appendingPathComponent(url.lastPathComponent)
             if FileManager.default.fileExists(atPath: dest.path) { try? FileManager.default.removeItem(at: dest) }
             do {
@@ -1648,6 +1655,42 @@ struct _CustomFont: Identifiable {
     let name: String
     let postScriptName: String
     let url: URL
+}
+
+// MARK: - ScrollCoordinator (for programmatic scroll-to-offset)
+
+class ScrollCoordinator: ObservableObject {
+    weak var scrollView: UIScrollView?
+    
+    func scrollTo(offset: CGFloat, animated: Bool = true) {
+        guard let sv = scrollView else { return }
+        let clamped = min(max(offset, 0), sv.contentSize.height - sv.bounds.height)
+        sv.setContentOffset(CGPoint(x: 0, y: clamped), animated: animated)
+    }
+}
+
+struct ScrollViewAccessor: UIViewRepresentable {
+    let coordinator: ScrollCoordinator
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        DispatchQueue.main.async {
+            if let scrollView = view.findScrollView() {
+                coordinator.scrollView = scrollView
+            }
+        }
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+private extension UIView {
+    func findScrollView() -> UIScrollView? {
+        if let sv = superview as? UIScrollView { return sv }
+        return superview?.findScrollView()
+    }
 }
 
 // MARK: - BackgroundPickerView
