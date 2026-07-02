@@ -110,70 +110,77 @@ struct ReaderView: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !isImmersive {
-                readerHeader
+        ZStack {
+            backgroundContent.ignoresSafeArea()
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(chaptersList.indices, id: \.self) { i in
+                        chapterContent(index: i)
+                            .id("ch_\(i)")
+                    }
+                }
+                .scrollTargetLayout()
             }
-
-            ZStack(alignment: .bottomTrailing) {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(chaptersList.indices, id: \.self) { i in
-                            chapterContent(index: i)
-                                .id("ch_\(i)")
-                        }
+            .scrollPosition(id: $scrollPositionID)
+            .simultaneousGesture(
+                TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+            )
+            .onChange(of: scrollPositionID) { newID in
+                guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
+                if currentChapterIndex != idx {
+                    currentChapterIndex = idx
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
+                    if idx < chaptersList.count {
+                        currentChapter = chaptersList[idx]
+                        store.selectedChapterID = chaptersList[idx].id
                     }
-                    .scrollTargetLayout()
-                }
-                .scrollPosition(id: $scrollPositionID)
-                .simultaneousGesture(
-                    TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
-                )
-                .onChange(of: scrollPositionID) { newID in
-                    guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
-                    if currentChapterIndex != idx {
-                        currentChapterIndex = idx
-                        chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
-                        if idx < chaptersList.count {
-                            currentChapter = chaptersList[idx]
-                            store.selectedChapterID = chaptersList[idx].id
-                        }
-                    }
-                }
-
-                if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
-                    Button(action: {
-                        isAudioMode = true
-                        isPlaying = true
-                        Task { await startPlayback() }
-                    }) {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 44))
-                            .foregroundColor(.blue)
-                            .background(Circle().fill(bgColor).shadow(radius: 4))
-                    }
-                    .buttonStyle(.borderless)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 20)
-                    .transition(.scale.combined(with: .opacity))
                 }
             }
 
-            if !isImmersive {
-                if isAudioMode {
-                    audioBottomBar
-                } else {
-                    silentBottomBar
+            VStack {
+                if !isImmersive {
+                    readerHeader
                 }
-            } else if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                readerStatusBar
+                Spacer()
+                if isImmersive && (store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery) {
+                    readerStatusBar
+                } else if !isImmersive {
+                    if isAudioMode {
+                        audioBottomBar
+                    } else {
+                        silentBottomBar
+                    }
+                }
+            }
+
+            if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            isAudioMode = true
+                            isPlaying = true
+                            Task { await startPlayback() }
+                        }) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 44))
+                                .foregroundColor(.blue)
+                                .background(Circle().fill(bgColor).shadow(radius: 4))
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 20)
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
             }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(true)
         .statusBarHidden(isImmersive || isAudioMode)
-        .background(backgroundContent.ignoresSafeArea())
         .onReceive(timer) { _ in
             currentTime = Date()
             if UIDevice.current.isBatteryMonitoringEnabled {
@@ -292,6 +299,12 @@ struct ReaderView: View {
     private func chapterContent(index: Int) -> some View {
         let ch = chaptersList[index]
         VStack(alignment: .leading, spacing: 0) {
+            Text(ch.title)
+                .font(.title2).fontWeight(.bold)
+                .foregroundColor(textColor)
+                .padding(.top, 24)
+                .padding(.bottom, 12)
+
             Text(indentedText(ch.text))
                 .font(Font.custom(store.readerFontName, size: store.readerFontSize))
                 .foregroundColor(textColor)
@@ -307,6 +320,7 @@ struct ReaderView: View {
     }
 
     private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
+        let titleHeight: CGFloat = 58
         let bottomPad: CGFloat = 40
         let hPad: CGFloat = 40
         let containerWidth = UIScreen.main.bounds.width - hPad
@@ -317,7 +331,7 @@ struct ReaderView: View {
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
         let totalChars = ch.text.count
         let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
-        return CGFloat(lineCount) * lineHeight + bottomPad
+        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
     }
 
     // MARK: - Silent Bottom Bar

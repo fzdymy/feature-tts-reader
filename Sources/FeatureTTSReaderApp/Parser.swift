@@ -27,7 +27,7 @@ func parseChapters(text: String) -> [BookChapter] {
                     chapters.append(BookChapter(id: UUID(), title: title, text: currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
                 }
                 currentTitle = firstHead
-                currentText = firstHead + "\n"
+                currentText = ""
             } else {
                 currentText.append(line + "\n")
             }
