@@ -104,97 +104,99 @@ struct ReaderView: View {
                 bgColor.ignoresSafeArea()
             }
 
-            if isAudioMode {
-                // ── Audio mode: VStack layout ──
-                VStack(spacing: 0) {
-                    readerHeader
-                    if showCharacterPanel {
-                        characterPanel
-                            .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
-                    }
-                    ScrollView {
-                        SelectableTextReader(
-                            text: chapterDisplayText,
-                            fontName: store.readerFontName,
-                            fontSize: store.readerFontSize + 2,
-                            textColor: UIColor(textColor),
-                            lineSpacing: store.readerLineSpacing + 4,
-                            onSelect: { selectedText in
-                                let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
-                                selectedTextForCharacter = trimmed
-                                showCharacterFromText = true
-                            }
-                        )
-                    }
+            // ── Silent reading: always in hierarchy ──
+            ScrollView {
+                Text(chapterDisplayText)
+                    .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+                    .foregroundColor(textColor)
+                    .lineSpacing(store.readerLineSpacing + 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
-                    automationToolbar
-                    audioControlBar
+                    .padding(.bottom, 80)
+                    .textSelection(.enabled)
+            }
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    withAnimation { isImmersive.toggle() }
                 }
-            } else {
-                // ── Silent reading: original ZStack overlay layout ──
-                ScrollView {
-                    Text(chapterDisplayText)
-                        .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-                        .foregroundColor(textColor)
-                        .lineSpacing(store.readerLineSpacing + 2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 12)
-                        .padding(.bottom, 80)
-                        .textSelection(.enabled)
-                }
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        withAnimation { isImmersive.toggle() }
-                    }
-                )
+            )
+            .opacity(isAudioMode ? 0 : 1)
+            .allowsHitTesting(!isAudioMode)
 
-                // Header overlay (pinned to top)
-                if !isImmersive {
+            // Header overlay (pinned to top) — silent mode
+            if !isImmersive && !isAudioMode {
+                VStack {
+                    readerHeader
+                    Spacer()
+                }
+            }
+
+            // Control bar overlay (pinned to bottom) — silent mode
+            if !isImmersive && !isAudioMode {
+                VStack {
+                    Spacer()
+                    controlBar
+                }
+            }
+
+            // Immersive overlays — silent mode
+            if isImmersive && !isAudioMode {
+                if store.showChapterTitle {
                     VStack {
-                        readerHeader
+                        HStack {
+                            Text(displayedChapterTitle)
+                                .font(.caption)
+                                .foregroundColor(textColor.opacity(0.6))
+                                .lineLimit(1)
+                                .padding(.horizontal, 16).padding(.vertical, 6)
+                            Spacer()
+                        }
                         Spacer()
                     }
                 }
-
-                // Control bar overlay (pinned to bottom)
-                if !isImmersive {
+                if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
                     VStack {
                         Spacer()
-                        controlBar
-                    }
-                }
-
-                // Immersive overlays
-                if isImmersive {
-                    if store.showChapterTitle {
-                        VStack {
-                            HStack {
-                                Text(displayedChapterTitle)
-                                    .font(.caption)
-                                    .foregroundColor(textColor.opacity(0.6))
-                                    .lineLimit(1)
-                                    .padding(.horizontal, 16).padding(.vertical, 6)
-                                Spacer()
-                            }
-                            Spacer()
-                        }
-                    }
-                    if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                        VStack {
-                            Spacer()
-                            readerStatusBar
-                        }
+                        readerStatusBar
                     }
                 }
             }
+
+            // ── Audio mode: overlay on top, only visible when active ──
+            VStack(spacing: 0) {
+                readerHeader
+                if showCharacterPanel {
+                    characterPanel
+                        .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
+                }
+                ScrollView {
+                    SelectableTextReader(
+                        text: chapterDisplayText,
+                        fontName: store.readerFontName,
+                        fontSize: store.readerFontSize + 2,
+                        textColor: UIColor(textColor),
+                        lineSpacing: store.readerLineSpacing + 4,
+                        onSelect: { selectedText in
+                            let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard trimmed.count >= 2 && trimmed.count <= 4 else { return }
+                            selectedTextForCharacter = trimmed
+                            showCharacterFromText = true
+                        }
+                    )
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                automationToolbar
+                audioControlBar
+            }
+            .opacity(isAudioMode ? 1 : 0)
+            .allowsHitTesting(isAudioMode)
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(isImmersive && !isAudioMode)
-        .statusBarHidden(isImmersive && !isAudioMode)
+        .navigationBarHidden(isImmersive || isAudioMode)
+        .statusBarHidden(isImmersive || isAudioMode)
         .onReceive(timer) { _ in
             currentTime = Date()
             updateBatteryLevel()
@@ -207,7 +209,20 @@ struct ReaderView: View {
                 if let cached = store.chaptersForBookCached(bookID) {
                     chaptersList = cached
                 } else {
-                    chaptersList = store.chaptersForBook(bookID, text: store.bookText)
+                    let text: String
+                    if store.bookText.isEmpty || store.currentBookID != bookID.uuidString {
+                        let fileText = store.loadBookTextFromFile(bookID: bookID) ?? ""
+                        if fileText.isEmpty {
+                            text = book.text
+                        } else {
+                            text = fileText
+                            store.bookText = fileText
+                            store.currentBookID = bookID.uuidString
+                        }
+                    } else {
+                        text = store.bookText
+                    }
+                    chaptersList = store.chaptersForBook(bookID, text: text)
                     if chaptersList.isEmpty { chaptersList = [currentChapter] }
                 }
             }
@@ -216,7 +231,7 @@ struct ReaderView: View {
                 useSystemBrightness = false
                 UIScreen.main.brightness = brightness
             }
-            ReaderStore.debugLog("[RVIEW-APPEAR] idx=\(currentChapterIndex)")
+            ReaderStore.debugLog("[RVIEW-APPEAR] idx=\(currentChapterIndex) chaptersList.count=\(chaptersList.count)")
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
@@ -873,8 +888,9 @@ struct ReaderView: View {
     }
 
     private func updateBatteryLevel() {
-        guard !UIDevice.current.isBatteryMonitoringEnabled else { return }
-        UIDevice.current.isBatteryMonitoringEnabled = true
+        if !UIDevice.current.isBatteryMonitoringEnabled {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+        }
         batteryLevel = UIDevice.current.batteryLevel >= 0
             ? Int(UIDevice.current.batteryLevel * 100) : -1
     }
