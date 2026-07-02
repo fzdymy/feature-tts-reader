@@ -474,10 +474,6 @@ struct BookDetailView: View {
         }
         .navigationTitle("书籍详情")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-            }
-        }
         .task {
             await loadChapters()
         }
