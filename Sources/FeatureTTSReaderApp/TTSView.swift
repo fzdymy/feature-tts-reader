@@ -2,20 +2,16 @@ import SwiftUI
 
 struct TTSView: View {
     @EnvironmentObject private var store: ReaderStore
-    @State private var rawText: String = ""
 
     var body: some View {
         NavigationStack {
-            List {
-                serverSection
+            Form {
+                serverPicker
                 catalogSection
-                importSection
-                chapterSection
-                characterSection
                 playbackSection
+                importSection
                 statusSection
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("TTS")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -24,35 +20,41 @@ struct TTSView: View {
                     }
                 }
             }
-            .onAppear { rawText = store.bookText }
-            .onChange(of: store.bookText) { rawText = $0 }
         }
     }
 
-    private var serverSection: some View {
-        Section(header: Text("TTS 服务器")) {
-            NavigationLink(destination: LazyView(TTSServerListView().environmentObject(store))) {
-                HStack {
-                    Label(store.activeServer?.name ?? "未配置", systemImage: "server.rack")
-                    Spacer()
-                    if store.activeServer != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.caption)
+    // MARK: - 服务器
+
+    private var serverPicker: some View {
+        Section("TTS 服务器") {
+            if store.ttsServers.isEmpty {
+                NavigationLink(destination: TTSServerListView().environmentObject(store)) {
+                    Label("添加服务器", systemImage: "plus.circle")
+                }
+            } else {
+                NavigationLink(destination: TTSServerListView().environmentObject(store)) {
+                    HStack {
+                        Label("当前", systemImage: "server.rack")
+                        Spacer()
+                        Text(store.activeServer?.name ?? "未选择")
+                            .foregroundColor(.secondary)
                     }
                 }
             }
         }
     }
 
+    // MARK: - 音色目录
+
     private var catalogSection: some View {
-        Section(header: Text("音色目录")) {
-            NavigationLink(destination: LazyView(VoiceFineTuneView().environmentObject(store))) {
-                Label("音色微调管理", systemImage: "slider.horizontal.3")
-            }
+        Section("音色") {
             HStack(spacing: 12) {
                 catalogButton(.chinese35)
                 catalogButton(.fullChinese)
+            }
+
+            NavigationLink(destination: VoiceFineTuneView().environmentObject(store)) {
+                Label("微调管理", systemImage: "slider.horizontal.3")
             }
         }
     }
@@ -71,91 +73,55 @@ struct TTSView: View {
         .buttonStyle(.borderless)
     }
 
-    private var importSection: some View {
-        Section(header: Text("导入")) {
-            TextEditor(text: $rawText)
-                .frame(minHeight: 150)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.3)))
-            if store.importProgress > 0 {
-                ProgressView(value: store.importProgress)
-            }
-            HStack {
-                Button("导入文本") { Task { await store.importText(rawText); rawText = store.bookText } }
-                Spacer()
-                Button("扫描章节") { Task { await store.parseChaptersAsync() } }
-                Spacer()
-                Button("识别角色") { Task { await store.scanCharacters() } }
-            }
-        }
-    }
-
-    private var chapterSection: some View {
-        Section(header: Text("章节")) {
-            if store.chapters.isEmpty {
-                Text("未发现章节，请先导入小说文本。").foregroundColor(.secondary)
-            } else {
-                Text("共 \(store.chapters.count) 章").font(.subheadline).foregroundColor(.secondary)
-                Button("生成朗读脚本") { Task { await store.buildScript(for: false) } }
-                if !store.scriptSegments.isEmpty {
-                    Text("脚本段落：\(store.scriptSegments.count) 条").foregroundColor(.secondary)
-                }
-            }
-        }
-    }
-
-    private var characterSection: some View {
-        Section(header: Text("角色")) {
-            if store.characters.isEmpty {
-                Text("未识别到角色，请先导入小说并扫描。").foregroundColor(.secondary)
-            } else {
-                ForEach(store.characters) { ch in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(ch.name).font(.headline)
-                            Text(ch.info).font(.caption).foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Text(ch.voice).font(.caption2).foregroundColor(.secondary)
-                    }
-                }
-            }
-        }
-    }
+    // MARK: - 朗读
 
     private var playbackSection: some View {
-        Section(header: Text("朗读")) {
-            HStack {
-                Button(action: { Task { await store.playSelectedChapter() } }) {
-                    Label("当前章节", systemImage: "play.fill")
+        Section("朗读") {
+            if !store.chapters.isEmpty {
+                HStack {
+                    Button("当前章节") { Task { await store.playSelectedChapter() } }
+                    Spacer()
+                    Button("全书") { Task { await store.playWholeBook() } }
                 }
-                Spacer()
-                Button(action: { Task { await store.playWholeBook() } }) {
-                    Label("全书", systemImage: "book.fill")
-                }
+                Button("停止", role: .destructive) { store.stopPlayback() }
             }
-            Button(action: store.stopPlayback) {
-                Label("停止", systemImage: "stop.fill")
-            }
-            if !store.ttsChapterTitle.isEmpty {
+
+            if store.playProgress > 0 {
                 ProgressView(value: store.playProgress)
             }
         }
     }
 
+    // MARK: - 导入
+
+    private var importSection: some View {
+        Section("导入") {
+            TextEditor(text: Binding(
+                get: { store.bookText },
+                set: { _ in }
+            ))
+            .frame(minHeight: 120)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
+
+            if store.importProgress > 0 {
+                ProgressView(value: store.importProgress)
+            }
+
+            Button("导入文本") { Task { await store.importText(store.bookText) } }
+            Button("扫描章节") { Task { await store.parseChaptersAsync() } }
+            Button("识别角色") { Task { await store.scanCharacters() } }
+        }
+    }
+
+    // MARK: - 状态
+
     private var statusSection: some View {
-        Section(header: Text("状态")) {
+        Section("状态") {
             Text(store.statusMessage)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
-}
-
-struct LazyView<Content: View>: View {
-    let build: () -> Content
-    init(_ view: @autoclosure @escaping () -> Content) { self.build = view }
-    var body: some View { build() }
 }
 
 struct TTSView_Previews: PreviewProvider {
