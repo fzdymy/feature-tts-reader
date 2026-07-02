@@ -301,7 +301,19 @@ struct BookGridCard: View {
             chapterCount = cached.count
             return
         }
-        let text = store.loadBookTextFromFile(bookID: book.id) ?? book.text
+        let text: String
+        if !book.text.isEmpty {
+            text = book.text
+        } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
+            text = store.bookText
+        } else {
+            let bookID = book.id
+            text = await Task.detached(priority: .background) {
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+                let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
+                return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            }.value
+        }
         guard !text.isEmpty else { return }
         let parsed = await Task.detached(priority: .background) {
             store.extractChapters(from: text)
@@ -373,7 +385,19 @@ struct BookListRow: View {
             chapterCount = cached.count
             return
         }
-        let text = store.loadBookTextFromFile(bookID: book.id) ?? book.text
+        let text: String
+        if !book.text.isEmpty {
+            text = book.text
+        } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
+            text = store.bookText
+        } else {
+            let bookID = book.id
+            text = await Task.detached(priority: .background) {
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+                let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
+                return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            }.value
+        }
         guard !text.isEmpty else { return }
         let parsed = await Task.detached(priority: .background) {
             store.extractChapters(from: text)

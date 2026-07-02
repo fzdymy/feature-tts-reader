@@ -150,7 +150,7 @@ struct ReaderView: View {
                     }
                     .frame(height: 0)
 
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(chaptersList.indices, id: \.self) { i in
                             chapterContent(index: i)
                                 .background(GeometryReader { geo in
