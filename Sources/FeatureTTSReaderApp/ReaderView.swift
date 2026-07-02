@@ -66,7 +66,10 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(target, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(target)")
         navigationTarget = target
-        withAnimation { scrollPositionID = "ch_\(target)" }
+        scrollPositionID = "ch_\(target)"
+        // Use precise UIScrollView contentOffset for top-anchored scroll
+        let chapterTop = chaptersList[0..<target].reduce(0) { $0 + estimatedChapterHeight($1) }
+        scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if self.navigationTarget == target { self.navigationTarget = nil }
         }
@@ -365,8 +368,8 @@ struct ReaderView: View {
         let containerWidth = UIScreen.main.bounds.width - hPad
         let fontSize = store.readerFontSize
         let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
-        let charWidth = fontSize * 0.5
-        let charsPerLine = max(1, Int(containerWidth / charWidth))
+        let cjkCharWidth = fontSize
+        let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
         let totalChars = ch.text.count
         let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
@@ -1637,9 +1640,20 @@ struct FontPickerView: View {
     private func registerFont(at url: URL) {
         guard let data = try? Data(contentsOf: url),
               let provider = CGDataProvider(data: data as CFData),
-              let font = CGFont(provider) else { return }
+              let font = CGFont(provider) else {
+            print("[FONT] Failed to create CGFont from \(url.lastPathComponent)")
+            return
+        }
+        // Unregister first in case a font with the same name is already registered
         var error: Unmanaged<CFError>?
+        CTFontManagerUnregisterGraphicsFont(font, &error)
+        error = nil
         CTFontManagerRegisterGraphicsFont(font, &error)
+        if let e = error?.takeRetainedValue() {
+            print("[FONT] Registration failed for \(url.lastPathComponent): \(e.localizedDescription)")
+        } else {
+            print("[FONT] Registered font from \(url.lastPathComponent), PS name=\(font.postScriptName as String? ?? "?")")
+        }
     }
 
     private func removeCustomFonts(at offsets: IndexSet) {

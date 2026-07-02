@@ -774,9 +774,19 @@ struct FontManagerView: View {
     private func registerFont(at url: URL) {
         guard let data = try? Data(contentsOf: url),
               let provider = CGDataProvider(data: data as CFData),
-              let font = CGFont(provider) else { return }
+              let font = CGFont(provider) else {
+            print("[FONT] Failed to create CGFont from \(url.lastPathComponent)")
+            return
+        }
         var error: Unmanaged<CFError>?
+        CTFontManagerUnregisterGraphicsFont(font, &error)
+        error = nil
         CTFontManagerRegisterGraphicsFont(font, &error)
+        if let e = error?.takeRetainedValue() {
+            print("[FONT] Registration failed for \(url.lastPathComponent): \(e.localizedDescription)")
+        } else {
+            print("[FONT] Registered font from \(url.lastPathComponent), PS name=\(font.postScriptName as String? ?? "?")")
+        }
     }
 
     private func removeCustomFonts(at offsets: IndexSet) {
