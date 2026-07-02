@@ -5,6 +5,7 @@ struct TTSView: View {
     @State private var rawText: String = ""
     @State private var selectedCharacter: CharacterProfile?
     @State private var useWholeBook: Bool = false
+    @State private var statusMessage: String = ""
 
     private var selectedChapterTitle: String {
         store.chapters.first(where: { $0.id == store.selectedChapterID })?.title ?? "当前章节"
@@ -62,18 +63,32 @@ struct TTSView: View {
     }
 
     private var settingsSection: some View {
-        Section(header: Text("全局参数与 TTS 设置")) {
-            TextField("TTS 服务地址，例如 https://example.com/tts", text: $store.apiEndpoint)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .submitLabel(.done)
-            SecureField("API Key（选填）", text: $store.apiKey)
-                .textContentType(.password)
-                .submitLabel(.done)
+        Section(header: Text("TTS 服务")) {
+            if store.ttsServers.isEmpty {
+                Text("尚未配置 TTS 服务器。请先添加至少一个服务器。")
+                    .foregroundColor(.secondary)
+                NavigationLink(destination: TTSServerListView().environmentObject(store)) {
+                    Label("添加服务器", systemImage: "plus.circle")
+                }
+            } else {
+                NavigationLink(destination: TTSServerListView().environmentObject(store)) {
+                    HStack {
+                        Text("当前服务器")
+                        Spacer()
+                        Text(store.activeServer?.name ?? "未选择")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Button("测试连接") {
+                    Task {
+                        let result = await store.testTTSSynthesize()
+                        statusMessage = result
+                    }
+                }
+            }
+
             HStack(spacing: 12) {
-                Button(action: {
-                    store.switchCatalog(to: .chinese35)
-                }) {
+                Button(action: { store.switchCatalog(to: .chinese35) }) {
                     Text("经典音色 (40)")
                         .font(.subheadline)
                         .padding(.horizontal, 12)
@@ -83,9 +98,7 @@ struct TTSView: View {
                         .cornerRadius(8)
                 }
                 .buttonStyle(.borderless)
-                Button(action: {
-                    store.switchCatalog(to: .fullChinese)
-                }) {
+                Button(action: { store.switchCatalog(to: .fullChinese) }) {
                     Text("全音色 (76)")
                         .font(.subheadline)
                         .padding(.horizontal, 12)
@@ -96,11 +109,9 @@ struct TTSView: View {
                 }
                 .buttonStyle(.borderless)
             }
-            Text("经典音色涵盖 40 种常用中文音色；全音色含 76 种音色（含 Dragon HD / MAI 等）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-            Button(action: store.saveSettings) {
-                Text("保存设置")
+
+            NavigationLink(destination: VoiceFineTuneView().environmentObject(store)) {
+                Label("音色微调管理", systemImage: "slider.horizontal.3")
             }
         }
     }

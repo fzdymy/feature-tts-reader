@@ -94,21 +94,11 @@ struct FontManager {
 
 struct SettingsView: View {
     @EnvironmentObject private var store: ReaderStore
-    @State private var testResult: String = ""
     @State private var showingFontPicker = false
     @State private var showingBackupOptions = false
     @State private var showingCacheSize = false
     @State private var showingFileImporter = false
     @State private var cacheSize: String = "计算中..."
-    @State private var showAdvancedTTS = false
-    @State private var localEndpoint: String = ""
-    @State private var localAPIKey: String = ""
-    @State private var endpointTask: Task<Void, Never>?
-    @State private var apiKeyTask: Task<Void, Never>?
-    @State private var showTestAlert = false
-    @State private var testAlertTitle = ""
-    @State private var testAlertMessage = ""
-    @State private var testSuccess = false
     @State private var selectedAppTheme: AppTheme = .system
     @State private var selectedBookshelfLayout: BookshelfLayout = .grid
     @State private var enableHaptics = true
@@ -118,115 +108,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                // MARK: - TTS 服务
-                Section(header: Text("TTS 服务设置")) {
-                    TextField("TTS 服务地址，例如 https://example.com/tts", text: $localEndpoint)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        .submitLabel(.done)
-                        .onSubmit { store.apiEndpoint = localEndpoint }
-                        .onChange(of: localEndpoint) { _ in
-                            endpointTask?.cancel()
-                            endpointTask = Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiEndpoint = localEndpoint }
-                        }
-                    SecureField("API Key（选填）", text: $localAPIKey)
-                        .textContentType(.password)
-                        .submitLabel(.done)
-                        .onSubmit { store.apiKey = localAPIKey }
-                        .onChange(of: localAPIKey) { _ in
-                            apiKeyTask?.cancel()
-                            apiKeyTask = Task { try? await Task.sleep(nanoseconds: 300_000_000); store.apiKey = localAPIKey }
-                        }
-
-                    HStack(spacing: 12) {
-                        Button(action: {
-                            store.switchCatalog(to: .chinese35)
-                        }) {
-                            Text("经典音色 (40)")
-                                .font(.subheadline)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
-                                .background(store.selectedVoiceCatalog == .chinese35 ? Color.accentColor : Color.gray.opacity(0.15))
-                                .foregroundColor(store.selectedVoiceCatalog == .chinese35 ? .white : .primary)
-                                .cornerRadius(8)
-                        }
-                        .buttonStyle(.borderless)
-                        Button(action: {
-                            store.switchCatalog(to: .fullChinese)
-                        }) {
-                            Text("全音色 (76)")
-                                .font(.subheadline)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
-                                .background(store.selectedVoiceCatalog == .fullChinese ? Color.accentColor : Color.gray.opacity(0.15))
-                                .foregroundColor(store.selectedVoiceCatalog == .fullChinese ? .white : .primary)
-                                .cornerRadius(8)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Button("测试连接") {
-                        Task {
-                            let result = await store.testTTSSynthesize()
-                            testResult = result
-                            testAlertTitle = "TTS 服务测试"
-                            if result.contains("失败") {
-                                testAlertMessage = "合成测试失败：\n\(result)"
-                                testSuccess = false
-                            } else {
-                                testAlertMessage = "合成测试通过！\n\(result)\n\n点击「播放」试听测试音频。"
-                                testSuccess = true
-                            }
-                            showTestAlert = true
-                        }
-                    }
-                    .alert(testAlertTitle, isPresented: $showTestAlert) {
-                        if testSuccess, let url = store.ttsTestAudioURL {
-                            Button("播放") {
-                                Task { await store.audioController.playFilesAndWait([url]) }
-                            }
-                            Button("取消", role: .cancel) { }
-                        } else {
-                            Button("确定", role: .cancel) { }
-                        }
-                    } message: {
-                        Text(testAlertMessage)
-                    }
-                    if !testResult.isEmpty {
-                        Text(testResult).font(.caption).foregroundColor(.secondary)
-                    }
-
-                    DisclosureGroup("高级 TTS 设置", isExpanded: $showAdvancedTTS) {
-                        HStack {
-                            Text("默认语速")
-                            Slider(value: Binding(get: { Double(store.defaultRate) }, set: { store.defaultRate = Int($0) }), in: -100...100, step: 5)
-                            Text("\(store.defaultRate)")
-                        }
-                        HStack {
-                            Text("默认音调")
-                            Slider(value: Binding(get: { Double(store.defaultPitch) }, set: { store.defaultPitch = Int($0) }), in: -100...100, step: 5)
-                            Text("\(store.defaultPitch)")
-                        }
-                        Picker("默认风格", selection: Binding(get: { store.defaultStyle }, set: { store.defaultStyle = $0 })) {
-                            ForEach(["neutral", "cheerful", "sad", "angry"], id: \.self) { style in
-                                Text(style).tag(style)
-                            }
-                        }
-                        HStack {
-                            Text("语气灵敏度")
-                            Slider(value: Binding(get: { Double(store.defaultSensitivity) }, set: { store.defaultSensitivity = Int($0) }), in: 0...100)
-                            Text("\(store.defaultSensitivity)")
-                        }
-                        HStack {
-                            Text("播放超时（秒）")
-                            Slider(value: $store.playTimeoutSeconds, in: 5...120, step: 5)
-                            Text("\(Int(store.playTimeoutSeconds))s")
-                        }
-                    }
-                }
-
                 // MARK: - 阅读器设置
                 Section(header: Text("阅读器外观")) {
                     NavigationLink(destination: ReaderSettingsView().environmentObject(store)) {
