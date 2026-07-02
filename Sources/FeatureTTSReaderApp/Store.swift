@@ -46,6 +46,90 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsChapterTitle: String = ""
     @Published var ttsSegmentTitle: String = ""
 
+    // TTS 服务器列表
+    @Published var ttsServers: [TTSServer] = []
+    @Published var voiceProfiles: [VoiceProfileTuning] = []
+    @Published var tagPresets: [TagPreset] = []
+
+    var activeServer: TTSServer? {
+        ttsServers.first(where: { $0.isActive })
+    }
+
+    func setActiveServer(_ id: UUID) {
+        for i in ttsServers.indices {
+            ttsServers[i].isActive = ttsServers[i].id == id
+            if ttsServers[i].isActive {
+                apiEndpoint = ttsServers[i].baseURL
+                apiKey = ttsServers[i].apiKey
+            }
+        }
+        saveTTSServers()
+    }
+
+    func addServer(_ server: TTSServer) {
+        ttsServers.append(server)
+        saveTTSServers()
+    }
+
+    func removeServer(_ id: UUID) {
+        ttsServers.removeAll { $0.id == id }
+        saveTTSServers()
+    }
+
+    func updateServer(_ server: TTSServer) {
+        guard let i = ttsServers.firstIndex(where: { $0.id == server.id }) else { return }
+        ttsServers[i] = server
+        if server.isActive {
+            apiEndpoint = server.baseURL
+            apiKey = server.apiKey
+        }
+        saveTTSServers()
+    }
+
+    func saveTTSServers() {
+        if let data = try? JSONEncoder().encode(ttsServers) {
+            UserDefaults.standard.set(data, forKey: "ttsServers")
+        }
+    }
+
+    func loadTTSServers() {
+        guard let data = UserDefaults.standard.data(forKey: "ttsServers"),
+              let servers = try? JSONDecoder().decode([TTSServer].self, from: data) else { return }
+        ttsServers = servers
+        if let active = activeServer {
+            apiEndpoint = active.baseURL
+            apiKey = active.apiKey
+        }
+    }
+
+    func addVoiceProfile(_ vp: VoiceProfileTuning) {
+        voiceProfiles.append(vp)
+        saveVoiceProfiles()
+    }
+
+    func removeVoiceProfile(_ id: UUID) {
+        voiceProfiles.removeAll { $0.id == id }
+        saveVoiceProfiles()
+    }
+
+    func updateVoiceProfile(_ vp: VoiceProfileTuning) {
+        guard let i = voiceProfiles.firstIndex(where: { $0.id == vp.id }) else { return }
+        voiceProfiles[i] = vp
+        saveVoiceProfiles()
+    }
+
+    func saveVoiceProfiles() {
+        if let data = try? JSONEncoder().encode(voiceProfiles) {
+            UserDefaults.standard.set(data, forKey: "voiceProfiles")
+        }
+    }
+
+    func loadVoiceProfiles() {
+        guard let data = UserDefaults.standard.data(forKey: "voiceProfiles"),
+              let vps = try? JSONDecoder().decode([VoiceProfileTuning].self, from: data) else { return }
+        voiceProfiles = vps
+    }
+
     // Chapter parse cache keyed by book ID
     var bookChaptersCache: [UUID: [BookChapter]] = [:]
 
@@ -106,6 +190,8 @@ final class ReaderStore: NSObject, ObservableObject {
         super.init()
         speechSynthesizer.delegate = speechDelegate
         loadSettings()
+        loadTTSServers()
+        loadVoiceProfiles()
         setupAudioSession()
         setupRemoteCommands()
         observeAudioController()
@@ -1732,6 +1818,31 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func voiceSourceDescription(_ source: VoiceCatalogSource) -> String {
         source.displayName
+    }
+
+    // MARK: - 音色方案导出/导入
+
+    func exportVoiceProfiles() -> Data? {
+        let export = TTSExport(version: 1, exportedAt: Date(), profiles: voiceProfiles, tags: tagPresets)
+        return try? JSONEncoder().encode(export)
+    }
+
+    func exportVoiceProfilesAsYAML() -> String? {
+        guard let data = exportVoiceProfiles() else { return nil }
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        let yamlData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        return yamlData.flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    func importVoiceProfiles(from data: Data) -> Bool {
+        guard let export = try? JSONDecoder().decode(TTSExport.self, from: data) else { return false }
+        voiceProfiles = export.profiles
+        tagPresets = export.tags
+        saveVoiceProfiles()
+        if let tagData = try? JSONEncoder().encode(tagPresets) {
+            UserDefaults.standard.set(tagData, forKey: "tagPresets")
+        }
+        return true
     }
 
 }
