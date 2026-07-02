@@ -980,19 +980,28 @@ struct ReaderView: View {
             chaptersList = cached
             return
         }
-        let text: String
-        if store.bookText.isEmpty || store.currentBookID != bookID.uuidString {
-            if let fileText = store.loadBookTextFromFile(bookID: bookID), !fileText.isEmpty {
-                text = fileText
-                store.bookText = fileText
+        Task {
+            let text: String
+            if store.bookText.isEmpty || store.currentBookID != bookID.uuidString {
+                if !book.text.isEmpty {
+                    text = book.text
+                } else {
+                    let bookID = bookID
+                    text = await Task.detached(priority: .userInitiated) {
+                        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+                        let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
+                        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+                    }.value
+                }
+                store.bookText = text
                 store.currentBookID = bookID.uuidString
             } else {
-                text = book.text
+                text = store.bookText
             }
-        } else {
-            text = store.bookText
-        }
-        Task {
+            guard !text.isEmpty else {
+                chaptersList = [currentChapter]
+                return
+            }
             let parsed = await Task.detached(priority: .userInitiated) {
                 parseChapters(text: text)
             }.value

@@ -85,16 +85,6 @@ struct BookshelfView: View {
                 BookDetailView(book: book)
                     .environmentObject(store)
             }
-            .navigationDestination(for: ReaderNavigationKey.self) { key in
-                let book = store.books.first { $0.id == key.bookID } ?? Book(id: key.bookID, title: "", text: "", importedAt: Date())
-                let chaps = store.bookChaptersCache[key.bookID] ?? []
-                let chapter = chaps.indices.contains(key.chapterIndex) ? chaps[key.chapterIndex] : BookChapter(id: key.chapterID, title: "", text: "")
-                ReaderView(book: book,
-                           chapter: chapter,
-                           bookID: key.bookID,
-                           chapterIndex: key.chapterIndex)
-                    .environmentObject(store)
-            }
         }
     }
 
@@ -403,6 +393,13 @@ struct BookDetailView: View {
     @State private var chapterCount = 0
     @State private var isLoadingChapters = true
     @State private var loadError = false
+    @State private var readerCover: ReaderCoverKey?
+
+    struct ReaderCoverKey: Identifiable {
+        let id: UUID
+        let chapter: BookChapter
+        let chapterIndex: Int
+    }
 
     var body: some View {
         List {
@@ -480,6 +477,13 @@ struct BookDetailView: View {
         .task {
             await loadChapters()
         }
+        .fullScreenCover(item: $readerCover) { cover in
+            ReaderView(book: book,
+                       chapter: cover.chapter,
+                       bookID: book.id,
+                       chapterIndex: cover.chapterIndex)
+                .environmentObject(store)
+        }
     }
 
     private func loadChapters() async {
@@ -488,8 +492,8 @@ struct BookDetailView: View {
             isLoadingChapters = false
             return
         }
-        let text = store.loadBookTextFromFile(bookID: book.id) ?? book.text
-        guard !text.isEmpty else {
+        let text = await loadBookText()
+        guard let text, !text.isEmpty else {
             loadError = true
             isLoadingChapters = false
             return
@@ -504,30 +508,25 @@ struct BookDetailView: View {
         }
     }
 
+    private func loadBookText() async -> String? {
+        if !book.text.isEmpty { return book.text }
+        if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty { return store.bookText }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let url = docs.appendingPathComponent("book_texts/\(book.id.uuidString).txt")
+        return await Task.detached(priority: .userInitiated) {
+            try? String(contentsOf: url, encoding: .utf8)
+        }.value
+    }
+
     private func openReader() {
         guard let chaps = store.bookChaptersCache[book.id], !chaps.isEmpty else { return }
         let saved = ReaderStore.loadLastChapterIndex(for: book.id)
         let safeIndex = min(saved, chaps.count - 1)
-        store.navigationPath.append(ReaderNavigationKey(
-            bookID: book.id,
-            chapterID: chaps[safeIndex].id,
+        readerCover = ReaderCoverKey(
+            id: chaps[safeIndex].id,
+            chapter: chaps[safeIndex],
             chapterIndex: safeIndex
-        ))
-    }
-}
-
-struct ReaderNavigationKey: Hashable {
-    let bookID: UUID
-    let chapterID: UUID
-    let chapterIndex: Int
-
-    static func == (lhs: ReaderNavigationKey, rhs: ReaderNavigationKey) -> Bool {
-        lhs.bookID == rhs.bookID && lhs.chapterID == rhs.chapterID
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(bookID)
-        hasher.combine(chapterID)
+        )
     }
 }
 
