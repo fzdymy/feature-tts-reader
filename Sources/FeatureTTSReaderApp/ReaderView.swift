@@ -992,8 +992,18 @@ struct ReaderView: View {
         } else {
             text = store.bookText
         }
-        chaptersList = store.chaptersForBook(bookID, text: text)
-        if chaptersList.isEmpty { chaptersList = [currentChapter] }
+        Task {
+            let parsed = await Task.detached(priority: .userInitiated) {
+                parseChapters(text: text)
+            }.value
+            if !parsed.isEmpty {
+                store.bookChaptersCache[bookID] = parsed
+                chaptersList = parsed
+            } else {
+                chaptersList = store.chaptersForBook(bookID, text: text)
+            }
+            if chaptersList.isEmpty { chaptersList = [currentChapter] }
+        }
     }
 
     private func handleExternalNavigate(nav: ChapterNavigate?) {

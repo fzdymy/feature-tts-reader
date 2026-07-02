@@ -434,7 +434,7 @@ final class ReaderStore: NSObject, ObservableObject {
         saveAllTextsToFiles()
         let state = ReaderState(
             bookText: "",
-            chapters: chapters,
+            chapters: [],
             characters: characters,
             scriptSegments: scriptSegments,
             selectedChapterID: selectedChapterID,
