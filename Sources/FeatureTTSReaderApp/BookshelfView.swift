@@ -319,7 +319,7 @@ struct BookListRow: View {
     let book: Book
     @State private var chapterCount = 0
 
-    private var progress: some View {
+    private var progressValue: Double {
         if chapterCount == 0 { return 0 }
         let sum = store.bookChaptersCache[book.id]?.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) } ?? 0
         return chapterCount > 0 ? sum / Double(chapterCount) : 0
@@ -345,11 +345,11 @@ struct BookListRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                if progress() > 0 {
+                if progressValue > 0 {
                     HStack {
-                        ProgressView(value: progress())
+                        ProgressView(value: progressValue)
                             .frame(width: 120)
-                        Text("\(Int(progress() * 100))%")
+                        Text("\(Int(progressValue * 100))%")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
