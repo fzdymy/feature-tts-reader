@@ -39,6 +39,7 @@ struct ReaderView: View {
     @State private var isPlaying = false
     @State private var playbackSpeed: Double = 1.0
     @State private var playbackProgress: Double = 0
+    @State private var chapterSliderValue: Double = 0
 
     @State private var showCharacterPanel = false
     @State private var editingCharacter: CharacterProfile?
@@ -107,16 +108,18 @@ struct ReaderView: View {
     // MARK: - Body
 
     var body: some View {
-        ZStack {
-            backgroundLayer
-            silentReadingLayer
-            silentModeOverlays
-            audioModeLayer
+        Group {
+            if isAudioMode {
+                audioLayout
+            } else {
+                silentLayout
+            }
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(isImmersive || isAudioMode)
+        .navigationBarHidden(true)
         .statusBarHidden(isImmersive || isAudioMode)
+        .background(backgroundContent.ignoresSafeArea())
         .onReceive(timer) { _ in
             currentTime = Date()
             if UIDevice.current.isBatteryMonitoringEnabled {
@@ -158,72 +161,60 @@ struct ReaderView: View {
         ))
     }
 
-    // MARK: - Background
-
-    @ViewBuilder private var backgroundLayer: some View {
+    @ViewBuilder private var backgroundContent: some View {
         if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
             Image(uiImage: uiImage)
-                .resizable().scaledToFill().ignoresSafeArea()
+                .resizable().scaledToFill()
         } else {
-            bgColor.ignoresSafeArea()
+            bgColor
         }
     }
 
-    // MARK: - Silent Reading
+    // MARK: - Silent Layout
 
-    private var silentReadingLayer: some View {
-        ScrollView {
-            Text(chapterDisplayText)
-                .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-                .foregroundColor(textColor)
-                .lineSpacing(store.readerLineSpacing + 2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 80)
-                .textSelection(.enabled)
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
-        )
-        .opacity(isAudioMode ? 0 : 1)
-        .allowsHitTesting(!isAudioMode)
-    }
-
-    @ViewBuilder private var silentModeOverlays: some View {
-        if !isImmersive && !isAudioMode {
-            VStack(spacing: 0) {
-                silentReaderHeader
-                Spacer()
-                silentControlBar
-            }
-        }
-        if isImmersive && !isAudioMode {
-            if store.showChapterTitle {
-                VStack {
-                    HStack {
-                        Text(displayedChapterTitle)
-                            .font(.caption)
-                            .foregroundColor(textColor.opacity(0.6))
-                            .lineLimit(1)
-                            .padding(.horizontal, 16).padding(.vertical, 6)
-                        Spacer()
-                    }
+    private var silentLayout: some View {
+        VStack(spacing: 0) {
+            if !isImmersive {
+                silentHeader
+            } else if store.showChapterTitle {
+                HStack {
+                    Text(displayedChapterTitle)
+                        .font(.caption)
+                        .foregroundColor(textColor.opacity(0.6))
+                        .lineLimit(1)
+                        .padding(.horizontal, 16).padding(.vertical, 6)
                     Spacer()
                 }
                 .transition(.opacity)
             }
-            if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
-                VStack {
-                    Spacer()
+
+            ScrollView {
+                Text(chapterDisplayText)
+                    .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+                    .foregroundColor(textColor)
+                    .lineSpacing(store.readerLineSpacing + 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 80)
+                    .textSelection(.enabled)
+            }
+            .simultaneousGesture(
+                TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+            )
+
+            if !isImmersive {
+                silentBottomBar
+            } else {
+                if store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery {
                     readerStatusBar
+                        .transition(.opacity)
                 }
-                .transition(.opacity)
             }
         }
     }
 
-    private var silentReaderHeader: some View {
+    private var silentHeader: some View {
         HStack {
             Button(action: { dismiss() }) {
                 Image(systemName: "xmark.circle.fill")
@@ -241,42 +232,103 @@ struct ReaderView: View {
         .overlay(Divider(), alignment: .bottom)
     }
 
-    private var silentControlBar: some View {
+    // MARK: - Bottom Bar (User Spec)
+
+    private var silentBottomBar: some View {
         VStack(spacing: 0) {
             if showBookmarks { bookmarkPanel }
-            HStack(spacing: 0) {
-                controlButton("chevron.left", disabled: currentChapterIndex <= 0, action: previousChapter)
-                Divider().frame(height: 24)
-                controlButton("list.bullet", action: { showTOC = true })
-                controlButton(chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill", action: { showBookmarks.toggle() })
-                controlButton(themeIcon(store.readerTheme), action: { store.readerTheme = nextTheme(store.readerTheme) })
-                controlButton("textformat.alt", action: { showFontPicker = true })
-                controlButton("gearshape.fill", action: { showSettings = true })
-                Divider().frame(height: 24)
-                controlButton("play.circle.fill", action: {
-                    isAudioMode = true
-                    isPlaying = true
-                    Task { await startPlayback() }
-                })
-                Divider().frame(height: 24)
-                controlButton("chevron.right", disabled: currentChapterIndex >= chaptersList.count - 1, action: nextChapter)
+
+            // Row 1: 上一章 | Progress Slider | 下一章
+            HStack(spacing: 8) {
+                Button(action: previousChapter) {
+                    Text("上一章")
+                        .font(.subheadline)
+                        .frame(minWidth: 50, minHeight: 36)
+                }
+                .disabled(currentChapterIndex <= 0)
+
+                Slider(
+                    value: $chapterSliderValue,
+                    in: 0...max(Double(chaptersList.count - 1), 1),
+                    step: 1,
+                    onEditingChanged: { editing in
+                        if !editing {
+                            let idx = Int(chapterSliderValue.rounded())
+                            if idx != currentChapterIndex {
+                                jumpTo(idx, explicit: true)
+                            }
+                        }
+                    }
+                )
+                .accentColor(.blue)
+
+                Button(action: nextChapter) {
+                    Text("下一章")
+                        .font(.subheadline)
+                        .frame(minWidth: 50, minHeight: 36)
+                }
+                .disabled(currentChapterIndex >= chaptersList.count - 1)
             }
-            .padding(.vertical, 8).padding(.horizontal, 8)
+            .padding(.horizontal, 16).padding(.vertical, 6)
             .foregroundColor(textColor)
-            .background(.ultraThinMaterial)
+
+            Divider()
+
+            // Row 2: TOC | Theme | Settings | Bookmark | Font
+            HStack(spacing: 0) {
+                barButton("list.bullet", label: "目录", action: { showTOC = true })
+                Divider().frame(height: 20)
+                barButton(themeIcon(store.readerTheme), label: "主题", action: {
+                    store.readerTheme = nextTheme(store.readerTheme)
+                })
+                Divider().frame(height: 20)
+                barButton("gearshape.fill", label: "设置", action: { showSettings = true })
+                Divider().frame(height: 20)
+                barButton(chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill", label: "书签", action: { showBookmarks.toggle() })
+                Divider().frame(height: 20)
+                barButton("textformat.alt", label: "字体", action: { showFontPicker = true })
+            }
+            .padding(.vertical, 6)
+            .foregroundColor(textColor)
+
+            // Play button row
+            Divider()
+            Button(action: {
+                isAudioMode = true
+                isPlaying = true
+                Task { await startPlayback() }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.title3)
+                    Text("朗读")
+                        .font(.subheadline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+            .foregroundColor(.blue)
+            .buttonStyle(.borderless)
         }
+        .background(.ultraThinMaterial)
         .animation(.easeInOut(duration: 0.2), value: showBookmarks)
     }
 
-    private func controlButton(_ systemName: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+    private func barButton(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.title3)
-                .frame(minWidth: 40, minHeight: 40)
+            VStack(spacing: 2) {
+                Image(systemName: systemName)
+                    .font(.system(size: 16))
+                Text(label)
+                    .font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 40)
         }
-        .disabled(disabled)
         .buttonStyle(.borderless)
     }
+
+    // MARK: - Bookmark Panel
 
     private var bookmarkPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -313,11 +365,11 @@ struct ReaderView: View {
         .background(bgColor)
     }
 
-    // MARK: - Audio Mode
+    // MARK: - Audio Layout
 
-    private var audioModeLayer: some View {
+    private var audioLayout: some View {
         VStack(spacing: 0) {
-            audioReaderHeader
+            audioHeader
             if showCharacterPanel {
                 characterPanel
                     .frame(maxHeight: max(UIScreen.main.bounds.height * 0.35, 300))
@@ -347,12 +399,10 @@ struct ReaderView: View {
             }
             .background(bgColor.opacity(0.95))
         }
-        .opacity(isAudioMode ? 1 : 0)
-        .allowsHitTesting(isAudioMode)
         .animation(.easeInOut(duration: 0.25), value: showCharacterPanel)
     }
 
-    private var audioReaderHeader: some View {
+    private var audioHeader: some View {
         HStack {
             Button(action: { isAudioMode = false; isPlaying = false; store.stopPlayback() }) {
                 HStack(spacing: 4) {
@@ -765,6 +815,7 @@ struct ReaderView: View {
             ? Int(UIDevice.current.batteryLevel * 100) : -1
         store.selectedChapterID = currentChapter.id
         UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
+        chapterSliderValue = Double(currentChapterIndex)
         ensureChaptersLoaded()
         if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
             screenBrightness = brightness
@@ -822,31 +873,17 @@ struct ReaderView: View {
         currentChapterIndex = index
         currentChapter = chaptersList[index]
         displayedChapterTitle = chaptersList[index].title
+        chapterSliderValue = Double(index)
         store.selectedChapterID = chaptersList[index].id
         ReaderStore.saveLastChapterIndex(index, for: bookID)
         if explicit { anchorChapterIndex = index }
-        let lower = max(0, index - 2)
-        let upper = min(chaptersList.count - 1, index + 2)
-        DispatchQueue.global(qos: .background).async {
-            for i in lower...upper where i != index {
-                _ = chaptersList[i].text
-            }
-        }
         ReaderStore.debugLog("[JUMP] idx=\(index)")
     }
 
     private func previousChapter() {
         guard currentChapterIndex > 0, currentChapterIndex < chaptersList.count else { return }
         let idx = currentChapterIndex - 1
-        if isAudioMode {
-            displayedChapterTitle = chaptersList[idx].title
-            store.selectedChapterID = chaptersList[idx].id
-            ReaderStore.saveLastChapterIndex(idx, for: bookID)
-            isPlaying = false
-            store.stopPlayback()
-            currentChapterIndex = idx
-            currentChapter = chaptersList[idx]
-        } else {
+        if chaptersList.indices.contains(idx) {
             if idx + 1 < chaptersList.count {
                 store.setChapterProgress(chaptersList[idx + 1].id, percent: 1.0)
             }
@@ -857,16 +894,7 @@ struct ReaderView: View {
     private func nextChapter() {
         guard currentChapterIndex < chaptersList.count - 1 else { return }
         let idx = currentChapterIndex + 1
-        if isAudioMode {
-            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
-            displayedChapterTitle = chaptersList[idx].title
-            store.selectedChapterID = chaptersList[idx].id
-            ReaderStore.saveLastChapterIndex(idx, for: bookID)
-            isPlaying = false
-            store.stopPlayback()
-            currentChapterIndex = idx
-            currentChapter = chaptersList[idx]
-        } else {
+        if chaptersList.indices.contains(idx) {
             store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
             jumpTo(idx, explicit: true)
         }
