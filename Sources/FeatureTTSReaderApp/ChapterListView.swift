@@ -4,8 +4,8 @@ struct ChapterListView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
     var currentChapterID: UUID?
-    var onSelect: ((BookChapter, Int) -> Void)?
     var chapters: [BookChapter] = []
+    var onSelect: ((BookChapter, Int) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
