@@ -6,22 +6,13 @@ struct BookshelfView: View {
     @State private var viewMode: ViewMode = .grid
     @State private var sortOption: SortOption = .recent
     @State private var searchText = ""
-    @State private var selectedBook: Book?
     @State private var showBookDetail = false
 
     enum ViewMode: String, CaseIterable, Identifiable {
-        case grid = "grid"
-        case list = "list"
+        case grid, list
         var id: String { rawValue }
         var icon: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
         var name: String { self == .grid ? "网格" : "列表" }
-    }
-
-    private func totalProgress(for book: Book) -> Double {
-        let chapters = store.chaptersForBook(book.id, text: book.text)
-        guard !chapters.isEmpty else { return 0 }
-        let sum = chapters.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) }
-        return sum / Double(chapters.count)
     }
 
     private var filteredBooks: [Book] {
@@ -35,26 +26,20 @@ struct BookshelfView: View {
         case .title:
             return filtered.sorted { $0.title < $1.title }
         case .progress:
-            return filtered.sorted { (b1: Book, b2: Book) in
-                let p1 = totalProgress(for: b1)
-                let p2 = totalProgress(for: b2)
-                return p1 > p2
-            }
+            return filtered
         }
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $store.navigationPath) {
             ZStack {
                 Color(UIColor.systemGroupedBackground).ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Search & Sort Bar
                     searchAndSortBar
                         .padding(.horizontal)
                         .padding(.top, 8)
 
-                    // Books Content
                     if store.books.isEmpty {
                         emptyStateView
                     } else if viewMode == .grid {
@@ -68,7 +53,6 @@ struct BookshelfView: View {
             .searchable(text: $searchText, prompt: "搜索书籍")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    // View Mode Toggle
                     Picker("视图模式", selection: $viewMode) {
                         ForEach(ViewMode.allCases) { mode in
                             Image(systemName: mode.icon).tag(mode)
@@ -98,7 +82,7 @@ struct BookshelfView: View {
                     Task { await store.importFile(at: url) }
                 }
             }
-            .fullScreenCover(item: $selectedBook) { book in
+            .navigationDestination(for: Book.self) { book in
                 BookDetailView(book: book)
                     .environmentObject(store)
             }
@@ -176,14 +160,12 @@ struct BookshelfView: View {
                 GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 16)
             ], spacing: 20) {
                 ForEach(filteredBooks) { book in
-                    BookGridCard(book: book)
-                        .environmentObject(store)
-                        .onTapGesture {
-                            selectedBook = book
-                        }
-                        .contextMenu {
-                            bookContextMenu(for: book)
-                        }
+                    NavigationLink(value: book) {
+                        BookGridCard(book: book)
+                            .environmentObject(store)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { bookContextMenu(for: book) }
                 }
             }
             .padding(16)
@@ -193,39 +175,19 @@ struct BookshelfView: View {
     private var listView: some View {
         List {
             ForEach(filteredBooks) { book in
-                BookListRow(book: book)
-                    .environmentObject(store)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedBook = book }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            if let index = store.books.firstIndex(where: { $0.id == book.id }) {
-                                store.removeBook(at: index)
-                            }
-                        } label: {
-                            Label("删除", systemImage: "trash")
+                NavigationLink(value: book) {
+                    BookListRow(book: book)
+                        .environmentObject(store)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        if let index = store.books.firstIndex(where: { $0.id == book.id }) {
+                            store.removeBook(at: index)
                         }
-                        Button {
-                            selectedBook = book
-                        } label: {
-                            Label("详情", systemImage: "info.circle")
-                        }
-                        .tint(.blue)
+                    } label: {
+                        Label("删除", systemImage: "trash")
                     }
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            if let index = store.books.firstIndex(where: { $0.id == book.id }) {
-                                let chapters = store.chaptersForBook(book.id, text: book.text)
-                                let progress = chapters.first.flatMap { store.bookProgressByChapter[$0.id] } ?? 0
-                                if let chapterID = chapters.first?.id {
-                                    store.setChapterProgress(chapterID, percent: min(max(progress + 0.1, 0), 1))
-                                }
-                            }
-                        } label: {
-                            Label("进度+10%", systemImage: "forward")
-                        }
-                        .tint(.green)
-                    }
+                }
             }
             .listStyle(.plain)
         }
@@ -233,27 +195,24 @@ struct BookshelfView: View {
 
     @ViewBuilder
     private func bookContextMenu(for book: Book) -> some View {
-        Button(action: { selectedBook = book }) {
+        Button(action: { store.navigationPath.append(book) }) {
             Label("查看详情", systemImage: "info.circle")
         }
-        Button(action: {
+        Button(role: .destructive) {
             if let index = store.books.firstIndex(where: { $0.id == book.id }) {
                 store.removeBook(at: index)
             }
-        }) {
+        } label: {
             Label("删除", systemImage: "trash")
         }
-        .tint(.red)
-        Button(action: {
-            // Export book
-            exportBook(book)
-        }) {
+        Button(action: { exportBook(book) }) {
             Label("导出", systemImage: "square.and.arrow.up")
         }
     }
 
     private func exportBook(_ book: Book) {
-        let activityVC = UIActivityViewController(activityItems: [book.text], applicationActivities: nil)
+        let text = store.loadBookTextFromFile(bookID: book.id) ?? book.text
+        let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootVC = windowScene.windows.first?.rootViewController {
             rootVC.present(activityVC, animated: true)
@@ -264,22 +223,16 @@ struct BookshelfView: View {
 struct BookGridCard: View {
     @EnvironmentObject private var store: ReaderStore
     let book: Book
+    @State private var chapterCount = 0
 
     private var progress: Double {
-        let chapters = store.chaptersForBook(book.id, text: book.text)
-        if let chapterID = chapters.first?.id {
-            return store.bookProgressByChapter[chapterID] ?? 0
-        }
-        return 0
-    }
-
-    private var chapterCount: Int {
-        store.chaptersForBook(book.id, text: book.text).count
+        if chapterCount == 0 { return 0 }
+        let sum = store.bookChaptersCache[book.id]?.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) } ?? 0
+        return chapterCount > 0 ? sum / Double(chapterCount) : 0
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Cover
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(
@@ -296,30 +249,25 @@ struct BookGridCard: View {
                             .foregroundColor(.blue.opacity(0.6))
                     )
 
-                // Progress overlay
                 if progress > 0 {
                     VStack {
                         Spacer()
                         HStack {
                             Spacer()
-                            ZStack {
-                                Text("\(Int(progress * 100))%")
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.black.opacity(0.7))
-                                    .cornerRadius(6)
-                            }
-                            .padding(8)
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption2).fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.black.opacity(0.7))
+                                .cornerRadius(6)
+                                .padding(8)
                         }
                     }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            // Book info
             VStack(alignment: .leading, spacing: 4) {
                 Text(book.title)
                     .font(.headline)
@@ -330,7 +278,6 @@ struct BookGridCard: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                // Progress bar
                 if progress > 0 {
                     ProgressView(value: progress)
                         .tint(.blue)
@@ -345,28 +292,41 @@ struct BookGridCard: View {
                 .fill(Color(UIColor.secondarySystemBackground))
                 .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
         )
+        .task {
+            await loadChapterCount()
+        }
+    }
+
+    private func loadChapterCount() async {
+        if let cached = store.bookChaptersCache[book.id] {
+            chapterCount = cached.count
+            return
+        }
+        let text = store.loadBookTextFromFile(bookID: book.id) ?? book.text
+        guard !text.isEmpty else { return }
+        let parsed = await Task.detached(priority: .background) {
+            store.extractChapters(from: text)
+        }.value
+        await MainActor.run {
+            store.bookChaptersCache[book.id] = parsed
+            chapterCount = parsed.count
+        }
     }
 }
 
 struct BookListRow: View {
     @EnvironmentObject private var store: ReaderStore
     let book: Book
+    @State private var chapterCount = 0
 
-    private var progress: Double {
-        let chapters = store.chaptersForBook(book.id, text: book.text)
-        if let chapterID = chapters.first?.id {
-            return store.bookProgressByChapter[chapterID] ?? 0
-        }
-        return 0
-    }
-
-    private var chapterCount: Int {
-        store.chaptersForBook(book.id, text: book.text).count
+    private var progress: some View {
+        if chapterCount == 0 { return 0 }
+        let sum = store.bookChaptersCache[book.id]?.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) } ?? 0
+        return chapterCount > 0 ? sum / Double(chapterCount) : 0
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            // Cover thumbnail
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.blue.opacity(0.15))
@@ -385,11 +345,11 @@ struct BookListRow: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                if progress > 0 {
+                if progress() > 0 {
                     HStack {
-                        ProgressView(value: progress)
+                        ProgressView(value: progress())
                             .frame(width: 120)
-                        Text("\(Int(progress * 100))%")
+                        Text("\(Int(progress() * 100))%")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -404,6 +364,25 @@ struct BookListRow: View {
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+        .task {
+            await loadChapterCounts()
+        }
+    }
+
+    private func loadChapterCounts() async {
+        if let cached = store.bookChaptersCache[book.id] {
+            chapterCount = cached.count
+            return
+        }
+        let text = store.loadBookTextFromFile(bookID: book.id) ?? book.text
+        guard !text.isEmpty else { return }
+        let parsed = await Task.detached(priority: .background) {
+            store.extractChapters(from: text)
+        }.value
+        await MainActor.run {
+            store.bookChaptersCache[book.id] = parsed
+            chapterCount = parsed.count
+        }
     }
 }
 
@@ -411,297 +390,155 @@ struct BookDetailView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
     let book: Book
-    @State private var chapters: [BookChapter] = []
-    @State private var showDeleteAlert = false
-    @State private var readerNavigation: ReaderNavigation?
-    @State private var showCharacterEditor = false
-    @State private var showChapterList = false
-    @State private var isLoadingChapters = false
 
-    struct ReaderNavigation: Identifiable {
-        let id: UUID
-        let chapter: BookChapter
-        let chapterIndex: Int
-    }
-
-    private var totalProgress: Double {
-        guard !chapters.isEmpty else { return 0 }
-        let sum = chapters.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) }
-        return sum / Double(chapters.count)
-    }
-
-    private var currentChapterNumber: Int {
-        let lastIdx = chapters.lastIndex { store.bookProgressByChapter[$0.id] ?? 0 > 0 }
-        return (lastIdx ?? -1) + 2
-    }
-
-    private var totalReadingTime: String {
-        let totalChars = chapters.reduce(0) { $0 + $1.text.count }
-        let minutes = totalChars / 400 // ~400 chars/min
-        return "\(minutes) 分钟"
-    }
+    @State private var chapterCount = 0
+    @State private var isLoadingChapters = true
+    @State private var loadError = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                // Header Section
-                Section {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 16) {
-                            // Cover
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.2)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(width: 100, height: 140)
-                                Image(systemName: "book.closed.fill")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.blue.opacity(0.6))
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(book.title)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                    .lineLimit(3)
-
-                                Text("作者：未知")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-
-                                Text("导入时间：\(formatDate(book.importedAt))")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(LinearGradient(colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.2)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .frame(width: 100, height: 140)
+                            Image(systemName: "book.closed.fill")
+                                .font(.system(size: 40))
+                                .foregroundColor(.blue.opacity(0.6))
                         }
 
-                        // Stats
-                        HStack(spacing: 24) {
-                            StatView(value: "\(chapters.count)", label: "章节")
-                            StatView(value: "\(currentChapterNumber)", label: "已读")
-                            StatView(value: "\(Int(totalProgress * 100))%", label: "进度")
-                            StatView(value: totalReadingTime, label: "预计")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(book.title)
+                                .font(.title2).fontWeight(.bold).lineLimit(3)
+                            Text("导入时间：\(formatDate(book.importedAt))")
+                                .font(.caption).foregroundColor(.secondary)
                         }
-                        .padding(.vertical, 8)
-                    }
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                }
-
-                // Actions
-                Section {
-                    Button(action: {
-                        let chaps = chapters.isEmpty ? store.chapters : chapters
-                        guard !chaps.isEmpty else {
-                            // Chapters not ready yet — kick off sync extraction
-                            if !isLoadingChapters {
-                                isLoadingChapters = true
-                                Task {
-                                    let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
-                                    if !text.isEmpty {
-                                        let parsed = await Task.detached(priority: .userInitiated) {
-                                            store.extractChapters(from: text)
-                                        }.value
-                                        await MainActor.run {
-                                            chapters = parsed
-                                            store.chapters = parsed
-                                            store.bookChaptersCache[book.id] = parsed
-                                            store.bookIDForChapters = book.id
-                                            isLoadingChapters = false
-                                        }
-                                    } else {
-                                        await MainActor.run { isLoadingChapters = false }
-                                    }
-                                }
-                            }
-                            return
-                        }
-                        let saved = ReaderStore.loadLastChapterIndex(for: book.id)
-                        let safeIndex = min(saved, chaps.count - 1)
-                        ReaderStore.debugLog("[BUTTON] book.id=\(book.id.uuidString) saved=\(saved) chaps.count=\(chaps.count) safeIndex=\(safeIndex)")
-                        readerNavigation = ReaderNavigation(
-                            id: book.id,
-                            chapter: chaps[safeIndex],
-                            chapterIndex: safeIndex
-                        )
-                    }) {
-                        HStack {
-                            Image(systemName: currentChapterNumber > 1 ? "bookmark.fill" : "book.fill")
-                            if isLoadingChapters {
-                                ProgressView().scaleEffect(0.8)
-                                Text("解析章节中...")
-                            } else {
-                                Text(currentChapterNumber > 1 ? "继续阅读" : "开始阅读")
-                            }
-                            Spacer()
-                            if currentChapterNumber > 1 {
-                                Text("第 \(currentChapterNumber) 章")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .disabled(chapters.isEmpty && store.chapters.isEmpty)
-                    .foregroundColor(.blue)
-                    .fullScreenCover(item: $readerNavigation) { nav in
-                        ReaderView(
-                            book: book,
-                            chapter: nav.chapter,
-                            bookID: book.id,
-                            chapterIndex: nav.chapterIndex
-                        ).environmentObject(store)
-                    }
-
-                    Button(action: { showChapterList = true }) {
-                        Label("章节目录", systemImage: "list.bullet")
-                    }
-                    .sheet(isPresented: $showChapterList) {
-                        ChapterListView(currentChapterID: nil) { chapter, index in
-                            showChapterList = false
-                            if readerNavigation != nil {
-                                store.externalChapterNavigate = ChapterNavigate(bookID: book.id, chapterIndex: index)
-                            } else {
-                                readerNavigation = ReaderNavigation(
-                                    id: book.id,
-                                    chapter: chapter,
-                                    chapterIndex: index
-                                )
-                            }
-                        }
-                        .environmentObject(store)
-                    }
-
-                    NavigationLink(destination: ReaderSettingsView()
-                        .environmentObject(store)
-                    ) {
-                        Label("阅读设置", systemImage: "textformat")
-                    }
-
-                    Button(action: {
-                        store.currentBookID = book.id.uuidString
-                        store.currentBookTitle = book.title
-                        showCharacterEditor = true
-                    }) {
-                        Label("角色音色设置", systemImage: "person.2.fill")
                     }
                 }
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
 
-                // Info
-                Section(header: Text("信息")) {
+            Section {
+                Button(action: openReader) {
+                    HStack {
+                        Image(systemName: "book.fill")
+                        if isLoadingChapters {
+                            ProgressView().scaleEffect(0.8)
+                            Text("加载章节中...")
+                        } else if loadError {
+                            Text("无法加载")
+                                .foregroundColor(.red)
+                        } else {
+                            Text("开始阅读")
+                        }
+                        Spacer()
+                    }
+                }
+                .disabled(isLoadingChapters || loadError || chapterCount == 0)
+                .foregroundColor(.blue)
+            }
+
+            Section(header: Text("信息")) {
+                VStack(spacing: 8) {
                     InfoRow(label: "标题", value: book.title)
-                    InfoRow(label: "章节数", value: "\(chapters.count)")
-                    InfoRow(label: "字数", value: "\(book.text.count)")
-                    InfoRow(label: "导入时间", value: formatDate(book.importedAt))
-                    InfoRow(label: "整体进度", value: "\(Int(totalProgress * 100))%")
-                }
-
-                // Danger Zone
-                Section {
-                    Button(role: .destructive) {
-                        showDeleteAlert = true
-                    } label: {
-                        Label("删除本书", systemImage: "trash")
+                    if isLoadingChapters {
+                        HStack { Text("章节数").foregroundColor(.secondary); Spacer(); ProgressView().scaleEffect(0.7) }
+                    } else {
+                        InfoRow(label: "章节数", value: "\(chapterCount)")
                     }
                 }
             }
-            .navigationTitle("书籍详情")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-            .sheet(isPresented: $showCharacterEditor) {
-                CharacterListView()
-                    .environmentObject(store)
-            }
-            .alert("删除本书", isPresented: $showDeleteAlert) {
-                Button("取消", role: .cancel) {}
-                Button("删除", role: .destructive) {
+
+            Section {
+                Button(role: .destructive) {
                     if let index = store.books.firstIndex(where: { $0.id == book.id }) {
                         store.books.remove(at: index)
                         store.saveState()
                     }
                     dismiss()
-                }
-            } message: {
-                Text("确定要删除《\(book.title)》吗？此操作不可撤销。")
-            }
-            .onAppear {
-                store.currentBookID = book.id.uuidString
-                store.currentBookTitle = book.title
-                // Use cached chapters if available (preserves UUIDs)
-                if let cached = store.bookChaptersCache[book.id] {
-                    chapters = cached
-                    store.chapters = cached
-                    store.bookIDForChapters = book.id
-                    return
-                }
-                // If store.chapters already belongs to this book, use as-is
-                if store.bookIDForChapters == book.id && !store.chapters.isEmpty {
-                    chapters = store.chapters
-                    store.bookChaptersCache[book.id] = store.chapters
-                    return
-                }
-                // First time this book in this session: load text and extract chapters
-                Task {
-                    let text = book.text.isEmpty ? (store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
-                    guard !text.isEmpty else {
-                        store.statusMessage = "文本文件不存在，请重新导入。"
-                        return
-                    }
-                    let parsed: [BookChapter] = await withCheckedContinuation { continuation in
-                        DispatchQueue.global(qos: .userInitiated).async {
-                            let result = store.extractChapters(from: text)
-                            continuation.resume(returning: result)
-                        }
-                    }
-                    chapters = parsed
-                    store.chapters = parsed
-                    store.bookIDForChapters = book.id
-                    store.bookText = text
-                    store.bookChaptersCache[book.id] = parsed
+                } label: {
+                    Label("删除本书", systemImage: "trash")
                 }
             }
         }
-    }
-
-    struct StatView: View {
-        let value: String
-        let label: String
-
-        var body: some View {
-            VStack(spacing: 4) {
-                Text(value)
-                    .font(.title3)
-                    .fontWeight(.bold)
-                Text(label)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+        .navigationTitle("书籍详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
             }
-            .frame(maxWidth: .infinity)
+        }
+        .task {
+            await loadChapters()
+        }
+        .navigationDestination(for: ReaderNavigationKey.self) { key in
+            ReaderView(book: book, chapter: key.chapter, bookID: book.id, chapterIndex: key.index)
+                .environmentObject(store)
         }
     }
 
-    struct InfoRow: View {
-        let label: String
-        let value: String
+    private func loadChapters() async {
+        if let cached = store.bookChaptersCache[book.id] {
+            chapterCount = cached.count
+            isLoadingChapters = false
+            return
+        }
+        let text = store.loadBookTextFromFile(bookID: book.id) ?? book.text
+        guard !text.isEmpty else {
+            loadError = true
+            isLoadingChapters = false
+            return
+        }
+        let parsed = await Task.detached(priority: .userInitiated) {
+            store.extractChapters(from: text)
+        }.value
+        await MainActor.run {
+            store.bookChaptersCache[book.id] = parsed
+            chapterCount = parsed.count
+            isLoadingChapters = false
+        }
+    }
 
-        var body: some View {
-            HStack {
-                Text(label)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text(value)
-                    .foregroundColor(.primary)
-            }
+    private func openReader() {
+        guard let chaps = store.bookChaptersCache[book.id], !chaps.isEmpty else { return }
+        let saved = ReaderStore.loadLastChapterIndex(for: book.id)
+        let safeIndex = min(saved, chaps.count - 1)
+        store.navigationPath.append(ReaderNavigationKey(
+            bookID: book.id,
+            chapter: chaps[safeIndex],
+            index: safeIndex
+        ))
+    }
+}
+
+struct ReaderNavigationKey: Hashable {
+    let bookID: UUID
+    let chapter: BookChapter
+    let index: Int
+
+    static func == (lhs: ReaderNavigationKey, rhs: ReaderNavigationKey) -> Bool {
+        lhs.bookID == rhs.bookID && lhs.chapter.id == rhs.chapter.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(bookID)
+        hasher.combine(chapter.id)
+    }
+}
+
+struct InfoRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label).foregroundColor(.secondary)
+            Spacer()
+            Text(value).foregroundColor(.primary)
         }
     }
 }

@@ -12,6 +12,7 @@ struct ChapterNavigate: Equatable {
 }
 
 final class ReaderStore: NSObject, ObservableObject {
+    @Published var navigationPath: NavigationPath = NavigationPath()
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
     @Published var characters: [CharacterProfile] = []
