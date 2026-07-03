@@ -1588,7 +1588,9 @@ final class ReaderStore: NSObject, ObservableObject {
         var names = OrderedSet<String>()
 
         let analyzer = CharacterAnalyzer()
-        for n in analyzer.extractNames(from: raw) { names.append(n) }
+        let scores = analyzer.extractNamesFast(from: raw)
+        let sorted = scores.keys.sorted { scores[$0, default: 0] > scores[$1, default: 0] }
+        for n in sorted { names.append(n) }
 
         // Resolve aliases: 无忌 → 张无忌, 张公子 → 张无忌, etc.
         let resolved = CharacterAnalyzer.resolveAliases(Array(names))
