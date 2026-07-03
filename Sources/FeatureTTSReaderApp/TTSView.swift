@@ -109,21 +109,8 @@ struct TTSView: View {
                     if result.hasPrefix("合成成功"), let url = store.ttsTestAudioURL {
                         HStack(spacing: 16) {
                             Button("播放") {
-                                if let p = try? AVAudioPlayer(contentsOf: url) {
-                                    ttsPlayer = p
-                                    do {
-                                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-                                        try AVAudioSession.sharedInstance().setActive(true)
-                                    } catch {}
-                                    p.prepareToPlay(); p.play()
-                                } else if let data = try? Data(contentsOf: url), let p = try? AVAudioPlayer(data: data) {
-                                    ttsPlayer = p
-                                    do {
-                                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-                                        try AVAudioSession.sharedInstance().setActive(true)
-                                    } catch {}
-                                    p.prepareToPlay(); p.play()
-                                }
+                                let urls = [url]
+                                Task { await store.audioController.playFilesAndWait(urls) }
                             }
                             .buttonStyle(.borderedProminent).controlSize(.small)
                             Button("取消") {

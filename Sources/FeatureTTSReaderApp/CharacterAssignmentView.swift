@@ -179,12 +179,13 @@ struct CharacterAssignmentPanel: View {
                     group.addTask(priority: .userInitiated) {
                         CharacterAnalyzer().countWithAC(text: text, candidates: candidateScores)
                     }
-                    let timeoutTask = Task.detached(priority: .background) {
-                        try await Task.sleep(nanoseconds: 10_000_000_000)
-                        throw CancellationError()
+                    group.addTask(priority: .background) {
+                        try await Task.sleep(nanoseconds: 15_000_000_000)
+                        return [:]
                     }
-                    defer { timeoutTask.cancel() }
-                    return try await group.next() ?? [:]
+                    let result = try await group.next() ?? [:]
+                    group.cancelAll()
+                    return result
                 }
             } catch {
                 scanPhase = "频率统计跳过（超时）"
