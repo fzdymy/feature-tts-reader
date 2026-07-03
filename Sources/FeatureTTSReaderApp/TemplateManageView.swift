@@ -120,7 +120,6 @@ struct TemplateManageView: View {
                 if !succeeded && store.statusMessage.isEmpty {
                     store.statusMessage = "导入失败: 格式错误"
                 }
-                }
             case .failure(let e):
                 store.statusMessage = "导入失败: \(e.localizedDescription)"
             }
