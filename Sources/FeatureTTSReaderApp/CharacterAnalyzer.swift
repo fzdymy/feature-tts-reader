@@ -46,6 +46,73 @@ private final class RegexCache {
     }
 }
 
+// MARK: - Aho-Corasick Automaton
+
+final class ACAutomaton {
+    private class Node {
+        var children: [Character: Node] = [:]
+        var fail: Node?
+        var output: [String] = []
+    }
+
+    private var root = Node()
+    private var built = false
+
+    func insert(_ pattern: String) {
+        var node = root
+        for ch in pattern {
+            if let child = node.children[ch] {
+                node = child
+            } else {
+                let child = Node()
+                node.children[ch] = child
+                node = child
+            }
+        }
+        node.output.append(pattern)
+        built = false
+    }
+
+    func build() {
+        var queue: [Node] = []
+        for (_, child) in root.children {
+            child.fail = root
+            queue.append(child)
+        }
+        while !queue.isEmpty {
+            let node = queue.removeFirst()
+            for (ch, child) in node.children {
+                var fail = node.fail
+                while fail != nil && fail!.children[ch] == nil {
+                    fail = fail!.fail
+                }
+                child.fail = (fail?.children[ch]) ?? root
+                child.output.append(contentsOf: child.fail?.output ?? [])
+                queue.append(child)
+            }
+        }
+        built = true
+    }
+
+    func search(_ text: String) -> [String: Int] {
+        if !built { build() }
+        var counts: [String: Int] = [:]
+        var node = root
+        for ch in text {
+            while node !== root && node.children[ch] == nil {
+                node = node.fail ?? root
+            }
+            if let child = node.children[ch] {
+                node = child
+            }
+            for pattern in node.output {
+                counts[pattern, default: 0] += 1
+            }
+        }
+        return counts
+    }
+}
+
 // MARK: - CharacterAnalyzer
 
 final class CharacterAnalyzer {
@@ -170,210 +237,134 @@ final class CharacterAnalyzer {
         return result
     }
 
-    // MARK: - Name extraction
+    // MARK: - Fast Name Extraction (3-phase)
 
-    func extractNames(from text: String) -> [String] {
+    func extractNamesFast(from text: String) -> [String: Int] {
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
-        var scores = [String: Int]()
 
-        tokenizer.string = raw
-        var allTokens: [(String, Int)] = []
-        var tokenFreq = [String: Int]()
-        var position = 0
-        tokenizer.enumerateTokens(in: raw.startIndex..<raw.endIndex) { range, _ in
-            let token = String(raw[range])
-            let cleaned = token.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-            if cleaned.count >= 1 && cleaned.count <= 4,
-               cleaned.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
-                allTokens.append((cleaned, position))
-                if cleaned.count >= 2 {
-                    tokenFreq[cleaned, default: 0] += 1
-                }
-            }
-            position += 1
-            return true
-        }
-
-        // Frequency-based scoring
-        for (name, freq) in tokenFreq where freq >= 2 {
-            if !isStopWord(name) {
-                var score = min(freq, 100)
-                if CharacterAnalyzer.firstCharIsSurname(name) || CharacterAnalyzer.startsWithCompoundSurname(name) {
-                    score *= 2
-                }
-                scores[name, default: 0] += score
-            }
-        }
-
-        // Surname + given-name merging (same as before — efficient single scan)
-        var mergedFreq = [String: Int]()
-        for i in 0..<(allTokens.count - 1) {
-            let (tok, pos) = allTokens[i]
-            let (nextTok, nextPos) = allTokens[i + 1]
-            guard pos + 1 == nextPos else { continue }
-
-            if tok.count == 1 && Self.singleSurnames.contains(tok) && nextTok.count == 2 {
-                let full = tok + nextTok
-                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(full) {
-                    mergedFreq[full, default: 0] += 1
-                }
-            }
-            if tok.count == 1 && Self.singleSurnames.contains(tok) && nextTok.count == 1 && tok != nextTok {
-                let full = tok + nextTok
-                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(full) {
-                    mergedFreq[full, default: 0] += 2
-                }
-            }
-            if tok.count == 1 {
-                let candidateCompound = tok + nextTok
-                if candidateCompound.count == 2 && Self.compoundSurnames.contains(candidateCompound) {
-                    mergedFreq[candidateCompound, default: 0] += 3
-                }
-            }
-        }
-        for i in 0..<(allTokens.count - 1) {
-            let (tok, pos) = allTokens[i]
-            let (nextTok, nextPos) = allTokens[i + 1]
-            guard pos + 1 == nextPos else { continue }
-            if tok.count == 2 && Self.compoundSurnames.contains(tok) && nextTok.count == 1 {
-                let full = tok + nextTok
-                if full.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(full) {
-                    mergedFreq[full, default: 0] += 3
-                }
-            }
-        }
-
-        // Bigram merging
-        for i in 0..<(allTokens.count - 1) {
-            let (a, posA) = allTokens[i]
-            let (b, posB) = allTokens[i + 1]
-            if posA + 1 == posB && a.count == 2 && b.count == 2 {
-                let merged = a + b
-                if merged.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }), !isStopWord(merged) {
-                    mergedFreq[merged, default: 0] += 1
-                }
-            }
-        }
-
-        for (name, freq) in mergedFreq where freq >= 2 {
-            scores[name, default: 0] += min(freq * 20, 100)
-        }
-
-        // Pre-compiled regex patterns (single NSRegularExpression match across text)
+        // Phase 1: Dialogue sentence regex — find speakers before 说/道/喊/问/答
+        var candidates = [String: Int]()
         let nsRange = NSRange(raw.startIndex..<raw.endIndex, in: raw)
 
-        // Speech verb patterns
         Self.speechVerbPattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
             guard let m = match, m.numberOfRanges > 1 else { return }
-            let r = m.range(at: 1)
-            if let range = Range(r, in: raw) {
-                let name = String(raw[range])
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 15
+            if let r = Range(m.range(at: 1), in: raw) {
+                let name = String(raw[r])
+                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
+                    candidates[name, default: 0] += 1
                 }
             }
         }
-
-        // Title patterns
         Self.titlePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
             guard let m = match, m.numberOfRanges > 1 else { return }
-            let r = m.range(at: 1)
-            if let range = Range(r, in: raw) {
-                let name = String(raw[range])
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 12
+            if let r = Range(m.range(at: 1), in: raw) {
+                let name = String(raw[r])
+                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
+                    candidates[name, default: 0] += 1
                 }
             }
         }
-
-        // Dialogue before quote
         Self.dialogueBeforeQuotePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
             guard let m = match, m.numberOfRanges > 1 else { return }
-            let r = m.range(at: 1)
-            if let range = Range(r, in: raw) {
-                let name = String(raw[range])
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 12
+            if let r = Range(m.range(at: 1), in: raw) {
+                let name = String(raw[r])
+                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
+                    candidates[name, default: 0] += 1
                 }
             }
         }
-
-        // Name + comma address — "无忌，你怎么来了？"
         Self.commaAddressPattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
             guard let m = match, m.numberOfRanges > 1 else { return }
-            let r = m.range(at: 1)
-            if let range = Range(r, in: raw) {
-                let name = String(raw[range])
-                if name.count >= 2 && name.count <= 4 && !Self.singleSurnames.contains(name) {
-                    scores[name, default: 0] += 10
+            if let r = Range(m.range(at: 1), in: raw) {
+                let name = String(raw[r])
+                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) && !Self.singleSurnames.contains(name) {
+                    candidates[name, default: 0] += 1
                 }
             }
         }
-
-        // Speech verb + quote — 无忌说道："...
         Self.speechVerbQuotePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
             guard let m = match, m.numberOfRanges > 1 else { return }
-            let r = m.range(at: 1)
-            if let range = Range(r, in: raw) {
-                let name = String(raw[range])
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 15
+            if let r = Range(m.range(at: 1), in: raw) {
+                let name = String(raw[r])
+                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
+                    candidates[name, default: 0] += 1
                 }
             }
         }
 
-        // NLTagger personal name
+        // Filter phase 1 candidates: remove stop words, require surname or 3+ chars
+        let phase1Names = candidates.filter { name, count in
+            guard !isStopWord(name) else { return false }
+            if name.count == 2 { return Self.firstCharIsSurname(name) }
+            return name.count >= 3
+        }.map { $0.key }
+
+        // Phase 2: AC automaton — count occurrences of all phase1 names + their substrings
+        let ac = ACAutomaton()
+        for name in phase1Names {
+            ac.insert(name)
+            // Also insert 2-char substrings that start with surname
+            if name.count == 3 && Self.firstCharIsSurname(String(name.prefix(2))) {
+                ac.insert(String(name.suffix(2)))
+            }
+            if name.count == 4 {
+                let suffix3 = String(name.suffix(3))
+                if Self.firstCharIsSurname(String(suffix3.prefix(1))) || Self.firstCharIsSurname(String(suffix3.prefix(2))) {
+                    ac.insert(suffix3)
+                }
+                let suffix2 = String(name.suffix(2))
+                if Self.firstCharIsSurname(suffix2) {
+                    ac.insert(suffix2)
+                }
+            }
+        }
+        // Also insert common single surnames
+        for s in Self.singleSurnames {
+            ac.insert(s)
+        }
+        let fullCounts = ac.search(raw)
+
+        // Score: combine phase1 candidate count with AC frequency
+        var scores = [String: Int]()
+        for name in phase1Names {
+            let dialogueScore = candidates[name, default: 0] * 20
+            let freqScore = min(fullCounts[name, default: 0] * 2, 200)
+            scores[name] = dialogueScore + freqScore
+        }
+
+        // Phase 3: NL NER for unmatched paragraphs — only run on text around dialogue markers
         let tagger = NLTagger(tagSchemes: [.nameType])
-        tagger.string = raw
-        tagger.enumerateTags(in: raw.startIndex..<raw.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
-            if tag == .personalName {
-                let name = String(raw[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if name.count >= 2 && name.count <= 4 {
-                    scores[name, default: 0] += 20
-                }
-            }
-            return true
-        }
+        let paragraphs = raw.components(separatedBy: "\n")
+        let matchedNames = Set(scores.keys)
+        var nlCandidates = [String: Int]()
+        var paragraphIndex = 0
+        for para in paragraphs where para.count < 2000 {
+            let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.count < 10 { paragraphIndex += 1; continue }
+            // Only process if paragraph contains dialogue markers or potential name patterns
+            let hasDialogueMarker = trimmed.contains("说") || trimmed.contains("道") || trimmed.contains("喊") ||
+                trimmed.contains("问") || trimmed.contains("答") || trimmed.contains("叫") ||
+                trimmed.contains("「") || trimmed.contains("」")
+            guard hasDialogueMarker else { paragraphIndex += 1; continue }
 
-        // Chapter title names
-        let chapterLinePattern = RegexCache.shared.get("^(?:第[零一二三四五六七八九十百千\\d]+[章回节]).{0,20}")!
-        for line in raw.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.count >= 6, trimmed.count <= 25 {
-                if chapterLinePattern.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)) != nil {
-                    let cleaned = trimmed
-                        .replacingOccurrences(of: "^第[零一二三四五六七八九十百千\\d]+[章回节]", with: "", options: .regularExpression)
-                        .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
-                    if cleaned.count >= 2 && cleaned.count <= 4 {
-                        scores[cleaned, default: 0] += 5
+            tagger.string = trimmed
+            tagger.enumerateTags(in: trimmed.startIndex..<trimmed.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
+                if tag == .personalName {
+                    let name = String(trimmed[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if name.count >= 2 && name.count <= 4 && !matchedNames.contains(name) && !isStopWord(name) {
+                        if name.count == 2 && !Self.firstCharIsSurname(name) { return true }
+                        nlCandidates[name, default: 0] += 1
                     }
                 }
+                return true
             }
+            paragraphIndex += 1
+        }
+        for (name, count) in nlCandidates {
+            scores[name, default: 0] += count * 15
         }
 
-        // Dialogue turn-tracking: extract names from dialogue attributions
-        let dialogues = detectDialogues(in: raw)
-        var previousSpeakers: [String] = []
-        for dialogue in dialogues {
-            if let speaker = dialogue.speaker {
-                if speaker.count >= 2 && speaker.count <= 4 {
-                    scores[speaker, default: 0] += 8
-                }
-                previousSpeakers.append(speaker)
-                // Alternating speaker pattern: if we see A → B → A, boost both
-                if previousSpeakers.count >= 3 {
-                    let last3 = previousSpeakers.suffix(3)
-                    if last3[last3.startIndex] == last3[last3.index(after: last3.startIndex)] {
-                        // Already know these names
-                    }
-                }
-            }
-        }
-
-        // Filter and sort
-        let minScore = 5
-        let sorted = scores.filter { $0.value >= minScore }.sorted { $0.value > $1.value }
-        return sorted.prefix(35).map(\.key)
+        return scores
     }
 
     // MARK: - Dialogue detection

@@ -14,7 +14,6 @@ struct CharacterAssignmentPanel: View {
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var exportData = Data()
-    @State private var scanTimeHistory: [TimeInterval] = []
     @State private var showAllCharacters = false
     @State private var showAliasEditor = false
     @State private var editingAliasProfile: CharacterProfile?
@@ -135,7 +134,6 @@ struct CharacterAssignmentPanel: View {
     private func startScan() {
         isScanning = true
         scanProgress = 0
-        scanTimeHistory = []
         let startTime = Date()
         let text = book.text
         let voices = store.voices
@@ -143,58 +141,24 @@ struct CharacterAssignmentPanel: View {
 
         Task { @MainActor in
             let totalLen = text.count
-            let chunkSize = 50_000
-            let totalChunks = max(1, (totalLen + chunkSize - 1) / chunkSize)
-            var allNames: [String: Int] = [:]
-            var processedChunks = 0
+            let analyzer = CharacterAnalyzer()
 
-            for i in 0..<totalChunks {
-                if Task.isCancelled { break }
-                let startIdx = text.index(text.startIndex, offsetBy: i * chunkSize, limitedBy: text.endIndex) ?? text.startIndex
-                let endIdx = text.index(startIdx, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
-                guard startIdx < endIdx else { break }
-                let chunk = text[startIdx..<endIdx]
-                let chunkStart = Date()
-                let names = await Task.detached(priority: .userInitiated) {
-                    CharacterAnalyzer().extractNames(from: String(chunk))
-                }.value
-                let chunkElapsed = Date().timeIntervalSince(chunkStart)
-                scanTimeHistory.append(chunkElapsed)
+            // Single fast scan — Phase 1 (dialogue regex) + Phase 2 (AC automaton) + Phase 3 (NL NER on dialogue paragraphs)
+            let scores = await Task.detached(priority: .userInitiated) {
+                analyzer.extractNamesFast(from: text)
+            }.value
 
-                for n in names {
-                    allNames[n, default: 0] += 1
-                }
-                processedChunks += 1
-                scanProgress = Double(processedChunks) / Double(totalChunks)
+            let totalElapsed = Date().timeIntervalSince(startTime)
+            elapsedText = formatDuration(totalElapsed)
+            scanProgress = 1.0
 
-                // Update elapsed time
-                let totalElapsed = Date().timeIntervalSince(startTime)
-                elapsedText = formatDuration(totalElapsed)
-
-                // Estimate remaining based on average chunk time
-                if processedChunks >= 3 {
-                    let avgChunkTime = scanTimeHistory.reduce(0, +) / Double(scanTimeHistory.count)
-                    let remainingChunks = totalChunks - processedChunks
-                    let estimatedRemaining = avgChunkTime * Double(remainingChunks)
-                    etaText = formatDuration(estimatedRemaining)
-                } else if totalChunks > 0 {
-                    let remaining = totalChunks - processedChunks
-                    let totalEstimate = Double(totalChunks) * chunkElapsed
-                    let elapsed = Date().timeIntervalSince(startTime)
-                    etaText = formatDuration(max(0, totalEstimate - elapsed))
-                }
-
-                await Task.yield()
-            }
-
-            // Deduplicate aliases
+            // Sort by score
+            let allNames = scores
             let uniqueNames = allNames.keys.sorted { allNames[$0, default: 0] > allNames[$1, default: 0] }
             let resolved = CharacterAnalyzer.resolveAliases(uniqueNames)
             let usedNames = Set(resolved.map { $0.canonical })
 
             // Filter out unlikely character names
-            // Real Chinese names should: start with surname, or be 3+ chars, or appear in dialogue/speech context
-            // Remove names with very low frequency (likely false positives)
             let minFreq = max(3, totalLen / 50000)
             var mergedMap: [String: (frequency: Int, aliases: [String])] = [:]
             func isValidCharacterName(_ name: String, freq: Int) -> Bool {
@@ -222,7 +186,6 @@ struct CharacterAssignmentPanel: View {
             // Attribute inference for top characters: find context in first 500k chars
             let contextLimit = min(500_000, totalLen)
             let contextText = text.prefix(contextLimit)
-            let analyzer = CharacterAnalyzer()
             var inferred: [CharacterProfile] = []
 
             for (name, data) in sortedProfiles {
@@ -280,7 +243,7 @@ struct CharacterAssignmentPanel: View {
             isScanning = false
             elapsedText = ""
             etaText = ""
-            store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，合并 \(resolved.reduce(0) { $0 + $1.aliases.count }) 个别名"
+            store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，耗时 \(formatDuration(Date().timeIntervalSince(startTime)))"
         }
     }
 
