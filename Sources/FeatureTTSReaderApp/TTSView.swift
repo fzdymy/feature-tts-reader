@@ -11,6 +11,7 @@ struct TTSView: View {
     @State private var profileExportData = Data()
     @State private var isTestingAudio = false
     @State private var audioTestResult: String?
+    @State private var ttsPlayer: AVAudioPlayer?
 
     var body: some View {
         NavigationStack {
@@ -108,13 +109,19 @@ struct TTSView: View {
                     if result.hasPrefix("合成成功"), let url = store.ttsTestAudioURL {
                         HStack(spacing: 16) {
                             Button("播放") {
-                                do {
-                                    try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-                                    try AVAudioSession.sharedInstance().setActive(true)
-                                } catch {}
                                 if let p = try? AVAudioPlayer(contentsOf: url) {
+                                    ttsPlayer = p
+                                    do {
+                                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+                                        try AVAudioSession.sharedInstance().setActive(true)
+                                    } catch {}
                                     p.prepareToPlay(); p.play()
                                 } else if let data = try? Data(contentsOf: url), let p = try? AVAudioPlayer(data: data) {
+                                    ttsPlayer = p
+                                    do {
+                                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+                                        try AVAudioSession.sharedInstance().setActive(true)
+                                    } catch {}
                                     p.prepareToPlay(); p.play()
                                 }
                             }

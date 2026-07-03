@@ -43,10 +43,18 @@ actor TTSHttpClient {
 
         debugPrint("TTS response: \(data.count) bytes, Content-Type: \(contentType)")
 
+        let ext: String
+        if contentType.contains("mpeg") || contentType.contains("mp3") { ext = "mp3" }
+        else if contentType.contains("wav") || contentType.contains("wave") { ext = "wav" }
+        else if contentType.contains("aac") { ext = "aac" }
+        else if contentType.contains("ogg") { ext = "ogg" }
+        else if contentType.contains("pcm") || contentType.contains("L16") || contentType.contains("raw") { ext = "wav" }
+        else { ext = "mp3" }
+
         let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let ttsDir = cachesDir.appendingPathComponent("tts_audio", isDirectory: true)
         try? FileManager.default.createDirectory(at: ttsDir, withIntermediateDirectories: true)
-        let outputURL = ttsDir.appendingPathComponent("tts-speak-\(UUID().uuidString).mp3")
+        let outputURL = ttsDir.appendingPathComponent("tts-speak-\(UUID().uuidString).\(ext)")
         try data.write(to: outputURL, options: .atomic)
         return outputURL
     }
