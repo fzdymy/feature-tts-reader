@@ -222,7 +222,7 @@ struct TTSView: View {
                                 .font(.caption2).foregroundColor(.secondary)
                             if !role.voiceSuggestion.isEmpty {
                                 Text("       \(role.voiceSuggestion)")
-                                    .font(.caption2).foregroundColor(.tertiary)
+                                    .font(.caption2).foregroundColor(.secondary)
                             }
                         }
                         if template.roles.count > 3 {
