@@ -16,6 +16,7 @@ struct CharacterAssignmentPanel: View {
     @State private var editingProfile: CharacterProfile?
     @State private var showAliasEditor = false
     @State private var editingAliasProfile: CharacterProfile?
+    @State private var newAliasText: String = ""
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var exportData = Data()
@@ -554,7 +555,6 @@ struct CharacterAssignmentPanel: View {
                                 if let i = store.characters.firstIndex(where: { $0.id == profile.id }) {
                                     store.characters[i].aliases.removeAll { $0 == alias }
                                     store.saveState()
-                                    editingAliasProfile = store.characters[i]
                                 }
                             }) {
                                 Image(systemName: "xmark.circle.fill").foregroundColor(.red).font(.caption)
@@ -565,22 +565,20 @@ struct CharacterAssignmentPanel: View {
                 }
                 Section(header: Text("添加新别名")) {
                     HStack {
-                        TextField("输入别名", text: Binding(
-                            get: { "" },
-                            set: { newAlias in
-                                let trimmed = newAlias.trimmingCharacters(in: .whitespaces)
-                                if !trimmed.isEmpty {
-                                    if let i = store.characters.firstIndex(where: { $0.id == profile.id }) {
-                                        if !store.characters[i].aliases.contains(trimmed) {
-                                            store.characters[i].aliases.append(trimmed)
-                                            store.saveState()
-                                            editingAliasProfile = store.characters[i]
-                                        }
-                                    }
+                        TextField("输入别名", text: $newAliasText)
+                            .font(.subheadline)
+                        Button("添加") {
+                            let trimmed = newAliasText.trimmingCharacters(in: .whitespaces)
+                            guard !trimmed.isEmpty else { return }
+                            if let i = store.characters.firstIndex(where: { $0.id == profile.id }) {
+                                if !store.characters[i].aliases.contains(trimmed) {
+                                    store.characters[i].aliases.append(trimmed)
+                                    store.saveState()
                                 }
                             }
-                        ))
-                        .font(.subheadline)
+                            newAliasText = ""
+                        }
+                        .disabled(newAliasText.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
                 Section(header: Text("提示")) {
@@ -591,7 +589,7 @@ struct CharacterAssignmentPanel: View {
             .navigationTitle("编辑别名: \(profile.name)")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { showAliasEditor = false }
+                    Button("完成") { showAliasEditor = false; newAliasText = "" }
                 }
             }
         }
