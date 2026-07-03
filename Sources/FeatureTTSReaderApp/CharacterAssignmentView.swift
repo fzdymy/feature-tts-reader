@@ -8,22 +8,38 @@ struct CharacterAssignmentPanel: View {
     @State private var isScanning = false
     @State private var scanProgress: Double = 0
     @State private var scanEstimate: String = ""
+    @State private var elapsedText: String = ""
+    @State private var etaText: String = ""
     @State private var showScanConfirm = false
     @State private var showTemplatePicker = false
     @State private var editingCharacter: CharacterProfile?
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var exportData = Data()
+    @State private var scanTimeHistory: [TimeInterval] = []
+    @State private var showAllCharacters = false
+
+    private let maxDisplayed = 100
 
     private var bookCharacters: [CharacterProfile] {
         store.characters
     }
 
+    private var displayedCharacters: [CharacterProfile] {
+        showAllCharacters ? bookCharacters : Array(bookCharacters.prefix(maxDisplayed))
+    }
+
     var body: some View {
-        Section(header: Text("角色分配")) {
+        Section(header: Text("角色分配 (\(bookCharacters.count) 人)")) {
             scanButton
             templateButton
             characterList
+            if bookCharacters.count > maxDisplayed {
+                Button(action: { showAllCharacters.toggle() }) {
+                    Text(showAllCharacters ? "显示前 \(maxDisplayed) 个" : "显示全部 (\(bookCharacters.count) 个)")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
             if !bookCharacters.isEmpty {
                 exportImportButtons
             }
@@ -73,17 +89,27 @@ struct CharacterAssignmentPanel: View {
                 Image(systemName: "person.text.rectangle")
                 VStack(alignment: .leading, spacing: 2) {
                     Text("扫描全书角色")
-                    if !scanEstimate.isEmpty {
+                    if isScanning {
+                        HStack(spacing: 4) {
+                            if !elapsedText.isEmpty {
+                                Text(elapsedText).font(.caption2).foregroundColor(.secondary)
+                            }
+                            if !etaText.isEmpty {
+                                Text("剩余 \(etaText)").font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
+                    } else if !scanEstimate.isEmpty {
                         Text(scanEstimate).font(.caption2).foregroundColor(.secondary)
                     }
                 }
                 Spacer()
                 if isScanning {
-                    if scanProgress > 0 {
+                    HStack(spacing: 6) {
                         Text("\(Int(scanProgress * 100))%")
                             .font(.caption).foregroundColor(.accentColor)
-                    } else {
-                        ProgressView().progressViewStyle(.circular).scaleEffect(0.8)
+                        if scanProgress > 0 {
+                            ProgressView().progressViewStyle(.circular).scaleEffect(0.7)
+                        }
                     }
                 } else {
                     Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
@@ -122,11 +148,23 @@ struct CharacterAssignmentPanel: View {
                         .foregroundColor(.secondary)
                 }
                 if isScanning {
-                    ProgressView(value: scanProgress)
-                        .progressViewStyle(.linear)
+                    VStack(spacing: 8) {
+                        ProgressView(value: scanProgress)
+                            .progressViewStyle(.linear)
+                            .padding(.horizontal)
+                        HStack {
+                            if !elapsedText.isEmpty {
+                                Text("已用 \(elapsedText)").font(.caption).foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Text("\(Int(scanProgress * 100))%").font(.caption).foregroundColor(.secondary)
+                            Spacer()
+                            if !etaText.isEmpty {
+                                Text("剩余 \(etaText)").font(.caption).foregroundColor(.secondary)
+                            }
+                        }
                         .padding(.horizontal)
-                    Text("\(Int(scanProgress * 100))%")
-                        .font(.caption).foregroundColor(.secondary)
+                    }
                 }
                 HStack(spacing: 16) {
                     Button(role: .cancel) {
@@ -153,6 +191,8 @@ struct CharacterAssignmentPanel: View {
     private func startScan() {
         isScanning = true
         scanProgress = 0
+        scanTimeHistory = []
+        let startTime = Date()
         let text = book.text
         let voices = store.voices
         let defaultSensitivity = store.defaultSensitivity
@@ -162,6 +202,7 @@ struct CharacterAssignmentPanel: View {
             let chunkSize = 50_000
             let totalChunks = max(1, (totalLen + chunkSize - 1) / chunkSize)
             var allNames: [String: Int] = [:]
+            var processedChunks = 0
 
             for i in 0..<totalChunks {
                 if Task.isCancelled { break }
@@ -169,31 +210,80 @@ struct CharacterAssignmentPanel: View {
                 let endIdx = text.index(startIdx, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
                 guard startIdx < endIdx else { break }
                 let chunk = text[startIdx..<endIdx]
+                let chunkStart = Date()
                 let names = await Task.detached(priority: .userInitiated) {
                     CharacterAnalyzer().extractNames(from: String(chunk))
                 }.value
+                let chunkElapsed = Date().timeIntervalSince(chunkStart)
+                scanTimeHistory.append(chunkElapsed)
+
                 for n in names {
                     allNames[n, default: 0] += 1
                 }
-                scanProgress = Double(i + 1) / Double(totalChunks)
+                processedChunks += 1
+                scanProgress = Double(processedChunks) / Double(totalChunks)
+
+                // Update elapsed time
+                let totalElapsed = Date().timeIntervalSince(startTime)
+                elapsedText = formatDuration(totalElapsed)
+
+                // Estimate remaining based on average chunk time
+                if processedChunks >= 3 {
+                    let avgChunkTime = scanTimeHistory.reduce(0, +) / Double(scanTimeHistory.count)
+                    let remainingChunks = totalChunks - processedChunks
+                    let estimatedRemaining = avgChunkTime * Double(remainingChunks)
+                    etaText = formatDuration(estimatedRemaining)
+                } else if totalChunks > 0 {
+                    let remaining = totalChunks - processedChunks
+                    let totalEstimate = Double(totalChunks) * chunkElapsed
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    etaText = formatDuration(max(0, totalEstimate - elapsed))
+                }
+
                 await Task.yield()
             }
 
-            let sorted = allNames.sorted { $0.value > $1.value }
-            var inferred = sorted.map { name, count in
-                CharacterProfile(
-                    id: UUID(), name: name, gender: "", age: "", tone: "",
-                    voice: store.defaultVoice(for: "", tone: "", name: name, voices: voices),
+            // Deduplicate aliases
+            let uniqueNames = allNames.keys.sorted { allNames[$0, default: 0] > allNames[$1, default: 0] }
+            let resolved = CharacterAnalyzer.resolveAliases(uniqueNames)
+            let usedNames = Set(resolved.map { $0.canonical })
+
+            // Also include unique names that weren't merged (2-char non-surname names etc.)
+            var mergedMap: [String: (frequency: Int, aliases: [String])] = [:]
+            for (canonical, aliases) in resolved {
+                let freq = allNames[canonical, default: 0]
+                let aliasFreq = aliases.reduce(0) { $0 + allNames[$1, default: 0] }
+                mergedMap[canonical] = (freq + aliasFreq, aliases)
+            }
+            for (name, freq) in allNames where !usedNames.contains(name) && !name.isEmpty {
+                if mergedMap[name] == nil {
+                    mergedMap[name] = (freq, [])
+                }
+            }
+
+            let sortedProfiles = mergedMap.sorted { $0.value.frequency > $1.value.frequency }
+
+            var inferred: [CharacterProfile] = sortedProfiles.map { name, data in
+                let gender = store.guessGender(from: name) ? "男性" : "女性"
+                let baseVoice = gender == "男性"
+                    ? defaultMaleVoice(voices: voices)
+                    : defaultFemaleVoice(voices: voices)
+                return CharacterProfile(
+                    id: UUID(), name: name, aliases: data.aliases,
+                    gender: gender, age: "未知", tone: "平稳",
+                    voice: baseVoice,
                     rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity
                 )
             }
+
             if inferred.isEmpty {
-                inferred = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性",
+                inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: "未知",
+                    age: "未知", tone: "平稳",
                     voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
                     rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
             } else if !inferred.contains(where: { $0.isNarrator }) {
                 inferred.insert(CharacterProfile(
-                    id: UUID(), name: "旁白", gender: "未知", age: "未知", tone: "平稳",
+                    id: UUID(), name: "旁白", aliases: [], gender: "未知", age: "未知", tone: "平稳",
                     voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
                     rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity,
                     isNarrator: true, role: .narrator
@@ -205,7 +295,41 @@ struct CharacterAssignmentPanel: View {
             store.saveState()
             isScanning = false
             showScanConfirm = false
-            store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色"
+            elapsedText = ""
+            etaText = ""
+            store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，合并 \(resolved.reduce(0) { $0 + $1.aliases.count }) 个别名"
+        }
+    }
+
+    private func defaultMaleVoice(voices: [VoiceItem]) -> String {
+        let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
+        if let v = options.first(where: { $0.id.contains("Yunye") || $0.id.contains("Yunjian") || $0.id.contains("Yunxi") }) {
+            return v.id
+        }
+        if let v = options.first(where: { $0.gender == "男" || $0.gender == "Male" }) {
+            return v.id
+        }
+        return options.first?.id ?? "zh-CN-YunyeNeural"
+    }
+
+    private func defaultFemaleVoice(voices: [VoiceItem]) -> String {
+        let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
+        if let v = options.first(where: { $0.id.contains("Xiaoxiao") || $0.id.contains("Xiaohan") || $0.id.contains("Xiaoyi") }) {
+            return v.id
+        }
+        if let v = options.first(where: { $0.gender == "女" || $0.gender == "Female" }) {
+            return v.id
+        }
+        return options.first?.id ?? "zh-CN-XiaoxiaoNeural"
+    }
+
+    private func formatDuration(_ interval: TimeInterval) -> String {
+        if interval < 60 {
+            return "\(Int(interval))秒"
+        } else if interval < 3600 {
+            return "\(Int(interval / 60))分\(Int(interval.truncatingRemainder(dividingBy: 60)))秒"
+        } else {
+            return "\(Int(interval / 3600))时\(Int(interval.truncatingRemainder(dividingBy: 3600) / 60))分"
         }
     }
 
@@ -274,11 +398,18 @@ struct CharacterAssignmentPanel: View {
                     .font(.caption).foregroundColor(.secondary)
                     .padding(.vertical, 4)
             } else {
-                ForEach(bookCharacters) { profile in
+                ForEach(displayedCharacters) { profile in
                     characterRow(profile)
                 }
+                .onDelete(perform: deleteCharacters)
             }
         }
+    }
+
+    private func deleteCharacters(at offsets: IndexSet) {
+        let toDelete = offsets.map { displayedCharacters[$0].id }
+        store.characters.removeAll { toDelete.contains($0.id) }
+        store.saveState()
     }
 
     private func characterRow(_ profile: CharacterProfile) -> some View {
@@ -296,17 +427,31 @@ struct CharacterAssignmentPanel: View {
                             .background(Color.green.opacity(0.12)).cornerRadius(4)
                     }
                     if !profile.aliases.isEmpty {
-                        ForEach(profile.aliases.prefix(2), id: \.self) { alias in
+                        ForEach(profile.aliases.prefix(3), id: \.self) { alias in
                             Text(alias).font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(Color.orange.opacity(0.12)).cornerRadius(4)
                         }
-                    }
-                    if !profile.info.isEmpty {
-                        Text(profile.info).font(.caption2).foregroundColor(.secondary)
+                        if profile.aliases.count > 3 {
+                            Text("+\(profile.aliases.count - 3)").font(.caption2).foregroundColor(.secondary)
+                        }
                     }
                 }
-                voiceDetailText(profile)
-                    .font(.caption2).foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    if !profile.gender.isEmpty {
+                        Text(profile.gender).font(.caption2).foregroundColor(.secondary)
+                    }
+                    if !profile.age.isEmpty {
+                        Text(profile.age).font(.caption2).foregroundColor(.secondary)
+                    }
+                    if !profile.tone.isEmpty {
+                        Text(profile.tone).font(.caption2).foregroundColor(.secondary)
+                    }
+                    if !profile.gender.isEmpty || !profile.age.isEmpty || !profile.tone.isEmpty {
+                        Text("·").font(.caption2).foregroundColor(.secondary)
+                    }
+                    voiceDetailText(profile)
+                        .font(.caption2).foregroundColor(.secondary)
+                }
             }
             Spacer()
             Button(action: { editingCharacter = profile }) {

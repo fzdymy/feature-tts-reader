@@ -244,12 +244,16 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func exportRoleTemplates() -> Data? {
         let export = TemplateExport(version: 1, exportedAt: Date(), templates: roleTemplates)
-        return try? JSONEncoder().encode(export)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try? encoder.encode(export)
     }
 
     func importRoleTemplates(from data: Data) -> Bool {
         guard !data.isEmpty else { statusMessage = "导入失败: 文件为空"; return false }
-        guard let export = try? JSONDecoder().decode(TemplateExport.self, from: data) else {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let export = try? decoder.decode(TemplateExport.self, from: data) else {
             statusMessage = "导入失败: JSON 格式错误或字段不匹配"
             return false
         }

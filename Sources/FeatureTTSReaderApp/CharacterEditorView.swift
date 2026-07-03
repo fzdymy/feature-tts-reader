@@ -6,6 +6,8 @@ struct CharacterEditorView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var profile: CharacterProfile
     @State private var samplePlayer: AVAudioPlayer?
+    @State private var sampleError: String?
+    @State private var isPlaying = false
     let voices: [VoiceItem]
     let onSave: (CharacterProfile) -> Void
 
@@ -54,7 +56,17 @@ struct CharacterEditorView: View {
                 }
                 Section(header: Text("试听")) {
                     Button(action: playSample) {
-                        Text("播放当前音色示例")
+                        HStack {
+                            Text(isPlaying ? "播放中..." : "播放当前音色示例")
+                            Spacer()
+                            if isPlaying {
+                                ProgressView().progressViewStyle(.circular).scaleEffect(0.7)
+                            }
+                        }
+                    }
+                    .disabled(isPlaying)
+                    if let error = sampleError {
+                        Text(error).font(.caption).foregroundColor(.red)
                     }
                 }
             }
@@ -74,6 +86,7 @@ struct CharacterEditorView: View {
                         onSave(profile)
                         playSample()
                     }
+                    .disabled(isPlaying)
                 }
             }
         }
@@ -81,9 +94,11 @@ struct CharacterEditorView: View {
 
     private func playSample() {
         guard let url = URL(string: store.apiEndpoint) else {
-            debugPrint("试听失败：无效的 TTS 服务地址")
+            sampleError = "无效的 TTS 服务地址，请在「TTS」标签页配置服务器"
             return
         }
+        sampleError = nil
+        isPlaying = true
         let request = TTSHttpClient(baseURL: url, apiKey: store.apiKey.isEmpty ? nil : store.apiKey)
         Task {
             do {
@@ -92,8 +107,10 @@ struct CharacterEditorView: View {
                 samplePlayer = try AVAudioPlayer(contentsOf: url)
                 samplePlayer?.prepareToPlay()
                 samplePlayer?.play()
+                isPlaying = false
             } catch {
-                debugPrint("试听失败：\(error.localizedDescription)")
+                sampleError = "试听失败: \(error.localizedDescription)"
+                isPlaying = false
             }
         }
     }

@@ -2825,8 +2825,10 @@ enum DefaultTemplates {
   ]
 }
 """#
-        guard let data = raw.data(using: .utf8),
-              let export = try? JSONDecoder().decode(TemplateExport.self, from: data) else { return nil }
+        guard let data = raw.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let export = try? decoder.decode(TemplateExport.self, from: data) else { return nil }
         return export.templates
     }
 }
