@@ -41,6 +41,24 @@ struct TemplateManageView: View {
                                     roleRow(role, templateID: template.id)
                                 }
                             }
+                            HStack(spacing: 12) {
+                                Button {
+                                    if let ti = store.roleTemplates.firstIndex(where: { $0.id == template.id }) {
+                                        store.roleTemplates[ti].roles.append(TemplateRole(title: "新角色"))
+                                        store.saveRoleTemplates()
+                                    }
+                                } label: {
+                                    Label("添加角色", systemImage: "plus.circle").font(.caption).foregroundColor(.accentColor)
+                                }
+                                .buttonStyle(.plain)
+                                Button(role: .destructive) {
+                                    store.deleteRoleTemplate(template.id)
+                                } label: {
+                                    Label("删除此模板", systemImage: "trash").font(.caption)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.leading, 8).padding(.top, 4)
                         },
                         label: {
                             HStack {

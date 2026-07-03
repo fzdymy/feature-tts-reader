@@ -12,8 +12,7 @@ struct CharacterAssignmentPanel: View {
     @State private var etaText: String = ""
     @State private var showScanConfirm = false
     @State private var showTemplatePicker = false
-    @State private var showEditor = false
-    @State private var editingCharacterID: UUID?
+    @State private var editingCharacter: CharacterProfile?
     @State private var showAliasEditor = false
     @State private var editingAliasProfile: CharacterProfile?
     @State private var newAliasText: String = ""
@@ -54,17 +53,14 @@ struct CharacterAssignmentPanel: View {
         .sheet(isPresented: $showTemplatePicker) {
             templatePickerSheet
         }
-        .sheet(isPresented: $showEditor) {
-            if let id = editingCharacterID,
-               let profile = store.characters.first(where: { $0.id == id }) {
-                CharacterEditorView(character: profile, voices: store.voices) { updated in
-                    if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
-                        store.characters[i] = updated
-                    }
-                    store.saveState()
+        .sheet(item: $editingCharacter) { profile in
+            CharacterEditorView(character: profile, voices: store.voices) { updated in
+                if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
+                    store.characters[i] = updated
                 }
-                .environmentObject(store)
+                store.saveState()
             }
+            .environmentObject(store)
         }
         .sheet(isPresented: $showAliasEditor) {
             if let profile = editingAliasProfile {
@@ -497,8 +493,7 @@ struct CharacterAssignmentPanel: View {
             Spacer()
             HStack(spacing: 4) {
                 Button(action: {
-                    editingCharacterID = profile.id
-                    showEditor = true
+                    editingCharacter = store.characters.first(where: { $0.id == profile.id })
                 }) {
                     VStack(spacing: 1) {
                         Image(systemName: "slider.horizontal.3")
@@ -525,7 +520,7 @@ struct CharacterAssignmentPanel: View {
         }
         .padding(.vertical, 2)
         .contextMenu {
-            Button(action: { editingCharacterID = profile.id; showEditor = true }) {
+            Button(action: { editingCharacter = store.characters.first(where: { $0.id == profile.id }) }) {
                 Label("微调角色", systemImage: "slider.horizontal.3")
             }
             Button(action: {
