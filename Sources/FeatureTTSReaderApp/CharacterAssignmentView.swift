@@ -303,24 +303,18 @@ struct CharacterAssignmentPanel: View {
 
     private func defaultMaleVoice(voices: [VoiceItem]) -> String {
         let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
-        if let v = options.first(where: { $0.id.contains("Yunye") || $0.id.contains("Yunjian") || $0.id.contains("Yunxi") }) {
+        if let v = options.first(where: { $0.gender == .male }) {
             return v.id
         }
-        if let v = options.first(where: { $0.gender == "男" || $0.gender == "Male" }) {
-            return v.id
-        }
-        return options.first?.id ?? "zh-CN-YunyeNeural"
+        return "zh-CN-YunyeNeural"
     }
 
     private func defaultFemaleVoice(voices: [VoiceItem]) -> String {
         let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
-        if let v = options.first(where: { $0.id.contains("Xiaoxiao") || $0.id.contains("Xiaohan") || $0.id.contains("Xiaoyi") }) {
+        if let v = options.first(where: { $0.gender == .female }) {
             return v.id
         }
-        if let v = options.first(where: { $0.gender == "女" || $0.gender == "Female" }) {
-            return v.id
-        }
-        return options.first?.id ?? "zh-CN-XiaoxiaoNeural"
+        return "zh-CN-XiaoxiaoNeural"
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {
@@ -412,6 +406,11 @@ struct CharacterAssignmentPanel: View {
         store.saveState()
     }
 
+    private func deleteCharacter(_ profile: CharacterProfile) {
+        store.characters.removeAll { $0.id == profile.id }
+        store.saveState()
+    }
+
     private func characterRow(_ profile: CharacterProfile) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -458,6 +457,12 @@ struct CharacterAssignmentPanel: View {
                 Image(systemName: "slider.horizontal.3")
                     .font(.caption)
                     .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            Button(action: { deleteCharacter(profile) }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.red)
             }
             .buttonStyle(.plain)
         }
