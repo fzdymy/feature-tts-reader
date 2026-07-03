@@ -13,7 +13,7 @@ struct FeatureTTSReaderApp: App {
 
                 TTSView()
                     .environmentObject(store)
-                    .tabItem { Label("TTS", systemImage: "play.circle") }
+                    .tabItem { Label("TTS", systemImage: "waveform") }
 
                 SettingsView()
                     .environmentObject(store)

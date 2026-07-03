@@ -50,6 +50,8 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsServers: [TTSServer] = []
     @Published var voiceProfiles: [VoiceProfileTuning] = []
     @Published var tagPresets: [TagPreset] = []
+    @Published var activeServerTestResult: String = ""
+    @Published var isTestingServer: Bool = false
 
     var activeServer: TTSServer? {
         ttsServers.first(where: { $0.isActive })
@@ -102,6 +104,32 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
+    /// 测试当前活跃服务器的连接
+    func testActiveServer() async {
+        guard let server = activeServer else {
+            activeServerTestResult = "无活跃服务器"
+            return
+        }
+        isTestingServer = true
+        activeServerTestResult = "测试中..."
+        let client = TTSHttpClient(
+            baseURL: URL(string: server.baseURL) ?? URL(string: "http://127.0.0.1:8080")!,
+            apiKey: server.apiKey.isEmpty ? nil : server.apiKey
+        )
+        let start = Date()
+        do {
+            _ = try await client.synthesizeAudio(
+                text: "测试", voice: "zh-CN-XiaoxiaoNeural",
+                rate: 0, pitch: 0, style: "neutral"
+            )
+            let elapsed = Int(Date().timeIntervalSince(start) * 1000)
+            activeServerTestResult = "\(elapsed)ms"
+        } catch {
+            activeServerTestResult = "失败: \(error.localizedDescription)"
+        }
+        isTestingServer = false
+    }
+
     func addVoiceProfile(_ vp: VoiceProfileTuning) {
         voiceProfiles.append(vp)
         saveVoiceProfiles()
@@ -126,8 +154,14 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func loadVoiceProfiles() {
         guard let data = UserDefaults.standard.data(forKey: "voiceProfiles"),
-              let vps = try? JSONDecoder().decode([VoiceProfileTuning].self, from: data) else { return }
-        voiceProfiles = vps
+              let profiles = try? JSONDecoder().decode([VoiceProfileTuning].self, from: data) else { return }
+        voiceProfiles = profiles
+    }
+
+    func loadTagPresets() {
+        guard let data = UserDefaults.standard.data(forKey: "tagPresets"),
+              let presets = try? JSONDecoder().decode([TagPreset].self, from: data) else { return }
+        tagPresets = presets
     }
 
     // Chapter parse cache keyed by book ID
@@ -192,6 +226,7 @@ final class ReaderStore: NSObject, ObservableObject {
         loadSettings()
         loadTTSServers()
         loadVoiceProfiles()
+        loadTagPresets()
         voices = selectedVoiceCatalog.voices
         setupAudioSession()
         setupRemoteCommands()
