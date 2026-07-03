@@ -484,6 +484,9 @@ struct BookDetailView: View {
                 }
             }
 
+            CharacterAssignmentPanel(book: book)
+                .environmentObject(store)
+
             Section {
                 Button(role: .destructive) {
                     if let index = store.books.firstIndex(where: { $0.id == book.id }) {
