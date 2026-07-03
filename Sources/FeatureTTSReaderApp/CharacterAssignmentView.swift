@@ -182,11 +182,11 @@ struct CharacterAssignmentPanel: View {
             var inferred = allNames.sorted { $0.value > $1.value }.map { name, count in
                 CharacterProfile(
                     id: UUID(),
-                    name: name.key,
+                    name: name,
                     gender: "",
                     age: "",
                     tone: "",
-                    voice: store.defaultVoice(for: "", tone: "", name: name.key, voices: store.voices),
+                    voice: store.defaultVoice(for: "", tone: "", name: name, voices: store.voices),
                     rate: 0,
                     pitch: 0,
                     style: "neutral",
