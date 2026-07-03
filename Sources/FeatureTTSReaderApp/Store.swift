@@ -184,7 +184,7 @@ final class ReaderStore: NSObject, ObservableObject {
         saveRoleTemplates()
     }
 
-    private func saveRoleTemplates() {
+    func saveRoleTemplates() {
         if let data = try? JSONEncoder().encode(roleTemplates) {
             UserDefaults.standard.set(data, forKey: "roleTemplates")
         }

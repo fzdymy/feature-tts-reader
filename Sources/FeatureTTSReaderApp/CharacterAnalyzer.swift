@@ -96,7 +96,7 @@ final class CharacterAnalyzer {
         RegexCache.shared.get("[『\\u300e]([^』\\u300f]+)[』\\u300f]")!,
     ]
 
-    private static func firstCharIsSurname(_ token: String) -> Bool {
+    static func firstCharIsSurname(_ token: String) -> Bool {
         guard let first = token.first else { return false }
         return singleSurnames.contains(String(first))
     }
