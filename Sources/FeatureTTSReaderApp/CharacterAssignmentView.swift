@@ -164,7 +164,7 @@ struct CharacterAssignmentPanel: View {
                     guard start < end else { break }
                     let chunk = String(book.text[book.text.index(book.text.startIndex, offsetBy: start)..<book.text.index(book.text.startIndex, offsetBy: end)])
                     group.addTask {
-                        let names = analyzer.extractCharacterNames(from: chunk)
+                        let names = analyzer.extractNames(from: chunk)
                         var map: [String: Int] = [:]
                         for n in names { map[n, default: 0] += 1 }
                         return (i, map)
