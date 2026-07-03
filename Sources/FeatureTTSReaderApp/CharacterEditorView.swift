@@ -102,7 +102,7 @@ struct CharacterEditorView: View {
         let request = TTSHttpClient(baseURL: url, apiKey: store.apiKey.isEmpty ? nil : store.apiKey)
         Task {
             do {
-                let text = "你好，我是 \(profile.name)，这是我的声音示例。"
+                let text = "我是\(profile.name)，TTS多角色小说阅读器听《\(store.books.first?.title ?? "未知书籍")》真爽。"
                 let url = try await request.synthesizeAudio(text: text, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style)
                 samplePlayer = try AVAudioPlayer(contentsOf: url)
                 samplePlayer?.prepareToPlay()

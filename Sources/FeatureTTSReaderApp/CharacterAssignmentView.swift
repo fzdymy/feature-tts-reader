@@ -12,7 +12,10 @@ struct CharacterAssignmentPanel: View {
     @State private var etaText: String = ""
     @State private var showScanConfirm = false
     @State private var showTemplatePicker = false
-    @State private var editingCharacter: CharacterProfile?
+    @State private var showEditor = false
+    @State private var editingProfile: CharacterProfile?
+    @State private var showAliasEditor = false
+    @State private var editingAliasProfile: CharacterProfile?
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var exportData = Data()
@@ -50,14 +53,21 @@ struct CharacterAssignmentPanel: View {
         .sheet(isPresented: $showTemplatePicker) {
             templatePickerSheet
         }
-        .sheet(item: $editingCharacter) { profile in
-            CharacterEditorView(character: profile, voices: store.voices) { updated in
-                if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
-                    store.characters[i] = updated
+        .sheet(isPresented: $showEditor) {
+            if let profile = editingProfile {
+                CharacterEditorView(character: profile, voices: store.voices) { updated in
+                    if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
+                        store.characters[i] = updated
+                    }
+                    store.saveState()
                 }
-                store.saveState()
+                .environmentObject(store)
             }
-            .environmentObject(store)
+        }
+        .sheet(isPresented: $showAliasEditor) {
+            if let profile = editingAliasProfile {
+                aliasEditSheet(profile)
+            }
         }
         .fileExporter(isPresented: $showExporter, document: JSONDocument(data: exportData),
                       contentType: .json, defaultFilename: "book-characters-\(book.title)") { result in
@@ -123,9 +133,15 @@ struct CharacterAssignmentPanel: View {
         let len = book.text.count
         let wan = Double(len) / 10000
         if len > 50000 {
-            scanEstimate = "约 \(len / 50000) 分钟（\(String(format: "%.1f", wan)) 万字）"
+            let chunks = (len + 49999) / 50000
+            let estSec = chunks / 3
+            if estSec < 60 {
+                scanEstimate = "约 \(max(1, estSec)) 秒（\(String(format: "%.1f", wan)) 万字）"
+            } else {
+                scanEstimate = "约 \(estSec / 60) 分（\(String(format: "%.1f", wan)) 万字）"
+            }
         } else if len > 10000 {
-            scanEstimate = "约 \(max(1, len / 10000)) 分钟（\(String(format: "%.1f", wan)) 万字）"
+            scanEstimate = "约 \(max(1, len / 100000)) 分钟（\(String(format: "%.1f", wan)) 万字）"
         } else {
             scanEstimate = "文本较短，可快速完成（\(String(format: "%.1f", wan)) 万字）"
         }
@@ -248,20 +264,27 @@ struct CharacterAssignmentPanel: View {
             let resolved = CharacterAnalyzer.resolveAliases(uniqueNames)
             let usedNames = Set(resolved.map { $0.canonical })
 
-            // Filter out extremely high-frequency tokens (likely common words, not names)
-            // If a name appears more than once per 1000 characters on average, it's suspicious
-            let freqThreshold = max(3, totalLen / 1000)
+            // Filter out unlikely character names
+            // Real Chinese names should: start with surname, or be 3+ chars, or appear in dialogue/speech context
+            // Remove names with very low frequency (likely false positives)
+            let minFreq = max(3, totalLen / 50000)
             var mergedMap: [String: (frequency: Int, aliases: [String])] = [:]
+            func isValidCharacterName(_ name: String, freq: Int) -> Bool {
+                if freq < minFreq { return false }
+                if name.count == 1 { return false }
+                if name.count == 2 && !CharacterAnalyzer.firstCharIsSurname(name) { return false }
+                return true
+            }
             for (canonical, aliases) in resolved {
                 let freq = allNames[canonical, default: 0]
                 let aliasFreq = aliases.reduce(0) { $0 + allNames[$1, default: 0] }
                 let total = freq + aliasFreq
-                if total < freqThreshold {
+                if isValidCharacterName(canonical, freq: total) {
                     mergedMap[canonical] = (total, aliases)
                 }
             }
             for (name, freq) in allNames where !usedNames.contains(name) && !name.isEmpty {
-                if mergedMap[name] == nil && freq < freqThreshold {
+                if mergedMap[name] == nil && isValidCharacterName(name, freq: freq) {
                     mergedMap[name] = (freq, [])
                 }
             }
@@ -299,9 +322,7 @@ struct CharacterAssignmentPanel: View {
                     gender = store.guessGender(from: name) ? "男性" : "女性"
                 }
 
-                let baseVoice = gender == "男性"
-                    ? defaultMaleVoice(voices: voices)
-                    : defaultFemaleVoice(voices: voices)
+                let baseVoice = store.defaultVoice(for: gender, tone: tone, name: name, voices: voices)
 
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: data.aliases,
@@ -334,22 +355,6 @@ struct CharacterAssignmentPanel: View {
             etaText = ""
             store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，合并 \(resolved.reduce(0) { $0 + $1.aliases.count }) 个别名"
         }
-    }
-
-    private func defaultMaleVoice(voices: [VoiceItem]) -> String {
-        let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
-        if let v = options.first(where: { $0.gender == .male }) {
-            return v.id
-        }
-        return "zh-CN-YunyeNeural"
-    }
-
-    private func defaultFemaleVoice(voices: [VoiceItem]) -> String {
-        let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
-        if let v = options.first(where: { $0.gender == .female }) {
-            return v.id
-        }
-        return "zh-CN-XiaoxiaoNeural"
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {
@@ -488,20 +493,108 @@ struct CharacterAssignmentPanel: View {
                 }
             }
             Spacer()
-            Button(action: { editingCharacter = profile }) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.caption)
+            HStack(spacing: 4) {
+                Button(action: {
+                    editingProfile = profile
+                    showEditor = true
+                }) {
+                    VStack(spacing: 1) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 14))
+                        Text("微调").font(.system(size: 8))
+                    }
                     .foregroundColor(.accentColor)
-            }
-            .buttonStyle(.plain)
-            Button(action: { deleteCharacter(profile) }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.caption)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Button(action: { deleteCharacter(profile) }) {
+                    VStack(spacing: 1) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13))
+                        Text("删除").font(.system(size: 8))
+                    }
                     .foregroundColor(.red)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.vertical, 2)
+        .contextMenu {
+            Button(action: { editingProfile = profile; showEditor = true }) {
+                Label("微调角色", systemImage: "slider.horizontal.3")
+            }
+            Button(action: {
+                editingAliasProfile = profile
+                showAliasEditor = true
+            }) {
+                Label("编辑别名/标签", systemImage: "tag")
+            }
+            Divider()
+            Button(role: .destructive, action: { deleteCharacter(profile) }) {
+                Label("删除角色", systemImage: "trash")
+            }
+        }
+    }
+
+    private func aliasEditSheet(_ profile: CharacterProfile) -> some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("当前别名/标签")) {
+                    if profile.aliases.isEmpty {
+                        Text("无别名标签").foregroundColor(.secondary)
+                    }
+                    ForEach(profile.aliases, id: \.self) { alias in
+                        HStack {
+                            Text(alias).font(.subheadline)
+                            Spacer()
+                            Button(action: {
+                                if let i = store.characters.firstIndex(where: { $0.id == profile.id }) {
+                                    store.characters[i].aliases.removeAll { $0 == alias }
+                                    store.saveState()
+                                    editingAliasProfile = store.characters[i]
+                                }
+                            }) {
+                                Image(systemName: "xmark.circle.fill").foregroundColor(.red).font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                Section(header: Text("添加新别名")) {
+                    HStack {
+                        TextField("输入别名", text: Binding(
+                            get: { "" },
+                            set: { newAlias in
+                                let trimmed = newAlias.trimmingCharacters(in: .whitespaces)
+                                if !trimmed.isEmpty {
+                                    if let i = store.characters.firstIndex(where: { $0.id == profile.id }) {
+                                        if !store.characters[i].aliases.contains(trimmed) {
+                                            store.characters[i].aliases.append(trimmed)
+                                            store.saveState()
+                                            editingAliasProfile = store.characters[i]
+                                        }
+                                    }
+                                }
+                            }
+                        ))
+                        .font(.subheadline)
+                    }
+                }
+                Section(header: Text("提示")) {
+                    Text("别名用于匹配同一角色的不同称呼，如「无忌」「张公子」都会匹配到「张无忌」。长按角色行也可进入此菜单。")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("编辑别名: \(profile.name)")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showAliasEditor = false }
+                }
+            }
+        }
     }
 
     private func voiceDetailText(_ profile: CharacterProfile) -> Text {
