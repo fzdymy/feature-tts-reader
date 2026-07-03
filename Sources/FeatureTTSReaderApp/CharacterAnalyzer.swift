@@ -267,21 +267,14 @@ final class CharacterAnalyzer {
 
     func countWithAC(text: String, candidates: [String: Int]) -> [String: Int] {
         let ac = ACAutomaton()
-        for name in candidates.keys where !isStopWord(name) {
+        for name in candidates.keys where !isStopWord(name) && name.count >= 2 {
             ac.insert(name)
-            if name.count == 3 && Self.firstCharIsSurname(String(name.prefix(2))) {
-                ac.insert(String(name.suffix(2)))
-            }
-            if name.count == 4 {
-                let suffix3 = String(name.suffix(3))
-                ac.insert(suffix3)
-                let suffix2 = String(name.suffix(2))
-                if Self.firstCharIsSurname(suffix2) {
-                    ac.insert(suffix2)
-                }
+            // Also insert common substrings for better aliasing
+            if name.count == 3 {
+                let lastTwo = String(name.suffix(2))
+                if Self.firstCharIsSurname(lastTwo) { ac.insert(lastTwo) }
             }
         }
-        for s in Self.singleSurnames { ac.insert(s) }
 
         var scores = candidates
         let counts = ac.search(text)
@@ -293,17 +286,19 @@ final class CharacterAnalyzer {
         return scores
     }
 
-    // MARK: - Phase 3: NL NER on dialogue paragraphs
+    // MARK: - Phase 3: NL NER on dialogue paragraphs (limited to first 500 dialogue paragraphs)
 
     func extractNLMissing(text: String, known: [String: Int]) -> [String: Int] {
         let knownNames = Set(known.keys)
         let tagger = NLTagger(tagSchemes: [.nameType])
         var result = [String: Int]()
-        let paragraphs = text.components(separatedBy: "\n")
+        var dialogueCount = 0
 
-        for para in paragraphs where para.count >= 10 && para.count < 5000 {
+        for para in text.components(separatedBy: "\n") where para.count >= 10 && para.count < 5000 {
+            guard dialogueCount < 500 else { break }
             if !para.contains("说") && !para.contains("道") && !para.contains("喊") &&
-               !para.contains("问") && !para.contains("答") && !para.contains("「") { continue }
+               !para.contains("问") && !para.contains("「") { continue }
+            dialogueCount += 1
             tagger.string = para
             tagger.enumerateTags(in: para.startIndex..<para.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
                 if tag == .personalName {

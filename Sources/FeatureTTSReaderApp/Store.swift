@@ -202,52 +202,87 @@ final class ReaderStore: NSObject, ObservableObject {
         defaultFallbackPitchOffset = template.fallbackPitchOffset
         defaultFallbackStyle = template.fallbackStyle
         var matchCount = 0
+
+        // Build mapping: template role → best-matching character index
+        var assigned = Set<Int>()
         for role in template.roles where !role.title.isEmpty {
-            let roleTags = role.voiceSuggestion.split(separator: "、").map(String.init).filter { !$0.isEmpty }
-            // Try to match by: exact name, alias, or tag
-            var matched = false
-            for ci in characters.indices {
+            let title = role.title
+            let suggestion = role.voiceSuggestion
+
+            // Score each unmatched character against this role
+            var bestScore = 0
+            var bestIdx: Int?
+            for ci in characters.indices where !assigned.contains(ci) {
                 let ch = characters[ci]
-                if ch.name == role.title { matched = true }
-                else if ch.aliases.contains(role.title) { matched = true }
-                else if !roleTags.isEmpty {
-                    if roleTags.contains(where: { ch.name.contains($0) || ch.aliases.contains($0) }) { matched = true }
-                    else if ch.aliases.contains(where: { roleTags.contains($0) }) { matched = true }
+                var score = 0
+
+                // Exact name match
+                if ch.name == title { score += 100 }
+                else if ch.aliases.contains(title) { score += 80 }
+
+                // Keyword matching in title
+                if title.contains("男") && ch.gender == "男性" { score += 30 }
+                if title.contains("女") && ch.gender == "女性" { score += 30 }
+                if title.contains("少") && (ch.age == "少年" || ch.age == "少女" || ch.age == "青年") { score += 20 }
+                if title.contains("老") && ch.age == "年长" { score += 20 }
+                if title.contains("师") && (ch.age == "中年" || ch.age == "年长") { score += 10 }
+                if title.contains("童") && ch.age == "少年" { score += 15 }
+                if title.contains("兽") || title.contains("灵") { score += 5 }
+                if title == "旁白" || title == "叙述者" { score += (ch.isNarrator ? 80 : 0) }
+
+                // Keyword matching in voiceSuggestion
+                if !suggestion.isEmpty {
+                    if suggestion.contains("沉稳") && ch.tone == "平稳" { score += 15 }
+                    if suggestion.contains("热血") && ch.tone == "激昂" { score += 15 }
+                    if suggestion.contains("温柔") && ch.tone == "温柔" { score += 15 }
+                    if suggestion.contains("活泼") && (ch.tone == "轻松" || ch.tone == "活泼") { score += 15 }
+                    if suggestion.contains("阳光") && ch.tone == "轻松" { score += 10 }
+                    if suggestion.contains("威严") && ch.tone == "平稳" { score += 10 }
+                    if suggestion.contains("沉稳") && ch.tone == "平稳" { score += 10 }
+                    if suggestion.contains("豪爽") && ch.tone == "激昂" { score += 10 }
                 }
-                if matched {
-                    if !role.sourceVoiceID.isEmpty { characters[ci].voice = role.sourceVoiceID }
-                    if role.rateOffset != 0 { characters[ci].rate = role.rateOffset }
-                    if role.pitchOffset != 0 { characters[ci].pitch = role.pitchOffset }
-                    if role.style != "neutral" { characters[ci].style = role.style }
-                    if !role.voiceSuggestion.isEmpty && !characters[ci].aliases.contains(role.voiceSuggestion) {
-                        characters[ci].aliases.append(role.voiceSuggestion)
-                    }
-                    matchCount += 1
-                    break
+
+                if score > bestScore {
+                    bestScore = score
+                    bestIdx = ci
                 }
             }
-            if !matched {
-                var roleType = CharacterRole.character
-                if role.title.contains("旁白") || role.title.contains("叙述") { roleType = .narrator }
-                let isNarr = roleType == .narrator
-                let profile = CharacterProfile(
-                    id: UUID(),
-                    name: role.title,
-                    aliases: role.voiceSuggestion.isEmpty ? [] : [role.voiceSuggestion],
-                    gender: "",
-                    age: "",
-                    tone: "",
-                    voice: role.sourceVoiceID,
-                    rate: role.rateOffset,
-                    pitch: role.pitchOffset,
-                    style: role.style,
-                    sensitivity: 50,
-                    isNarrator: isNarr,
-                    role: roleType
-                )
-                characters.append(profile)
+
+            if let ci = bestIdx, bestScore >= 15 {
+                if !role.sourceVoiceID.isEmpty { characters[ci].voice = role.sourceVoiceID }
+                if role.rateOffset != 0 { characters[ci].rate = role.rateOffset }
+                if role.pitchOffset != 0 { characters[ci].pitch = role.pitchOffset }
+                if role.style != "neutral" { characters[ci].style = role.style }
+                if !role.voiceSuggestion.isEmpty && !characters[ci].aliases.contains(role.voiceSuggestion) {
+                    characters[ci].aliases.append(role.voiceSuggestion)
+                }
+                assigned.insert(ci)
+                matchCount += 1
             }
         }
+
+        // For unmatched template roles, create new characters
+        for role in template.roles where !role.title.isEmpty {
+            var alreadyMatched = false
+            for ci in characters.indices {
+                if characters[ci].name == role.title || characters[ci].aliases.contains(role.title) || characters[ci].aliases.contains(role.voiceSuggestion) {
+                    alreadyMatched = true; break
+                }
+            }
+            if alreadyMatched { continue }
+            var roleType = CharacterRole.character
+            if role.title.contains("旁白") || role.title.contains("叙述") { roleType = .narrator }
+            let profile = CharacterProfile(
+                id: UUID(), name: role.title,
+                aliases: role.voiceSuggestion.isEmpty ? [] : [role.voiceSuggestion],
+                gender: "", age: "", tone: "",
+                voice: role.sourceVoiceID, rate: role.rateOffset,
+                pitch: role.pitchOffset, style: role.style,
+                sensitivity: 50, isNarrator: roleType == .narrator, role: roleType
+            )
+            characters.append(profile)
+        }
+
         statusMessage = "已应用模板「\(template.name)」: 匹配 \(matchCount) 个角色，新增 \(template.roles.count - matchCount) 个"
     }
 

@@ -112,9 +112,10 @@ struct TTSView: View {
                                     try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
                                     try AVAudioSession.sharedInstance().setActive(true)
                                 } catch {}
-                                if let player = try? AVAudioPlayer(contentsOf: url) {
-                                    player.prepareToPlay()
-                                    player.play()
+                                if let p = try? AVAudioPlayer(contentsOf: url) {
+                                    p.prepareToPlay(); p.play()
+                                } else if let data = try? Data(contentsOf: url), let p = try? AVAudioPlayer(data: data) {
+                                    p.prepareToPlay(); p.play()
                                 }
                             }
                             .buttonStyle(.borderedProminent).controlSize(.small)
