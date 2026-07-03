@@ -34,6 +34,18 @@ struct TemplateManageView: View {
                             set: { if $0 { expandedTemplates.insert(template.id) } else { expandedTemplates.remove(template.id) } }
                         ),
                         content: {
+                            HStack(spacing: 12) {
+                                Button {
+                                    if let ti = store.roleTemplates.firstIndex(where: { $0.id == template.id }) {
+                                        store.roleTemplates[ti].roles.append(TemplateRole(title: "新角色"))
+                                        store.saveRoleTemplates()
+                                    }
+                                } label: {
+                                    Label("添加角色", systemImage: "plus.circle").font(.caption).foregroundColor(.accentColor)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.leading, 8).padding(.top, 4)
                             if template.roles.isEmpty {
                                 Text("无角色配置").font(.caption).foregroundColor(.secondary).padding(.leading)
                             } else {
@@ -52,18 +64,6 @@ struct TemplateManageView: View {
                                         }
                                 }
                             }
-                            HStack(spacing: 12) {
-                                Button {
-                                    if let ti = store.roleTemplates.firstIndex(where: { $0.id == template.id }) {
-                                        store.roleTemplates[ti].roles.append(TemplateRole(title: "新角色"))
-                                        store.saveRoleTemplates()
-                                    }
-                                } label: {
-                                    Label("添加角色", systemImage: "plus.circle").font(.caption).foregroundColor(.accentColor)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.leading, 8).padding(.top, 4)
                         },
                         label: {
                             HStack {
@@ -194,6 +194,16 @@ struct TemplateManageView: View {
 
     private func roleRow(_ role: TemplateRole, templateID: UUID) -> some View {
         HStack(spacing: 8) {
+            Button(role: .destructive) {
+                if let ti = store.roleTemplates.firstIndex(where: { $0.id == templateID }),
+                   let ri = store.roleTemplates[ti].roles.firstIndex(where: { $0.id == role.id }) {
+                    store.roleTemplates[ti].roles.remove(at: ri)
+                    store.saveRoleTemplates()
+                }
+            } label: {
+                Image(systemName: "minus.circle").foregroundColor(.red).font(.caption)
+            }
+            .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(role.title).font(.subheadline).fontWeight(.medium)

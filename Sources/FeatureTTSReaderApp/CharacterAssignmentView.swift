@@ -34,6 +34,18 @@ struct CharacterAssignmentPanel: View {
         Section(header: Text("角色分配 (\(bookCharacters.count) 人)")) {
             scanButton
             templateButton
+            if !bookCharacters.isEmpty {
+                Button(role: .destructive) {
+                    store.characters = []
+                    store.saveState()
+                } label: {
+                    HStack {
+                        Image(systemName: "trash").font(.caption)
+                        Text("清空角色分配列表").font(.caption)
+                    }
+                }
+                .foregroundColor(.red)
+            }
             characterList
             if bookCharacters.count > maxDisplayed {
                 Button(action: { showAllCharacters.toggle() }) {
@@ -551,22 +563,20 @@ struct CharacterAssignmentPanel: View {
     // MARK: - Export/Import
 
     private var exportImportButtons: some View {
-        Group {
-            Button(role: .destructive) {
-                store.characters = []
-                store.saveState()
-            } label: {
-                Label("清空角色分配列表", systemImage: "trash")
-            }
-            .foregroundColor(.red)
+        VStack(alignment: .leading, spacing: 8) {
             Button(action: exportCharacters) {
-                Label("导出角色配置", systemImage: "square.and.arrow.up")
+                HStack {
+                    Image(systemName: "square.and.arrow.up").font(.caption)
+                    Text("导出角色配置").font(.caption)
+                }
             }
             Button(action: { showImporter = true }) {
-                Label("导入角色配置", systemImage: "square.and.arrow.down")
+                HStack {
+                    Image(systemName: "square.and.arrow.down").font(.caption)
+                    Text("导入角色配置").font(.caption)
+                }
             }
         }
-        .font(.caption)
     }
 
     private func exportCharacters() {
