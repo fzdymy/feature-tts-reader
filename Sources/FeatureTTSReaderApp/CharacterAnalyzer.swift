@@ -237,134 +237,86 @@ final class CharacterAnalyzer {
         return result
     }
 
-    // MARK: - Fast Name Extraction (3-phase)
+    // MARK: - Phase 1: Dialogue regex on a chunk
 
-    func extractNamesFast(from text: String) -> [String: Int] {
-        let raw = text.replacingOccurrences(of: "\r", with: "\n")
+    func extractDialogueNames(from chunk: String) -> [String] {
+        let nsRange = NSRange(chunk.startIndex..<chunk.endIndex, in: chunk)
+        var found = Set<String>()
 
-        // Phase 1: Dialogue sentence regex — find speakers before 说/道/喊/问/答
-        var candidates = [String: Int]()
-        let nsRange = NSRange(raw.startIndex..<raw.endIndex, in: raw)
-
-        Self.speechVerbPattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
-            guard let m = match, m.numberOfRanges > 1 else { return }
-            if let r = Range(m.range(at: 1), in: raw) {
-                let name = String(raw[r])
-                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
-                    candidates[name, default: 0] += 1
+        let patterns: [(NSRegularExpression, Int)] = [
+            (Self.speechVerbPattern, 15),
+            (Self.titlePattern, 12),
+            (Self.dialogueBeforeQuotePattern, 12),
+            (Self.commaAddressPattern, 10),
+            (Self.speechVerbQuotePattern, 15),
+        ]
+        for (pattern, _) in patterns {
+            pattern.enumerateMatches(in: chunk, range: nsRange) { match, _, _ in
+                guard let m = match, m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: chunk) else { return }
+                let name = String(chunk[r])
+                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) && !isStopWord(name) {
+                    found.insert(name)
                 }
             }
         }
-        Self.titlePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
-            guard let m = match, m.numberOfRanges > 1 else { return }
-            if let r = Range(m.range(at: 1), in: raw) {
-                let name = String(raw[r])
-                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
-                    candidates[name, default: 0] += 1
-                }
-            }
-        }
-        Self.dialogueBeforeQuotePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
-            guard let m = match, m.numberOfRanges > 1 else { return }
-            if let r = Range(m.range(at: 1), in: raw) {
-                let name = String(raw[r])
-                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
-                    candidates[name, default: 0] += 1
-                }
-            }
-        }
-        Self.commaAddressPattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
-            guard let m = match, m.numberOfRanges > 1 else { return }
-            if let r = Range(m.range(at: 1), in: raw) {
-                let name = String(raw[r])
-                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) && !Self.singleSurnames.contains(name) {
-                    candidates[name, default: 0] += 1
-                }
-            }
-        }
-        Self.speechVerbQuotePattern.enumerateMatches(in: raw, range: nsRange) { match, _, _ in
-            guard let m = match, m.numberOfRanges > 1 else { return }
-            if let r = Range(m.range(at: 1), in: raw) {
-                let name = String(raw[r])
-                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) {
-                    candidates[name, default: 0] += 1
-                }
-            }
-        }
+        // Filter: require surname for 2-char names
+        return found.filter { $0.count >= 3 || Self.firstCharIsSurname($0) }
+    }
 
-        // Filter phase 1 candidates: remove stop words, require surname or 3+ chars
-        let phase1Names = candidates.filter { name, count in
-            guard !isStopWord(name) else { return false }
-            if name.count == 2 { return Self.firstCharIsSurname(name) }
-            return name.count >= 3
-        }.map { $0.key }
+    // MARK: - Phase 2: AC automaton
 
-        // Phase 2: AC automaton — count occurrences of all phase1 names + their substrings
+    func countWithAC(text: String, candidates: [String: Int]) -> [String: Int] {
         let ac = ACAutomaton()
-        for name in phase1Names {
+        for name in candidates.keys where !isStopWord(name) {
             ac.insert(name)
-            // Also insert 2-char substrings that start with surname
             if name.count == 3 && Self.firstCharIsSurname(String(name.prefix(2))) {
                 ac.insert(String(name.suffix(2)))
             }
             if name.count == 4 {
                 let suffix3 = String(name.suffix(3))
-                if Self.firstCharIsSurname(String(suffix3.prefix(1))) || Self.firstCharIsSurname(String(suffix3.prefix(2))) {
-                    ac.insert(suffix3)
-                }
+                ac.insert(suffix3)
                 let suffix2 = String(name.suffix(2))
                 if Self.firstCharIsSurname(suffix2) {
                     ac.insert(suffix2)
                 }
             }
         }
-        // Also insert common single surnames
-        for s in Self.singleSurnames {
-            ac.insert(s)
-        }
-        let fullCounts = ac.search(raw)
+        for s in Self.singleSurnames { ac.insert(s) }
 
-        // Score: combine phase1 candidate count with AC frequency
-        var scores = [String: Int]()
-        for name in phase1Names {
-            let dialogueScore = candidates[name, default: 0] * 20
-            let freqScore = min(fullCounts[name, default: 0] * 2, 200)
-            scores[name] = dialogueScore + freqScore
+        var scores = candidates
+        let counts = ac.search(text)
+        for (name, total) in counts {
+            if name.count >= 2 && !isStopWord(name) {
+                scores[name, default: 0] += total * 2
+            }
         }
+        return scores
+    }
 
-        // Phase 3: NL NER for unmatched paragraphs — only run on text around dialogue markers
+    // MARK: - Phase 3: NL NER on dialogue paragraphs
+
+    func extractNLMissing(text: String, known: [String: Int]) -> [String: Int] {
+        let knownNames = Set(known.keys)
         let tagger = NLTagger(tagSchemes: [.nameType])
-        let paragraphs = raw.components(separatedBy: "\n")
-        let matchedNames = Set(scores.keys)
-        var nlCandidates = [String: Int]()
-        var paragraphIndex = 0
-        for para in paragraphs where para.count < 2000 {
-            let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.count < 10 { paragraphIndex += 1; continue }
-            // Only process if paragraph contains dialogue markers or potential name patterns
-            let hasDialogueMarker = trimmed.contains("说") || trimmed.contains("道") || trimmed.contains("喊") ||
-                trimmed.contains("问") || trimmed.contains("答") || trimmed.contains("叫") ||
-                trimmed.contains("「") || trimmed.contains("」")
-            guard hasDialogueMarker else { paragraphIndex += 1; continue }
+        var result = [String: Int]()
+        let paragraphs = text.components(separatedBy: "\n")
 
-            tagger.string = trimmed
-            tagger.enumerateTags(in: trimmed.startIndex..<trimmed.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
+        for para in paragraphs where para.count >= 10 && para.count < 5000 {
+            if !para.contains("说") && !para.contains("道") && !para.contains("喊") &&
+               !para.contains("问") && !para.contains("答") && !para.contains("「") { continue }
+            tagger.string = para
+            tagger.enumerateTags(in: para.startIndex..<para.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
                 if tag == .personalName {
-                    let name = String(trimmed[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if name.count >= 2 && name.count <= 4 && !matchedNames.contains(name) && !isStopWord(name) {
+                    let name = String(para[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if name.count >= 2 && name.count <= 4 && !knownNames.contains(name) && !isStopWord(name) {
                         if name.count == 2 && !Self.firstCharIsSurname(name) { return true }
-                        nlCandidates[name, default: 0] += 1
+                        result[name, default: 0] += 1
                     }
                 }
                 return true
             }
-            paragraphIndex += 1
         }
-        for (name, count) in nlCandidates {
-            scores[name, default: 0] += count * 15
-        }
-
-        return scores
+        return result
     }
 
     // MARK: - Dialogue detection

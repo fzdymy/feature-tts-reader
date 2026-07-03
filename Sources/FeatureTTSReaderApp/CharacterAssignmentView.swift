@@ -134,31 +134,66 @@ struct CharacterAssignmentPanel: View {
     private func startScan() {
         isScanning = true
         scanProgress = 0
+        elapsedText = ""
+        etaText = ""
         let startTime = Date()
         let text = book.text
         let voices = store.voices
         let defaultSensitivity = store.defaultSensitivity
 
-        Task { @MainActor in
-            let totalLen = text.count
-            let analyzer = CharacterAnalyzer()
+        let chunkSize = 50_000
+        let totalLen = text.count
+        let totalChunks = max(1, (totalLen + chunkSize - 1) / chunkSize)
+        var candidateScores = [String: Int]()
 
-            // Single fast scan — Phase 1 (dialogue regex) + Phase 2 (AC automaton) + Phase 3 (NL NER on dialogue paragraphs)
-            let scores = await Task.detached(priority: .userInitiated) {
-                analyzer.extractNamesFast(from: text)
+        Task { @MainActor in
+            // Phase 1: dialogue regex on chunks (with progress)
+            for i in 0..<totalChunks {
+                if Task.isCancelled { isScanning = false; return }
+                let startIdx = text.index(text.startIndex, offsetBy: i * chunkSize, limitedBy: text.endIndex) ?? text.startIndex
+                let endIdx = text.index(startIdx, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
+                guard startIdx < endIdx else { break }
+                let chunk = String(text[startIdx..<endIdx])
+                let names = await Task.detached(priority: .userInitiated) {
+                    CharacterAnalyzer().extractDialogueNames(from: chunk)
+                }.value
+                for n in names {
+                    candidateScores[n, default: 0] += 1
+                }
+                scanProgress = Double(i + 1) / Double(totalChunks)
+                let totalElapsed = Date().timeIntervalSince(startTime)
+                elapsedText = formatDuration(totalElapsed)
+                if i >= 3 && totalChunks > i + 1 {
+                    let avgPerChunk = totalElapsed / Double(i + 1)
+                    let eta = avgPerChunk * Double(totalChunks - i - 1)
+                    etaText = formatDuration(eta)
+                }
+                await Task.yield()
+            }
+
+            // Phase 2: AC automaton on full text
+            let acScores = await Task.detached(priority: .userInitiated) {
+                CharacterAnalyzer().countWithAC(text: text, candidates: candidateScores)
             }.value
+
+            // Phase 3: NL NER on dialogue paragraphs
+            let nlScores = await Task.detached(priority: .background) {
+                CharacterAnalyzer().extractNLMissing(text: text, known: acScores)
+            }.value
+
+            var scores = acScores
+            for (name, count) in nlScores {
+                scores[name, default: 0] += count * 15
+            }
 
             let totalElapsed = Date().timeIntervalSince(startTime)
             elapsedText = formatDuration(totalElapsed)
             scanProgress = 1.0
 
-            // Sort by score
-            let allNames = scores
-            let uniqueNames = allNames.keys.sorted { allNames[$0, default: 0] > allNames[$1, default: 0] }
+            // Sort & filter
+            let uniqueNames = scores.keys.sorted { scores[$0, default: 0] > scores[$1, default: 0] }
             let resolved = CharacterAnalyzer.resolveAliases(uniqueNames)
             let usedNames = Set(resolved.map { $0.canonical })
-
-            // Filter out unlikely character names
             let minFreq = max(3, totalLen / 50000)
             var mergedMap: [String: (frequency: Int, aliases: [String])] = [:]
             func isValidCharacterName(_ name: String, freq: Int) -> Bool {
@@ -168,14 +203,14 @@ struct CharacterAssignmentPanel: View {
                 return true
             }
             for (canonical, aliases) in resolved {
-                let freq = allNames[canonical, default: 0]
-                let aliasFreq = aliases.reduce(0) { $0 + allNames[$1, default: 0] }
+                let freq = scores[canonical, default: 0]
+                let aliasFreq = aliases.reduce(0) { $0 + scores[$1, default: 0] }
                 let total = freq + aliasFreq
                 if isValidCharacterName(canonical, freq: total) {
                     mergedMap[canonical] = (total, aliases)
                 }
             }
-            for (name, freq) in allNames where !usedNames.contains(name) && !name.isEmpty {
+            for (name, freq) in scores where !usedNames.contains(name) && !name.isEmpty {
                 if mergedMap[name] == nil && isValidCharacterName(name, freq: freq) {
                     mergedMap[name] = (freq, [])
                 }
@@ -183,9 +218,10 @@ struct CharacterAssignmentPanel: View {
 
             let sortedProfiles = mergedMap.sorted { $0.value.frequency > $1.value.frequency }
 
-            // Attribute inference for top characters: find context in first 500k chars
+            // Attribute inference
             let contextLimit = min(500_000, totalLen)
             let contextText = text.prefix(contextLimit)
+            let analyzer = CharacterAnalyzer()
             var inferred: [CharacterProfile] = []
 
             for (name, data) in sortedProfiles {

@@ -1588,7 +1588,10 @@ final class ReaderStore: NSObject, ObservableObject {
         var names = OrderedSet<String>()
 
         let analyzer = CharacterAnalyzer()
-        let scores = analyzer.extractNamesFast(from: raw)
+        let candidates = analyzer.extractDialogueNames(from: raw)
+        var candidateScores: [String: Int] = [:]
+        for n in candidates { candidateScores[n, default: 0] += 1 }
+        let scores = analyzer.countWithAC(text: raw, candidates: candidateScores)
         let sorted = scores.keys.sorted { scores[$0, default: 0] > scores[$1, default: 0] }
         for n in sorted { names.append(n) }
 

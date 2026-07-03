@@ -8,6 +8,8 @@ struct TTSView: View {
     @State private var showProfileExporter = false
     @State private var showProfileImporter = false
     @State private var profileExportData = Data()
+    @State private var isTestingAudio = false
+    @State private var audioTestResult: String?
 
     var body: some View {
         NavigationStack {
@@ -84,11 +86,34 @@ struct TTSView: View {
                     Button("测试连接") { Task { await store.testActiveServer() } }
                         .disabled(store.isTestingServer)
                     Spacer()
+                    Button("音频测试") {
+                        Task {
+                            isTestingAudio = true
+                            audioTestResult = nil
+                            let result = await store.testTTSSynthesize()
+                            if result.hasPrefix("合成成功"), let url = store.ttsTestAudioURL {
+                                do {
+                                    try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+                                    try AVAudioSession.sharedInstance().setActive(true)
+                                } catch {}
+                                let player = try? AVAudioPlayer(contentsOf: url)
+                                player?.prepareToPlay()
+                                player?.play()
+                            }
+                            audioTestResult = result
+                            isTestingAudio = false
+                        }
+                    }
+                    .disabled(isTestingAudio || store.activeServer == nil)
+                    Spacer()
                     NavigationLink("管理服务器") {
                         TTSServerListView().environmentObject(store)
                     }
                 }
                 .buttonStyle(.borderless)
+                if let result = audioTestResult, !result.isEmpty {
+                    Text(result).font(.caption).foregroundColor(.secondary)
+                }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("未配置 TTS 服务器").foregroundColor(.secondary)
