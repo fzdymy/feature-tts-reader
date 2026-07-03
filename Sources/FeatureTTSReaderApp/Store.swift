@@ -192,6 +192,7 @@ final class ReaderStore: NSObject, ObservableObject {
         loadSettings()
         loadTTSServers()
         loadVoiceProfiles()
+        voices = selectedVoiceCatalog.voices
         setupAudioSession()
         setupRemoteCommands()
         observeAudioController()
@@ -1047,7 +1048,6 @@ final class ReaderStore: NSObject, ObservableObject {
         selectedVoiceCatalog = source
         voices = source.voices
         statusMessage = "已加载音色目录：\(source.displayName)，共 \(voices.count) 个音色。"
-        updateRecommendations()
         saveState()
     }
 
