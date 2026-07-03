@@ -16,6 +16,9 @@ struct CharacterAssignmentPanel: View {
     @State private var exportData = Data()
     @State private var scanTimeHistory: [TimeInterval] = []
     @State private var showAllCharacters = false
+    @State private var showAliasEditor = false
+    @State private var editingAliasProfile: CharacterProfile?
+    @State private var newAliasText = ""
 
     private let maxDisplayed = 100
 
