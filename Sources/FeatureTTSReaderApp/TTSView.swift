@@ -1,9 +1,13 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TTSView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var editingProfile: VoiceProfileTuning?
     @State private var showAddProfile = false
+    @State private var showProfileExporter = false
+    @State private var showProfileImporter = false
+    @State private var profileExportData = Data()
 
     var body: some View {
         NavigationStack {
@@ -27,6 +31,28 @@ struct TTSView: View {
                     store.updateVoiceProfile(p)
                 }
                 .environmentObject(store)
+            }
+            .fileExporter(isPresented: $showProfileExporter, document: JSONDocument(data: profileExportData),
+                          contentType: .json, defaultFilename: "tts-voice-profiles") { result in
+                switch result {
+                case .success: store.statusMessage = "音色档案已导出"
+                case .failure(let e): store.statusMessage = "导出失败: \(e.localizedDescription)"
+                }
+            }
+            .fileImporter(isPresented: $showProfileImporter, allowedContentTypes: [.json]) { result in
+                switch result {
+                case .success(let url):
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    guard let data = try? Data(contentsOf: url) else { return }
+                    if store.importVoiceProfiles(from: data) {
+                        store.statusMessage = "音色档案已导入"
+                    } else {
+                        store.statusMessage = "导入失败: 格式错误"
+                    }
+                case .failure(let e):
+                    store.statusMessage = "导入失败: \(e.localizedDescription)"
+                }
             }
         }
     }
@@ -142,10 +168,15 @@ struct TTSView: View {
             }
 
             if !store.voiceProfiles.isEmpty {
-                HStack {
-                    NavigationLink("导入/导出") {
-                        VoiceFineTuneView().environmentObject(store)
+                HStack(spacing: 16) {
+                    Button(action: exportVoiceProfiles) {
+                        Label("导出", systemImage: "square.and.arrow.up")
                     }
+                    .buttonStyle(.borderless)
+                    Button(action: { showProfileImporter = true }) {
+                        Label("导入", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.borderless)
                 }
             }
         } header: {
@@ -153,24 +184,54 @@ struct TTSView: View {
         }
     }
 
+    private func exportVoiceProfiles() {
+        guard let data = store.exportVoiceProfiles() else {
+            store.statusMessage = "导出失败: 无数据"
+            return
+        }
+        profileExportData = data
+        showProfileExporter = true
+    }
+
     // MARK: - 推荐模板
 
     private var templateSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("按小说类型预设角色阵容，朗读时自动推荐匹配的音色。")
-                    .font(.subheadline).foregroundColor(.secondary)
+            if store.roleTemplates.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("按小说类型预设角色阵容，朗读时自动推荐匹配的音色。")
+                        .font(.subheadline).foregroundColor(.secondary)
 
-                templateCard(name: "男频小说",
-                             roles: ["旁白:沉稳男声 · 青年", "男主:阳光男声 · 元気", "女主:温柔女声", "反派:低沉 · 中年"])
-                templateCard(name: "历史穿越",
-                             roles: ["旁白:醇厚 · 叙事感", "穿越男主:沉稳 · 少年感", "谋士:沉稳 · 磁性", "将军:刚毅 · 中年"])
-                templateCard(name: "科幻未来",
-                             roles: ["旁白:冷静 · 专业", "主角:理性 · 青年", "AI/系统:机械 · 中性", "反派:冷峻"])
-                templateCard(name: "都市言情",
-                             roles: ["旁白:温婉 · 女声", "女主:甜美 · 少女", "男主:阳光 · 青年", "闺蜜:活泼 · 元気"])
+                    templateCard(name: "男频小说",
+                                 roles: ["旁白:沉稳男声 · 青年", "男主:阳光男声 · 元気", "女主:温柔女声", "反派:低沉 · 中年"])
+                    templateCard(name: "历史穿越",
+                                 roles: ["旁白:醇厚 · 叙事感", "穿越男主:沉稳 · 少年感", "谋士:沉稳 · 磁性", "将军:刚毅 · 中年"])
+                    templateCard(name: "科幻未来",
+                                 roles: ["旁白:冷静 · 专业", "主角:理性 · 青年", "AI/系统:机械 · 中性", "反派:冷峻"])
+                    templateCard(name: "都市言情",
+                                 roles: ["旁白:温婉 · 女声", "女主:甜美 · 少女", "男主:阳光 · 青年", "闺蜜:活泼 · 元気"])
+                }
+                .padding(.vertical, 4)
+            } else {
+                ForEach(store.roleTemplates.prefix(3)) { template in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(template.name).font(.subheadline).fontWeight(.semibold)
+                        ForEach(template.roles.prefix(3)) { role in
+                            Text("  ·  \(role.title): \(role.voiceSuggestion)")
+                                .font(.caption2).foregroundColor(.secondary)
+                        }
+                        if template.roles.count > 3 {
+                            Text("  ·  +\(template.roles.count - 3) 个角色")
+                                .font(.caption2).foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
-            .padding(.vertical, 4)
+
+            NavigationLink("管理模板 (\(store.roleTemplates.count))") {
+                TemplateManageView().environmentObject(store)
+            }
         } header: {
             Label("推荐模板", systemImage: "square.on.square")
         }
@@ -218,6 +279,10 @@ struct TTSView: View {
                         .padding(.vertical, 4)
                     }
                 }
+            }
+
+            NavigationLink("管理标签") {
+                TagManageView().environmentObject(store)
             }
         } header: {
             Label("标签预设", systemImage: "tag")

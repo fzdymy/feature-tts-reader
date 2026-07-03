@@ -380,6 +380,45 @@ struct TTSExport: Codable {
     var tags: [TagPreset]
 }
 
+// MARK: - 推荐模板
+
+struct RoleTemplate: Identifiable, Hashable, Codable {
+    let id: UUID
+    var name: String
+    var roles: [TemplateRole]
+
+    init(id: UUID = UUID(), name: String, roles: [TemplateRole] = []) {
+        self.id = id
+        self.name = name
+        self.roles = roles
+    }
+}
+
+struct TemplateRole: Identifiable, Hashable, Codable {
+    let id: UUID
+    var title: String
+    var voiceSuggestion: String
+    var rateOffset: Int
+    var pitchOffset: Int
+    var style: String
+
+    init(id: UUID = UUID(), title: String, voiceSuggestion: String = "",
+         rateOffset: Int = 0, pitchOffset: Int = 0, style: String = "neutral") {
+        self.id = id
+        self.title = title
+        self.voiceSuggestion = voiceSuggestion
+        self.rateOffset = rateOffset
+        self.pitchOffset = pitchOffset
+        self.style = style
+    }
+}
+
+struct TemplateExport: Codable {
+    let version: Int
+    let exportedAt: Date
+    var templates: [RoleTemplate]
+}
+
 struct ReaderState: Codable {
     var bookText: String = ""
     var chapters: [BookChapter]

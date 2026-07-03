@@ -50,6 +50,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsServers: [TTSServer] = []
     @Published var voiceProfiles: [VoiceProfileTuning] = []
     @Published var tagPresets: [TagPreset] = []
+    @Published var roleTemplates: [RoleTemplate] = []
     @Published var activeServerTestResult: String = ""
     @Published var isTestingServer: Bool = false
 
@@ -164,6 +165,52 @@ final class ReaderStore: NSObject, ObservableObject {
         tagPresets = presets
     }
 
+    // MARK: - 推荐模板
+
+    func loadRoleTemplates() {
+        guard let data = UserDefaults.standard.data(forKey: "roleTemplates"),
+              let templates = try? JSONDecoder().decode([RoleTemplate].self, from: data) else { return }
+        roleTemplates = templates
+    }
+
+    private func saveRoleTemplates() {
+        if let data = try? JSONEncoder().encode(roleTemplates) {
+            UserDefaults.standard.set(data, forKey: "roleTemplates")
+        }
+    }
+
+    func addRoleTemplate(_ template: RoleTemplate) {
+        roleTemplates.append(template)
+        saveRoleTemplates()
+    }
+
+    func updateRoleTemplate(_ template: RoleTemplate) {
+        guard let i = roleTemplates.firstIndex(where: { $0.id == template.id }) else { return }
+        roleTemplates[i] = template
+        saveRoleTemplates()
+    }
+
+    func deleteRoleTemplate(_ id: UUID) {
+        roleTemplates.removeAll { $0.id == id }
+        saveRoleTemplates()
+    }
+
+    func exportRoleTemplates() -> Data? {
+        let export = TemplateExport(version: 1, exportedAt: Date(), templates: roleTemplates)
+        return try? JSONEncoder().encode(export)
+    }
+
+    func importRoleTemplates(from data: Data) -> Bool {
+        guard let export = try? JSONDecoder().decode(TemplateExport.self, from: data) else { return false }
+        for t in export.templates {
+            if !roleTemplates.contains(where: { $0.id == t.id }) {
+                roleTemplates.append(t)
+            }
+        }
+        saveRoleTemplates()
+        return true
+    }
+
     // Chapter parse cache keyed by book ID
     var bookChaptersCache: [UUID: [BookChapter]] = [:]
 
@@ -227,6 +274,7 @@ final class ReaderStore: NSObject, ObservableObject {
         loadTTSServers()
         loadVoiceProfiles()
         loadTagPresets()
+        loadRoleTemplates()
         voices = selectedVoiceCatalog.voices
         setupAudioSession()
         setupRemoteCommands()
