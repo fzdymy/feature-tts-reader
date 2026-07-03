@@ -92,15 +92,6 @@ struct TTSView: View {
                             isTestingAudio = true
                             audioTestResult = nil
                             let result = await store.testTTSSynthesize()
-                            if result.hasPrefix("合成成功"), let url = store.ttsTestAudioURL {
-                                do {
-                                    try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-                                    try AVAudioSession.sharedInstance().setActive(true)
-                                } catch {}
-                                let player = try? AVAudioPlayer(contentsOf: url)
-                                player?.prepareToPlay()
-                                player?.play()
-                            }
                             audioTestResult = result
                             isTestingAudio = false
                         }
@@ -114,6 +105,25 @@ struct TTSView: View {
                 .buttonStyle(.borderless)
                 if let result = audioTestResult, !result.isEmpty {
                     Text(result).font(.caption).foregroundColor(.secondary)
+                    if result.hasPrefix("合成成功"), let url = store.ttsTestAudioURL {
+                        HStack(spacing: 16) {
+                            Button("播放") {
+                                do {
+                                    try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+                                    try AVAudioSession.sharedInstance().setActive(true)
+                                } catch {}
+                                if let player = try? AVAudioPlayer(contentsOf: url) {
+                                    player.prepareToPlay()
+                                    player.play()
+                                }
+                            }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                            Button("取消") {
+                                audioTestResult = nil
+                            }
+                            .buttonStyle(.bordered).controlSize(.small)
+                        }
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 4) {

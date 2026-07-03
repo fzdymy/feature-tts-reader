@@ -7,6 +7,7 @@ struct CharacterAssignmentPanel: View {
 
     @State private var isScanning = false
     @State private var scanProgress: Double = 0
+    @State private var scanPhase: String = ""
     @State private var elapsedText: String = ""
     @State private var etaText: String = ""
     @State private var showTemplatePicker = false
@@ -112,6 +113,9 @@ struct CharacterAssignmentPanel: View {
                                 Text("剩余 \(etaText)").font(.caption2).foregroundColor(.secondary)
                             }
                         }
+                        if !scanPhase.isEmpty {
+                            Text(scanPhase).font(.caption2).foregroundColor(.secondary)
+                        }
                     }
                 }
                 Spacer()
@@ -172,11 +176,15 @@ struct CharacterAssignmentPanel: View {
             }
 
             // Phase 2: AC automaton on full text
+            scanPhase = "频率统计中..."
+            scanProgress = 0.91
             let acScores = await Task.detached(priority: .userInitiated) {
                 CharacterAnalyzer().countWithAC(text: text, candidates: candidateScores)
             }.value
 
             // Phase 3: NL NER on dialogue paragraphs
+            scanPhase = "智能识别补全中..."
+            scanProgress = 0.95
             let nlScores = await Task.detached(priority: .background) {
                 CharacterAnalyzer().extractNLMissing(text: text, known: acScores)
             }.value

@@ -201,12 +201,32 @@ final class ReaderStore: NSObject, ObservableObject {
         defaultFallbackRateOffset = template.fallbackRateOffset
         defaultFallbackPitchOffset = template.fallbackPitchOffset
         defaultFallbackStyle = template.fallbackStyle
+        var matchCount = 0
         for role in template.roles where !role.title.isEmpty {
-            if let i = characters.firstIndex(where: { $0.name == role.title }) {
-                if !role.voiceSuggestion.isEmpty && !characters[i].aliases.contains(role.voiceSuggestion) {
-                    characters[i].aliases.append(role.voiceSuggestion)
+            let roleTags = role.voiceSuggestion.split(separator: "、").map(String.init).filter { !$0.isEmpty }
+            // Try to match by: exact name, alias, or tag
+            var matched = false
+            for ci in characters.indices {
+                let ch = characters[ci]
+                if ch.name == role.title { matched = true }
+                else if ch.aliases.contains(role.title) { matched = true }
+                else if !roleTags.isEmpty {
+                    if roleTags.contains(where: { ch.name.contains($0) || ch.aliases.contains($0) }) { matched = true }
+                    else if ch.aliases.contains(where: { roleTags.contains($0) }) { matched = true }
                 }
-            } else {
+                if matched {
+                    if !role.sourceVoiceID.isEmpty { characters[ci].voice = role.sourceVoiceID }
+                    if role.rateOffset != 0 { characters[ci].rate = role.rateOffset }
+                    if role.pitchOffset != 0 { characters[ci].pitch = role.pitchOffset }
+                    if role.style != "neutral" { characters[ci].style = role.style }
+                    if !role.voiceSuggestion.isEmpty && !characters[ci].aliases.contains(role.voiceSuggestion) {
+                        characters[ci].aliases.append(role.voiceSuggestion)
+                    }
+                    matchCount += 1
+                    break
+                }
+            }
+            if !matched {
                 var roleType = CharacterRole.character
                 if role.title.contains("旁白") || role.title.contains("叙述") { roleType = .narrator }
                 let isNarr = roleType == .narrator
@@ -228,7 +248,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 characters.append(profile)
             }
         }
-        statusMessage = "已应用模板「\(template.name)」，\(template.roles.count) 个角色已导入"
+        statusMessage = "已应用模板「\(template.name)」: 匹配 \(matchCount) 个角色，新增 \(template.roles.count - matchCount) 个"
     }
 
     func updateRoleTemplate(_ template: RoleTemplate) {

@@ -8,6 +8,8 @@ struct CharacterEditorView: View {
     @State private var samplePlayer: AVAudioPlayer?
     @State private var sampleError: String?
     @State private var isPlaying = false
+    @State private var audioURL: URL?
+    @State private var testFileSize: String?
     let voices: [VoiceItem]
     let onSave: (CharacterProfile) -> Void
 
@@ -57,7 +59,7 @@ struct CharacterEditorView: View {
                 Section(header: Text("试听")) {
                     Button(action: playSample) {
                         HStack {
-                            Text(isPlaying ? "播放中..." : "播放当前音色示例")
+                            Text(isPlaying ? "合成中..." : "生成并播放音色示例")
                             Spacer()
                             if isPlaying {
                                 ProgressView().progressViewStyle(.circular).scaleEffect(0.7)
@@ -65,6 +67,34 @@ struct CharacterEditorView: View {
                         }
                     }
                     .disabled(isPlaying)
+                    if let url = audioURL, !isPlaying {
+                        HStack(spacing: 16) {
+                            Button(action: {
+                                do {
+                                    try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+                                    try AVAudioSession.sharedInstance().setActive(true)
+                                } catch {}
+                                if let p = try? AVAudioPlayer(contentsOf: url) {
+                                    samplePlayer = p
+                                    p.prepareToPlay()
+                                    p.play()
+                                }
+                            }) {
+                                Label("播放", systemImage: "play.circle")
+                            }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                            Button(action: {
+                                samplePlayer?.stop()
+                                samplePlayer = nil
+                            }) {
+                                Label("停止", systemImage: "stop.circle")
+                            }
+                            .buttonStyle(.bordered).controlSize(.small)
+                            if let size = testFileSize {
+                                Text(size).font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
+                    }
                     if let error = sampleError {
                         Text(error).font(.caption).foregroundColor(.red)
                     }
@@ -102,25 +132,31 @@ struct CharacterEditorView: View {
             return
         }
         sampleError = nil
+        audioURL = nil
+        testFileSize = nil
         isPlaying = true
         let request = TTSHttpClient(baseURL: url, apiKey: store.apiKey.isEmpty ? nil : store.apiKey)
         Task {
             do {
                 let text = "我是\(profile.name)，TTS多角色小说阅读器听《\(store.books.first?.title ?? "未知书籍")》真爽。"
-                let audioURL = try await request.synthesizeAudio(text: text, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style)
+                let resultURL = try await request.synthesizeAudio(text: text, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style)
+                audioURL = resultURL
+                if let data = try? Data(contentsOf: resultURL) {
+                    testFileSize = "\(String(format: "%.1f", Double(data.count) / 1024)) KB"
+                }
                 do {
                     try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
                     try AVAudioSession.sharedInstance().setActive(true)
                 } catch {}
                 do {
-                    samplePlayer = try AVAudioPlayer(contentsOf: audioURL)
+                    samplePlayer = try AVAudioPlayer(contentsOf: resultURL)
                 } catch {
-                    if let data = try? Data(contentsOf: audioURL) {
+                    if let data = try? Data(contentsOf: resultURL) {
                         do {
                             samplePlayer = try AVAudioPlayer(data: data)
                         } catch {
-                            let contentType = (try? Data(contentsOf: audioURL))?.prefix(20).map { String(format: "%02x", $0) }.joined() ?? "?"
-                            throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频格式不支持（AVAudioPlayer 初始化失败），文件大小：\((try? Data(contentsOf: audioURL).count ?? 0) ?? 0) 字节，数据头部：\(contentType)"])
+                            let contentType = (try? Data(contentsOf: resultURL))?.prefix(20).map { String(format: "%02x", $0) }.joined() ?? "?"
+                            throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频格式不支持（AVAudioPlayer 初始化失败），文件大小：\((try? Data(contentsOf: resultURL).count ?? 0) ?? 0) 字节，数据头部：\(contentType)"])
                         }
                     } else {
                         throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频文件读取失败: \(error.localizedDescription)"])
