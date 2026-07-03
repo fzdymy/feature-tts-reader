@@ -248,32 +248,67 @@ struct CharacterAssignmentPanel: View {
             let resolved = CharacterAnalyzer.resolveAliases(uniqueNames)
             let usedNames = Set(resolved.map { $0.canonical })
 
-            // Also include unique names that weren't merged (2-char non-surname names etc.)
+            // Filter out extremely high-frequency tokens (likely common words, not names)
+            // If a name appears more than once per 1000 characters on average, it's suspicious
+            let freqThreshold = max(3, totalLen / 1000)
             var mergedMap: [String: (frequency: Int, aliases: [String])] = [:]
             for (canonical, aliases) in resolved {
                 let freq = allNames[canonical, default: 0]
                 let aliasFreq = aliases.reduce(0) { $0 + allNames[$1, default: 0] }
-                mergedMap[canonical] = (freq + aliasFreq, aliases)
+                let total = freq + aliasFreq
+                if total < freqThreshold {
+                    mergedMap[canonical] = (total, aliases)
+                }
             }
             for (name, freq) in allNames where !usedNames.contains(name) && !name.isEmpty {
-                if mergedMap[name] == nil {
+                if mergedMap[name] == nil && freq < freqThreshold {
                     mergedMap[name] = (freq, [])
                 }
             }
 
             let sortedProfiles = mergedMap.sorted { $0.value.frequency > $1.value.frequency }
 
-            var inferred: [CharacterProfile] = sortedProfiles.map { name, data in
-                let gender = store.guessGender(from: name) ? "男性" : "女性"
+            // Attribute inference for top characters: find context in first 500k chars
+            let contextLimit = min(500_000, totalLen)
+            let contextText = text.prefix(contextLimit)
+            let analyzer = CharacterAnalyzer()
+            var inferred: [CharacterProfile] = []
+
+            for (name, data) in sortedProfiles {
+                var gender = "未知"
+                var age = "未知"
+                var tone = "平稳"
+                var style = "neutral"
+                var rate = 0
+                var pitch = 0
+
+                if let range = contextText.range(of: name) {
+                    let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
+                    let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
+                    let ctx = String(contextText[ctxStart..<ctxEnd])
+                    let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
+                    gender = attrs.gender
+                    age = attrs.age
+                    tone = attrs.baseTone
+                    style = attrs.baseStyle
+                    rate = attrs.baseRate
+                    pitch = attrs.basePitch
+                }
+
+                if gender == "未知" {
+                    gender = store.guessGender(from: name) ? "男性" : "女性"
+                }
+
                 let baseVoice = gender == "男性"
                     ? defaultMaleVoice(voices: voices)
                     : defaultFemaleVoice(voices: voices)
-                return CharacterProfile(
+
+                inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: data.aliases,
-                    gender: gender, age: "未知", tone: "平稳",
+                    gender: gender, age: age, tone: tone,
                     voice: baseVoice,
-                    rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity
-                )
+                    rate: rate, pitch: pitch, style: style, sensitivity: defaultSensitivity
+                ))
             }
 
             if inferred.isEmpty {
