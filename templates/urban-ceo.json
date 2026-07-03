@@ -5,69 +5,353 @@
     {
       "id": "a1b2c3d4-0002-4000-8000-000000000001",
       "name": "都市商战·霸总",
+      "fallbackMaleVoiceID": "zh-CN-YunyeNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
       "roles": [
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000011",
           "title": "旁白",
           "sourceVoiceID": "zh-CN-YunyangNeural",
-          "voiceSuggestion": "干练专业的叙述节奏，都市感强",
+          "voiceSuggestion": "沉稳大气，叙事节奏明快，都市感十足，语调富有张力",
           "rateOffset": -5,
           "pitchOffset": 0,
-          "style": "professional"
+          "style": "neutral"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000012",
-          "title": "男主（霸总）",
+          "title": "霸道总裁男主",
           "sourceVoiceID": "zh-CN-YunyeNeural",
-          "voiceSuggestion": "低沉磁性，沉稳威严，冰山总裁范",
+          "voiceSuggestion": "低沉磁性，冷峻威严，说一不二，冰山总裁的气场全开",
           "rateOffset": -10,
-          "pitchOffset": -5,
+          "pitchOffset": -10,
           "style": "serious"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000013",
-          "title": "女主",
+          "title": "女主/秘书/员工",
           "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
-          "voiceSuggestion": "温柔坚韧，独立女性，情感层次丰富",
+          "voiceSuggestion": "温柔坚韧，知性独立，职场女性外柔内刚，情感层次丰富",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "gentle"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000014",
-          "title": "女配（御姐）",
-          "sourceVoiceID": "zh-CN-Lan:MAI-Voice-2",
-          "voiceSuggestion": "清冷御姐，自带疏离感和气场",
-          "rateOffset": -5,
-          "pitchOffset": -5,
-          "style": "happy"
+          "title": "董事会元老",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "资历深厚，语速缓慢沉稳，威严长者，决策时掷地有声",
+          "rateOffset": -15,
+          "pitchOffset": -15,
+          "style": "serious"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000015",
-          "title": "兄弟/男配",
-          "sourceVoiceID": "zh-CN-YunxiNeural",
-          "voiceSuggestion": "阳光开朗，花花公子或铁哥们",
-          "rateOffset": 0,
-          "pitchOffset": 3,
-          "style": "cheerful"
+          "title": "竞争对手/反派",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "阴险狡诈，语带讥讽，城府深沉，冷笑时令人不寒而栗",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "disgruntled"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000016",
-          "title": "秘书/助理",
+          "title": "兄弟/合伙人",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "阳光开朗，仗义直率，铁哥们般的温暖与可靠",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000017",
+          "title": "闺蜜/助理",
           "sourceVoiceID": "zh-CN-XiaohanNeural",
-          "voiceSuggestion": "冷静克制，职业化，语音平稳",
+          "voiceSuggestion": "活泼贴心，爽朗直率，关键时刻挺身而出的好姐妹",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000018",
+          "title": "投资人/合作伙伴",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "精明睿智，冷静分析，谈判时气场强大，字字珠玑",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000019",
+          "title": "母亲/长辈（母）",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "温柔慈爱，语重心长，对子女关怀备至，家庭温暖感",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000020",
+          "title": "律师/记者",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "逻辑清晰，字正腔圆，犀利发问直击要害，职业气场强",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "calm"
         },
         {
-          "id": "a1b2c3d4-0002-4000-8000-000000000017",
-          "title": "反派/对手",
-          "sourceVoiceID": "zh-CN-YunyeNeural",
-          "voiceSuggestion": "阴沉狡诈，冷嘲热讽，不屑",
+          "id": "a1b2c3d4-0002-4000-8000-000000000021",
+          "title": "女配/白月光",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "温柔婉约，楚楚可怜，情感细腻，令人心生怜惜",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000022",
+          "title": "老管家",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "忠厚老成，语速徐缓，忠心为主操持家务，亲切可靠",
           "rateOffset": -15,
-          "pitchOffset": -8,
-          "style": "disgruntled"
+          "pitchOffset": -10,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000023",
+          "title": "贴身保镖",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "冷峻寡言，语气低沉，警觉敏锐，时刻保持战斗状态",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000024",
+          "title": "总裁秘书",
+          "sourceVoiceID": "zh-CN-XiaochenNeural",
+          "voiceSuggestion": "干练高效，谨言慎行，职场精英，汇报工作时精准简洁",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000025",
+          "title": "前台接待",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "甜美亲切，热情大方，声音柔和悦耳，企业门面担当",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000026",
+          "title": "财务总监/CFO",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "严谨细致，冷静克制，数据思维极强，分析报表时一针见血",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000027",
+          "title": "市场总监/CMO",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "干练犀利，商业嗅觉敏锐，语速明快，策划方案时激情四射",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000028",
+          "title": "技术总监/CTO",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "理性沉稳，技术大牛，话不多但句句在点，略带木讷",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000029",
+          "title": "集团顾问/元老",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "经验丰富，深谋远虑，说话滴水不漏，商界老江湖",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000030",
+          "title": "豪门千金",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "骄傲张扬，自信大小姐，语气傲娇，自带优越感",
+          "rateOffset": 5,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000031",
+          "title": "私家侦探",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "神秘敏锐，语调低沉，擅长推理分析，语带玄机",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000032",
+          "title": "警察/法官",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "正义凛然，语气坚定，公事公办，审讯时咄咄逼人",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000033",
+          "title": "私人医生",
+          "sourceVoiceID": "zh-CN-XiaoyiNeural",
+          "voiceSuggestion": "温文尔雅，专业可靠，语气温和安抚，令人安心",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000034",
+          "title": "大学教授/导师",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "博学儒雅，引经据典，语重心长，学者风范十足",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000035",
+          "title": "地头蛇/小贩（四川）",
+          "sourceVoiceID": "zh-CN-sichuan-YunxiNeural",
+          "voiceSuggestion": "四川方言，市井气足，泼辣精明，讨价还价信手拈来",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000036",
+          "title": "餐厅老板（广西）",
+          "sourceVoiceID": "zh-CN-guangxi-YunqiNeural",
+          "voiceSuggestion": "广西口音，热情好客，豪爽大方，对食材和味道有执着",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000037",
+          "title": "娱乐记者",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "八卦犀利，穷追不舍，语速飞快，挖料时眼神放光",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000038",
+          "title": "酒吧老板（东北）",
+          "sourceVoiceID": "zh-CN-liaoning-YunbiaoNeural",
+          "voiceSuggestion": "东北口音，仗义豪爽，直言快语，社会阅历丰富",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000039",
+          "title": "优雅母亲",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "温柔端庄，含辛茹苦，语气慈爱，豪门太太的优雅从容",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000040",
+          "title": "威严父亲",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "严厉深沉，大家长作风，不怒自威，训斥时令人不敢反驳",
+          "rateOffset": -15,
+          "pitchOffset": -15,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000041",
+          "title": "老员工（山东）",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "山东口音，忠厚老实，踏实肯干，对公司忠心耿耿",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000042",
+          "title": "女保镖",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "冷面女侠，话少干脆，身手利落，语气不容置疑",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000043",
+          "title": "商业间谍",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "神秘低调，口风严密，话中有话，暗藏机锋与算计",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000044",
+          "title": "拍卖师/主持人",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "抑扬顿挫，调动气氛，语速节奏感强，专业控场",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000045",
+          "title": "司机/跑腿（河南）",
+          "sourceVoiceID": "zh-CN-henan-YundengNeural",
+          "voiceSuggestion": "河南口音，朴实真诚，接地气，任劳任怨的老实人",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000046",
+          "title": "服务员/店员（东北）",
+          "sourceVoiceID": "zh-CN-liaoning-XiaobeiNeural",
+          "voiceSuggestion": "东北小姑娘，爽朗热情，干活麻利，说话带大碴子味",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000047",
+          "title": "品牌设计师",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "时尚感性，追求完美，语调优雅，对美学有极致追求",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-000000000048",
+          "title": "时尚主编（陕西）",
+          "sourceVoiceID": "zh-CN-shaanxi-XiaoniNeural",
+          "voiceSuggestion": "陕西口音，雷厉风行，职场女强人，眼光毒辣言辞犀利",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "calm"
         }
       ]
     }

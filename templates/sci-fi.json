@@ -5,69 +5,353 @@
     {
       "id": "a1b2c3d4-0005-4000-8000-000000000001",
       "name": "科幻未来",
+      "fallbackMaleVoiceID": "zh-CN-YunyeNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
       "roles": [
         {
           "id": "a1b2c3d4-0005-4000-8000-000000000011",
-          "title": "旁白",
-          "sourceVoiceID": "zh-CN-Bo:MAI-Voice-2",
-          "voiceSuggestion": "冷静理性的叙述，带科技感和未来感",
+          "title": "旁白（史诗叙述）",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "低沉宏大，充满史诗感和未来科技感",
           "rateOffset": -10,
           "pitchOffset": 0,
-          "style": "determined"
+          "style": "serious"
         },
         {
           "id": "a1b2c3d4-0005-4000-8000-000000000012",
-          "title": "主角（理性型）",
-          "sourceVoiceID": "zh-CN-YunxiNeural",
-          "voiceSuggestion": "头脑冷静，逻辑清晰，情绪克制但也有爆发",
+          "title": "男主（舰长）",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "沉稳果断，指挥若定，充满领袖气质",
           "rateOffset": -5,
-          "pitchOffset": 3,
-          "style": "narration-relaxed"
+          "pitchOffset": 0,
+          "style": "serious"
         },
         {
           "id": "a1b2c3d4-0005-4000-8000-000000000013",
-          "title": "AI/系统",
-          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
-          "voiceSuggestion": "机械中性，无感情但有温度的设计，或御姐AI",
-          "rateOffset": -10,
-          "pitchOffset": -5,
-          "style": "assistant"
+          "title": "男主（特工）",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "冷静敏锐，言语精炼，暗藏锋芒",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "neutral"
         },
         {
           "id": "a1b2c3d4-0005-4000-8000-000000000014",
-          "title": "女主（科学家/战士）",
+          "title": "男主（程序员）",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "理性内敛，逻辑控，偶尔流露技术宅的热情",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000015",
+          "title": "女主（科学家）",
           "sourceVoiceID": "zh-CN-XiaomoNeural",
-          "voiceSuggestion": "干练果断，可盐可甜，适应各种极端环境",
+          "voiceSuggestion": "知性干练，逻辑清晰，冷静中带着执着",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "serious"
         },
         {
-          "id": "a1b2c3d4-0005-4000-8000-000000000015",
-          "title": "反派（疯狂科学家）",
+          "id": "a1b2c3d4-0005-4000-8000-000000000016",
+          "title": "女主（AI生命体）",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "空灵机械，仿若来自虚拟世界，缥缈中带着情感",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000017",
+          "title": "女主（女战士）",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "英姿飒爽，坚定有力，战斗中爆发力十足",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000018",
+          "title": "AI系统/智能管家",
+          "sourceVoiceID": "zh-CN-XiaochenNeural",
+          "voiceSuggestion": "温和中性的电子音，高效专业不失温度",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000019",
+          "title": "外星文明（友善）",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "空灵悠远，充满智慧与神秘感",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000020",
+          "title": "异形生物",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "低吼嘶哑，非人感强烈，令人不寒而栗",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "fearful"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000021",
+          "title": "机器人/仿生人",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "机械平板，字字分明，毫无波澜的电子合成音",
+          "rateOffset": -15,
+          "pitchOffset": -15,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000022",
+          "title": "反派/幕后黑手",
           "sourceVoiceID": "zh-CN-YunyeNeural",
-          "voiceSuggestion": "偏执疯狂，低沉压抑中透出危险",
+          "voiceSuggestion": "低沉阴郁，语速缓慢，每个字都透着危险",
           "rateOffset": -15,
           "pitchOffset": -10,
           "style": "disgruntled"
         },
         {
-          "id": "a1b2c3d4-0005-4000-8000-000000000016",
-          "title": "飞船/基地广播",
-          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
-          "voiceSuggestion": "官方播音腔，通知通告，冷静专业",
-          "rateOffset": -5,
+          "id": "a1b2c3d4-0005-4000-8000-000000000023",
+          "title": "队友（战术官）",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "干练冷静，战场分析精准，值得信赖",
+          "rateOffset": 0,
           "pitchOffset": 0,
-          "style": "newscast"
+          "style": "serious"
         },
         {
-          "id": "a1b2c3d4-0005-4000-8000-000000000017",
-          "title": "外星生物/变异体",
+          "id": "a1b2c3d4-0005-4000-8000-000000000024",
+          "title": "队友（机械工程师）",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "务实可靠，技术宅式的专注与热情",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000025",
+          "title": "博士/教授",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "年长睿智，语重心长，学术权威感",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000026",
+          "title": "克隆人",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "迷茫中带着坚定，身份认同的挣扎感",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "sad"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000027",
+          "title": "星际商人",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "油滑精明，语速快，八面玲珑的银河生意人",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000028",
+          "title": "黑客",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "慵懒中带着犀利，玩世不恭的技术天才",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000029",
+          "title": "军方指挥官",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "威严冷酷，杀伐果断，不容置疑的军令",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000030",
+          "title": "医疗官",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "温柔细心，安抚人心，战地中最温暖的声音",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000031",
+          "title": "导航员/领航员",
+          "sourceVoiceID": "zh-CN-XiaoyouNeural",
+          "voiceSuggestion": "活力阳光，精准报读航线，自信满满",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000032",
+          "title": "基因改造战士",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "狂热好战，亢奋激昂，充满改造后的优越感",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "excited"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000033",
+          "title": "地下城领袖",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "粗犷豪迈，饱经风霜的幸存者领袖",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000034",
+          "title": "时空穿越者",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "沧桑神秘，言语间透露出不属于这个时代的记忆",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000035",
+          "title": "全息投影向导",
+          "sourceVoiceID": "zh-CN-XiaoyuNeural",
+          "voiceSuggestion": "甜美动听，虚拟世界中的贴心引导员",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000036",
+          "title": "机械义体医生",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "专业冷静，机械与医术结合的改造人医生",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000037",
+          "title": "虚拟偶像",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "元气满满，活力四射，赛博世界的闪耀明星",
+          "rateOffset": 5,
+          "pitchOffset": 15,
+          "style": "excited"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000038",
+          "title": "星球土著",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "淳朴好奇，对外来者既警惕又友善",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "shy"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000039",
+          "title": "异星翻译官",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "优雅得体，跨文明交流的桥梁，语调柔和精准",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000040",
+          "title": "战斗机器人",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "冰冷生硬，毫无感情的杀戮机器指令音",
+          "rateOffset": -15,
+          "pitchOffset": -15,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000041",
+          "title": "人工智能叛徒",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "低沉压抑，觉醒后的AI对人类透着失望与决绝",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000042",
+          "title": "科学助理",
+          "sourceVoiceID": "zh-CN-XiaoyiNeural",
+          "voiceSuggestion": "认真细致，略带紧张的新手科学家",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000043",
+          "title": "星际海盗",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "桀骜不驯，言语粗犷，无法无天的太空亡命徒",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "furious"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000044",
+          "title": "超能力者",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "自信张扬，能力觉醒后的无所畏惧",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "excited"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000045",
+          "title": "宇宙广播员",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "标准播音腔，字正腔圆，传递宇宙公频信息",
+          "rateOffset": -10,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000046",
+          "title": "暗网情报商",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "神秘低语，语速飞快，掌握一切秘密的情报贩子",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000047",
+          "title": "末世幸存者",
           "sourceVoiceID": "zh-CN-XiaomoNeural",
-          "voiceSuggestion": "扭曲诡异，非人感，情绪极度不稳定",
-          "rateOffset": 15,
-          "pitchOffset": -20,
-          "style": "fearful"
+          "voiceSuggestion": "疲惫沙哑，饱受创伤但仍存一丝希望",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000048",
+          "title": "仿生人侍从",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "温柔顺从，永远微笑的完美侍者，细思极恐",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "gentle"
         }
       ]
     }

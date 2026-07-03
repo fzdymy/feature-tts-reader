@@ -47,6 +47,16 @@ struct TemplateManageView: View {
                         .padding(.vertical, 4)
                     }
                     .foregroundColor(.primary)
+                    .contextMenu {
+                        Button(action: {
+                            store.applyTemplate(template)
+                        }) {
+                            Label("应用模板", systemImage: "checkmark.circle")
+                        }
+                        Button(action: { editingTemplate = template }) {
+                            Label("编辑", systemImage: "pencil")
+                        }
+                    }
                 }
             }
             .onDelete { indexSet in
@@ -106,10 +116,10 @@ struct TemplateManageView: View {
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else { return }
-                if store.importRoleTemplates(from: data) {
-                    store.statusMessage = "模板已导入"
-                } else {
+                let succeeded = store.importRoleTemplates(from: data)
+                if !succeeded && store.statusMessage.isEmpty {
                     store.statusMessage = "导入失败: 格式错误"
+                }
                 }
             case .failure(let e):
                 store.statusMessage = "导入失败: \(e.localizedDescription)"
@@ -137,6 +147,11 @@ struct TemplateEditView: View {
 
     @State private var name: String = ""
     @State private var roles: [TemplateRole] = []
+    @State private var fallbackMaleVoiceID: String = ""
+    @State private var fallbackFemaleVoiceID: String = ""
+    @State private var fallbackRateOffset: Int = 0
+    @State private var fallbackPitchOffset: Int = 0
+    @State private var fallbackStyle: String = "neutral"
 
     private let isEditing: Bool
 
@@ -146,6 +161,11 @@ struct TemplateEditView: View {
         self.isEditing = template != nil
         _name = State(initialValue: template?.name ?? "")
         _roles = State(initialValue: template?.roles ?? [])
+        _fallbackMaleVoiceID = State(initialValue: template?.fallbackMaleVoiceID ?? "")
+        _fallbackFemaleVoiceID = State(initialValue: template?.fallbackFemaleVoiceID ?? "")
+        _fallbackRateOffset = State(initialValue: template?.fallbackRateOffset ?? 0)
+        _fallbackPitchOffset = State(initialValue: template?.fallbackPitchOffset ?? 0)
+        _fallbackStyle = State(initialValue: template?.fallbackStyle ?? "neutral")
     }
 
     var body: some View {
@@ -153,6 +173,35 @@ struct TemplateEditView: View {
             Form {
                 Section(header: Text("模板名称")) {
                     TextField("如：男频小说、历史穿越", text: $name)
+                }
+
+                Section(header: Text("未匹配角色容灾")) {
+                    Picker("男性默认音色", selection: $fallbackMaleVoiceID) {
+                        Text("不指定（使用系统默认）").tag("")
+                        ForEach(store.voices) { voice in
+                            Text("\(voice.name) (\(voice.gender.displayName))").tag(voice.id)
+                        }
+                    }
+                    Picker("女性默认音色", selection: $fallbackFemaleVoiceID) {
+                        Text("不指定（使用系统默认）").tag("")
+                        ForEach(store.voices) { voice in
+                            Text("\(voice.name) (\(voice.gender.displayName))").tag(voice.id)
+                        }
+                    }
+                    HStack {
+                        Stepper("容灾语速: \(fallbackRateOffset)", value: $fallbackRateOffset, in: -100...100, step: 5)
+                    }
+                    HStack {
+                        Stepper("容灾音调: \(fallbackPitchOffset)", value: $fallbackPitchOffset, in: -100...100, step: 5)
+                    }
+                    Picker("容灾风格", selection: $fallbackStyle) {
+                        Text("neutral").tag("neutral")
+                        Text("cheerful").tag("cheerful")
+                        Text("sad").tag("sad")
+                        Text("angry").tag("angry")
+                        Text("gentle").tag("gentle")
+                        Text("serious").tag("serious")
+                    }
                 }
 
                 Section(header: Text("角色阵容")) {
@@ -210,7 +259,12 @@ struct TemplateEditView: View {
                         let t = RoleTemplate(
                             id: template?.id ?? UUID(),
                             name: name,
-                            roles: roles.filter { !$0.title.isEmpty }
+                            roles: roles.filter { !$0.title.isEmpty },
+                            fallbackMaleVoiceID: fallbackMaleVoiceID,
+                            fallbackFemaleVoiceID: fallbackFemaleVoiceID,
+                            fallbackRateOffset: fallbackRateOffset,
+                            fallbackPitchOffset: fallbackPitchOffset,
+                            fallbackStyle: fallbackStyle
                         )
                         onSave(t)
                         dismiss()

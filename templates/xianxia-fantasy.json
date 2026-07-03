@@ -5,69 +5,353 @@
     {
       "id": "a1b2c3d4-0001-4000-8000-000000000001",
       "name": "仙侠玄幻",
+      "fallbackMaleVoiceID": "zh-CN-YunyeNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
       "roles": [
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000011",
           "title": "旁白",
           "sourceVoiceID": "zh-CN-YunyangNeural",
-          "voiceSuggestion": "沉稳叙事，专业感，语速稍慢",
+          "voiceSuggestion": "沉稳厚重，宏大叙事，仙侠世界的引路人，语速适中",
           "rateOffset": -10,
-          "pitchOffset": -3,
-          "style": "professional"
+          "pitchOffset": -5,
+          "style": "serious"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000012",
-          "title": "男主（热血少年）",
-          "sourceVoiceID": "zh-CN-YunxiNeural",
-          "voiceSuggestion": "阳光少年，修行路上成长型，富有朝气",
+          "title": "男主角（热血散修）",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "热血赤诚，少年意气，从平凡走向巅峰，富有朝气",
           "rateOffset": 5,
           "pitchOffset": 5,
-          "style": "narration-relaxed"
+          "style": "cheerful"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000013",
-          "title": "女主（仙子）",
+          "title": "女主角（清冷仙子）",
           "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
-          "voiceSuggestion": "清冷女仙，气质出尘，抒情语调",
+          "voiceSuggestion": "清冷出尘，仙姿玉质，如高山冰雪，抒情幽远",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "lyrical"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000014",
-          "title": "反派（魔尊）",
-          "sourceVoiceID": "zh-CN-YunyeNeural",
-          "voiceSuggestion": "低沉威压，魔道枭雄，愤怒时爆发力强",
+          "title": "师尊（宗门掌门）",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "威严庄重，修为深不可测，宗门之柱，语速沉稳",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000015",
+          "title": "反派魔尊",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "睥睨天下，霸道邪魅，嗓音低沉威压，愤怒时爆发力强",
           "rateOffset": -15,
           "pitchOffset": -10,
           "style": "angry"
         },
         {
-          "id": "a1b2c3d4-0001-4000-8000-000000000015",
-          "title": "长老/老者",
-          "sourceVoiceID": "zh-CN-YunyeNeural",
-          "voiceSuggestion": "仙风道骨，年迈沉稳，语速缓慢",
-          "rateOffset": -20,
-          "pitchOffset": -15,
-          "style": "serious"
-        },
-        {
           "id": "a1b2c3d4-0001-4000-8000-000000000016",
-          "title": "小师妹（萝莉）",
-          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
-          "voiceSuggestion": "活泼可爱，天真烂漫，语速快音调高",
-          "rateOffset": 10,
-          "pitchOffset": 18,
-          "style": "cheerful"
+          "title": "妖王",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "狂放不羁，妖族至尊，野性中带狡诈，声线张扬",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "disgruntled"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000017",
-          "title": "妖兽/配角",
-          "sourceVoiceID": "zh-CN-XiaomoNeural",
-          "voiceSuggestion": "百变龙套，一人分饰多角，情绪多变",
+          "title": "大师兄",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "阳光俊朗，护短重情，宗门表率，温暖可靠",
           "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000018",
+          "title": "小师妹",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "娇俏可爱，天真烂漫，古灵精怪，语速快音调高",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000019",
+          "title": "二师兄（憨厚）",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "憨厚老实，忠义两全，朴实无华，语速平缓",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000001a",
+          "title": "冷艳师姐",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "冷艳凌厉，杀伐果断，面冷心热，语调清冷干脆",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000001b",
+          "title": "太上长老",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "仙风道骨，看破红尘，苍老悠远，如古井无波",
+          "rateOffset": -20,
+          "pitchOffset": -10,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000001c",
+          "title": "炼丹宗师",
+          "sourceVoiceID": "zh-CN-guangxi-YunqiNeural",
+          "voiceSuggestion": "温和儒雅，痴迷丹道，慈祥和蔼，带南方口音的亲切感",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000001d",
+          "title": "剑修（剑痴）",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "锋芒毕露，唯剑唯道，凌厉干脆，字字如剑",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000001e",
+          "title": "阵法师",
+          "sourceVoiceID": "zh-CN-henan-YundengNeural",
+          "voiceSuggestion": "沉稳睿智，精研阵法，算无遗策，带中原口音的笃定",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000001f",
+          "title": "灵兽",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "灵动活泼，通人性，俏皮可爱，语速轻快音调高",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000020",
+          "title": "书童",
+          "sourceVoiceID": "zh-CN-XiaoyouNeural",
+          "voiceSuggestion": "机灵乖巧，少年心性，活泼好动，声音清脆",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000021",
+          "title": "管家老仆",
+          "sourceVoiceID": "zh-CN-liaoning-XiaobeiNeural",
+          "voiceSuggestion": "忠厚老仆，阅历丰富，语重心长，带东北口音的亲切",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000022",
+          "title": "散修游侠",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "潇洒不羁，快意恩仇，浪迹天涯，豪爽仗义",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000023",
+          "title": "魔道护法",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "阴鸷狠辣，忠心护主，语气阴冷，杀意暗藏",
+          "rateOffset": -5,
+          "pitchOffset": -10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000024",
+          "title": "温柔女修",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "温婉贤淑，善解人意，如春风化雨，柔情似水",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000025",
+          "title": "掌门夫人",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "端庄典雅，母仪宗门，沉稳大气，不怒自威",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000026",
+          "title": "隐世高人",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "返璞归真，世外高人，深不可测，言语间暗藏天机",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000027",
+          "title": "邪修",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "阴郁诡异，邪气凛然，声线飘忽，令人不寒而栗",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000028",
+          "title": "山贼头目",
+          "sourceVoiceID": "zh-CN-liaoning-YunbiaoNeural",
+          "voiceSuggestion": "粗犷凶悍，占山为王，嗓门洪亮，莽撞直率",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000029",
+          "title": "店小二",
+          "sourceVoiceID": "zh-CN-shaanxi-XiaoniNeural",
+          "voiceSuggestion": "热情周到，市井气息，语速轻快，带陕西口音的特色",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000002a",
+          "title": "人间帝王",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "九五之尊，威仪天下，不怒自威，字字千钧",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000002b",
+          "title": "将军",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "铁血沙场，杀伐之气，刚毅果决，声如洪钟",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000002c",
+          "title": "神医",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "淡然从容，妙手回春，不悲不喜，看淡生死",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000002d",
+          "title": "百事通",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "消息灵通，神秘莫测，语调悠闲，故作高深",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000002e",
+          "title": "说书人",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "绘声绘色，抑扬顿挫，市井奇人，说尽天下事",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-00000000002f",
+          "title": "狐妖",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "妩媚妖娆，勾魂夺魄，声线魅惑，似笑非笑",
+          "rateOffset": 0,
+          "pitchOffset": 10,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000030",
+          "title": "佛修",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "慈悲为怀，佛法无边，平和悠远，超然物外",
+          "rateOffset": -15,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000031",
+          "title": "炼器师",
+          "sourceVoiceID": "zh-CN-sichuan-YunxiNeural",
+          "voiceSuggestion": "暴躁直率，痴迷锻造，不耐烦口吻，带四川方言的火爆",
+          "rateOffset": 0,
           "pitchOffset": 0,
           "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000032",
+          "title": "符修",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "神秘低调，符箓世家，冷静理性，言语精炼",
+          "rateOffset": 5,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000033",
+          "title": "体修（武痴）",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "豪爽仗义，肌肉莽汉，声如洪钟，头脑简单",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000034",
+          "title": "侍女",
+          "sourceVoiceID": "zh-CN-XiaoyiNeural",
+          "voiceSuggestion": "胆小怯懦，谨小慎微，声音轻柔带颤，唯唯诺诺",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "fearful"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000035",
+          "title": "魔道圣女",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "红颜薄命，亦正亦邪，哀婉凄美，身世悲凉",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "sad"
+        },
+        {
+          "id": "a1b2c3d4-0001-4000-8000-000000000036",
+          "title": "灵族精灵",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "空灵纯净，不染尘埃，缥缈灵动，如天籁之音",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "gentle"
         }
       ]
     }

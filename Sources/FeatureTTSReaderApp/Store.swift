@@ -184,6 +184,32 @@ final class ReaderStore: NSObject, ObservableObject {
         saveRoleTemplates()
     }
 
+    func applyTemplate(_ template: RoleTemplate) {
+        defaultMaleVoiceID = template.fallbackMaleVoiceID
+        defaultFemaleVoiceID = template.fallbackFemaleVoiceID
+        defaultFallbackRateOffset = template.fallbackRateOffset
+        defaultFallbackPitchOffset = template.fallbackPitchOffset
+        defaultFallbackStyle = template.fallbackStyle
+        for role in template.roles where !role.title.isEmpty {
+            if !characters.contains(where: { $0.name == role.title }) {
+                let profile = CharacterProfile(
+                    id: UUID(),
+                    name: role.title,
+                    gender: "",
+                    age: "",
+                    tone: "",
+                    voice: role.sourceVoiceID,
+                    rate: role.rateOffset,
+                    pitch: role.pitchOffset,
+                    style: role.style,
+                    sensitivity: 50
+                )
+                characters.append(profile)
+            }
+        }
+        statusMessage = "已应用模板「\(template.name)」，\(template.roles.count) 个角色已导入"
+    }
+
     func updateRoleTemplate(_ template: RoleTemplate) {
         guard let i = roleTemplates.firstIndex(where: { $0.id == template.id }) else { return }
         roleTemplates[i] = template
@@ -201,13 +227,35 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func importRoleTemplates(from data: Data) -> Bool {
-        guard let export = try? JSONDecoder().decode(TemplateExport.self, from: data) else { return false }
+        guard !data.isEmpty else { statusMessage = "导入失败: 文件为空"; return false }
+        guard let export = try? JSONDecoder().decode(TemplateExport.self, from: data) else {
+            statusMessage = "导入失败: JSON 格式错误或字段不匹配"
+            return false
+        }
+        guard !export.templates.isEmpty else { statusMessage = "导入失败: 模板列表为空"; return false }
+        var importedCount = 0
+        var skippedCount = 0
         for t in export.templates {
+            guard !t.name.trimmingCharacters(in: .whitespaces).isEmpty else { skippedCount += 1; continue }
+            guard !t.roles.isEmpty else { skippedCount += 1; continue }
+            let validRoles = t.roles.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
+            guard !validRoles.isEmpty else { skippedCount += 1; continue }
             if !roleTemplates.contains(where: { $0.id == t.id }) {
-                roleTemplates.append(t)
+                var clean = t
+                clean.roles = validRoles
+                roleTemplates.append(clean)
+                importedCount += 1
+            } else {
+                skippedCount += 1
             }
         }
         saveRoleTemplates()
+        if importedCount > 0 {
+            statusMessage = "导入成功: \(importedCount) 个模板已添加\(skippedCount > 0 ? "，\(skippedCount) 个已跳过" : "")"
+        } else {
+            statusMessage = "导入失败: 所有模板均存在或无效"
+            return false
+        }
         return true
     }
 
@@ -259,6 +307,11 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var defaultPitch: Int = 0
     @Published var defaultStyle: String = "neutral"
     @Published var defaultSortOption: SortOption = .recent
+    @Published var defaultMaleVoiceID: String = ""
+    @Published var defaultFemaleVoiceID: String = ""
+    @Published var defaultFallbackRateOffset: Int = 0
+    @Published var defaultFallbackPitchOffset: Int = 0
+    @Published var defaultFallbackStyle: String = "neutral"
 
     let audioController = AudioPlaybackController()
     private let persistence = PersistenceController.shared
@@ -547,6 +600,11 @@ final class ReaderStore: NSObject, ObservableObject {
         ttsChapterTitle = state.ttsChapterTitle ?? ""
         ttsSegmentTitle = state.ttsSegmentTitle ?? ""
         recommendations = state.recommendations ?? []
+        defaultMaleVoiceID = state.defaultMaleVoiceID
+        defaultFemaleVoiceID = state.defaultFemaleVoiceID
+        defaultFallbackRateOffset = state.defaultFallbackRateOffset
+        defaultFallbackPitchOffset = state.defaultFallbackPitchOffset
+        defaultFallbackStyle = state.defaultFallbackStyle
         loadAllTextsFromFiles()
         statusMessage = "数据已恢复。"
         saveState()
@@ -649,7 +707,12 @@ final class ReaderStore: NSObject, ObservableObject {
             isBusy: isBusy,
             currentPlayingLine: currentPlayingLine,
             playProgress: playProgress,
-            isSpeaking: isSpeaking
+            isSpeaking: isSpeaking,
+            defaultMaleVoiceID: defaultMaleVoiceID,
+            defaultFemaleVoiceID: defaultFemaleVoiceID,
+            defaultFallbackRateOffset: defaultFallbackRateOffset,
+            defaultFallbackPitchOffset: defaultFallbackPitchOffset,
+            defaultFallbackStyle: defaultFallbackStyle
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         let targetURL = stateFileURL()
@@ -1092,8 +1155,13 @@ final class ReaderStore: NSObject, ObservableObject {
         let currentVoices = voices
         let currentSensitivity = defaultSensitivity
         let currentVoiceProfiles = voiceProfiles
-        return await Task.detached { [weak self, text, currentCharacters, currentVoices, currentSensitivity, currentVoiceProfiles] in
-            return self?.createScriptSegments(from: text, characters: currentCharacters, defaultSensitivity: currentSensitivity, voices: currentVoices, voiceProfiles: currentVoiceProfiles) ?? []
+        let currentMaleVoice = defaultMaleVoiceID
+        let currentFemaleVoice = defaultFemaleVoiceID
+        let currentFallbackRate = defaultFallbackRateOffset
+        let currentFallbackPitch = defaultFallbackPitchOffset
+        let currentFallbackStyle = defaultFallbackStyle
+        return await Task.detached { [weak self, text, currentCharacters, currentVoices, currentSensitivity, currentVoiceProfiles, currentMaleVoice, currentFemaleVoice, currentFallbackRate, currentFallbackPitch, currentFallbackStyle] in
+            return self?.createScriptSegments(from: text, characters: currentCharacters, defaultSensitivity: currentSensitivity, voices: currentVoices, voiceProfiles: currentVoiceProfiles, defaultMaleVoiceID: currentMaleVoice, defaultFemaleVoiceID: currentFemaleVoice, defaultFallbackRateOffset: currentFallbackRate, defaultFallbackPitchOffset: currentFallbackPitch, defaultFallbackStyle: currentFallbackStyle) ?? []
         }.value
     }
 
@@ -1579,7 +1647,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return result
     }
 
-    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], voiceProfiles: [VoiceProfileTuning] = []) -> [ScriptSegment] {
+    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], voiceProfiles: [VoiceProfileTuning] = [], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
@@ -1594,6 +1662,19 @@ final class ReaderStore: NSObject, ObservableObject {
                 let speakerProfile = matchedProfile ?? characters.first(where: { $0.name == speaker })
                 let toneResult = analyzer.analyzeSentenceTone(line)
                 var profile = speakerProfile ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: toneResult.style, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+
+                // 未匹配角色：使用模板/全局容灾音色
+                if profile.voice.isEmpty && speakerProfile == nil {
+                    let isMale = guessGender(from: speaker)
+                    if isMale, !defaultMaleVoiceID.isEmpty {
+                        profile.voice = defaultMaleVoiceID
+                    } else if !isMale, !defaultFemaleVoiceID.isEmpty {
+                        profile.voice = defaultFemaleVoiceID
+                    }
+                    profile.rate = defaultFallbackRateOffset
+                    profile.pitch = defaultFallbackPitchOffset
+                    profile.style = defaultFallbackStyle
+                }
                 if profile.voice.isEmpty {
                     profile.voice = defaultVoice(for: profile.gender, tone: toneResult.style, name: profile.name, voices: voices)
                 }
@@ -1938,6 +2019,18 @@ final class ReaderStore: NSObject, ObservableObject {
         if let tagData = try? JSONEncoder().encode(tagPresets) {
             UserDefaults.standard.set(tagData, forKey: "tagPresets")
         }
+        return true
+    }
+
+    /// 从中文名字推测性别（启发式）
+    nonisolated func guessGender(from name: String) -> Bool {
+        let maleIndicators: [Character] = ["哥","爷","叔","伯","爸","弟","雄","强","刚","龙","虎","伟","勇","军","杰","涛","明","飞","浩","剑","峰","渊","恒","毅","宏"]
+        let femaleIndicators: [Character] = ["妹","姐","妈","姑","姨","娘","女","花","丽","美","娜","婷","芳","娟","玲","静","淑","玉","娇","凤","燕","秀","莲","英"]
+        for char in name {
+            if maleIndicators.contains(char) { return true }
+            if femaleIndicators.contains(char) { return false }
+        }
+        // 无法判断时返回 true（男性），因为网文角色比例男性偏高
         return true
     }
 

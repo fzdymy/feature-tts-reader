@@ -386,11 +386,40 @@ struct RoleTemplate: Identifiable, Hashable, Codable {
     let id: UUID
     var name: String
     var roles: [TemplateRole]
+    // 未匹配角色的容灾
+    var fallbackMaleVoiceID: String
+    var fallbackFemaleVoiceID: String
+    var fallbackRateOffset: Int
+    var fallbackPitchOffset: Int
+    var fallbackStyle: String
 
-    init(id: UUID = UUID(), name: String, roles: [TemplateRole] = []) {
+    init(id: UUID = UUID(), name: String, roles: [TemplateRole] = [],
+         fallbackMaleVoiceID: String = "", fallbackFemaleVoiceID: String = "",
+         fallbackRateOffset: Int = 0, fallbackPitchOffset: Int = 0, fallbackStyle: String = "neutral") {
         self.id = id
         self.name = name
         self.roles = roles
+        self.fallbackMaleVoiceID = fallbackMaleVoiceID
+        self.fallbackFemaleVoiceID = fallbackFemaleVoiceID
+        self.fallbackRateOffset = fallbackRateOffset
+        self.fallbackPitchOffset = fallbackPitchOffset
+        self.fallbackStyle = fallbackStyle
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        roles = try container.decode([TemplateRole].self, forKey: .roles)
+        fallbackMaleVoiceID = try container.decodeIfPresent(String.self, forKey: .fallbackMaleVoiceID) ?? ""
+        fallbackFemaleVoiceID = try container.decodeIfPresent(String.self, forKey: .fallbackFemaleVoiceID) ?? ""
+        fallbackRateOffset = try container.decodeIfPresent(Int.self, forKey: .fallbackRateOffset) ?? 0
+        fallbackPitchOffset = try container.decodeIfPresent(Int.self, forKey: .fallbackPitchOffset) ?? 0
+        fallbackStyle = try container.decodeIfPresent(String.self, forKey: .fallbackStyle) ?? "neutral"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, roles, fallbackMaleVoiceID, fallbackFemaleVoiceID, fallbackRateOffset, fallbackPitchOffset, fallbackStyle
     }
 }
 
@@ -469,11 +498,16 @@ struct ReaderState: Codable {
     var currentPlayingLine: String = ""
     var playProgress: Double = 0.0
     var isSpeaking: Bool = false
+    var defaultMaleVoiceID: String = ""
+    var defaultFemaleVoiceID: String = ""
+    var defaultFallbackRateOffset: Int = 0
+    var defaultFallbackPitchOffset: Int = 0
+    var defaultFallbackStyle: String = "neutral"
 
     private enum CodingKeys: String, CodingKey {
         case characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking
+             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking, defaultMaleVoiceID, defaultFemaleVoiceID, defaultFallbackRateOffset, defaultFallbackPitchOffset, defaultFallbackStyle
     }
 
     init(
@@ -522,7 +556,12 @@ struct ReaderState: Codable {
         isBusy: Bool = false,
         currentPlayingLine: String = "",
         playProgress: Double = 0.0,
-        isSpeaking: Bool = false
+        isSpeaking: Bool = false,
+        defaultMaleVoiceID: String = "",
+        defaultFemaleVoiceID: String = "",
+        defaultFallbackRateOffset: Int = 0,
+        defaultFallbackPitchOffset: Int = 0,
+        defaultFallbackStyle: String = "neutral"
     ) {
         self.bookText = bookText
         self.chapters = chapters
@@ -612,5 +651,10 @@ struct ReaderState: Codable {
         currentPlayingLine = try container.decodeIfPresent(String.self, forKey: .currentPlayingLine) ?? ""
         playProgress = try container.decodeIfPresent(Double.self, forKey: .playProgress) ?? 0.0
         isSpeaking = try container.decodeIfPresent(Bool.self, forKey: .isSpeaking) ?? false
+        defaultMaleVoiceID = try container.decodeIfPresent(String.self, forKey: .defaultMaleVoiceID) ?? ""
+        defaultFemaleVoiceID = try container.decodeIfPresent(String.self, forKey: .defaultFemaleVoiceID) ?? ""
+        defaultFallbackRateOffset = try container.decodeIfPresent(Int.self, forKey: .defaultFallbackRateOffset) ?? 0
+        defaultFallbackPitchOffset = try container.decodeIfPresent(Int.self, forKey: .defaultFallbackPitchOffset) ?? 0
+        defaultFallbackStyle = try container.decodeIfPresent(String.self, forKey: .defaultFallbackStyle) ?? "neutral"
     }
 }

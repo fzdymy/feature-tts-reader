@@ -5,19 +5,42 @@
     {
       "id": "a1b2c3d4-0004-4000-8000-000000000001",
       "name": "现代言情·甜宠",
+      "fallbackMaleVoiceID": "zh-CN-YunyeNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
       "roles": [
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000011",
           "title": "旁白（女）",
           "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
-          "voiceSuggestion": "抒情叙述，温柔声线带出画面感",
+          "voiceSuggestion": "抒情叙述，温柔声线带出画面感，语速舒缓",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "lyrical"
         },
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000012",
-          "title": "女主（甜美）",
+          "title": "旁白（男）",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "沉稳磁性叙述，娓娓道来营造氛围",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000013",
+          "title": "高冷男主",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "低沉冷淡，惜字如金，偶尔流露温柔反差",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000014",
+          "title": "甜美女主",
           "sourceVoiceID": "zh-CN-XiaorouNeural",
           "voiceSuggestion": "甜美软糯，撒娇可爱，自带治愈感",
           "rateOffset": 0,
@@ -25,40 +48,301 @@
           "style": "cheerful"
         },
         {
-          "id": "a1b2c3d4-0004-4000-8000-000000000013",
-          "title": "男主（阳光）",
+          "id": "a1b2c3d4-0004-4000-8000-000000000015",
+          "title": "暖男男二",
           "sourceVoiceID": "zh-CN-YunxiNeural",
-          "voiceSuggestion": "温暖少年，宠溺又深情，语调温柔",
+          "voiceSuggestion": "温柔宠溺，体贴入微，如春日暖阳般和煦",
           "rateOffset": 0,
           "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000016",
+          "title": "绿茶女二",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "表面温柔实则带刺，矫揉造作中藏心机",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000017",
+          "title": "霸道总裁父亲",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "威严低沉，不容置疑的家长气势",
+          "rateOffset": -10,
+          "pitchOffset": -15,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000018",
+          "title": "温柔母亲",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "温婉慈爱，语速平缓，满满母爱溢出",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000019",
+          "title": "逗比男室友",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "话痨搞笑，元气满满，语速飞快带节奏",
+          "rateOffset": 10,
+          "pitchOffset": 5,
           "style": "cheerful"
         },
         {
-          "id": "a1b2c3d4-0004-4000-8000-000000000014",
-          "title": "男主（高冷）",
-          "sourceVoiceID": "zh-CN-YunyeNeural",
-          "voiceSuggestion": "话少面冷，但偶尔流露温柔，反差感",
-          "rateOffset": -10,
+          "id": "a1b2c3d4-0004-4000-8000-000000000020",
+          "title": "助攻闺蜜",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "活泼八卦，为姐妹操碎心，语速偏快",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "excited"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000021",
+          "title": "女强人上司",
+          "sourceVoiceID": "zh-CN-XiaochenNeural",
+          "voiceSuggestion": "干练利落，气场强大，冷静果断",
+          "rateOffset": 0,
           "pitchOffset": -5,
           "style": "serious"
         },
         {
-          "id": "a1b2c3d4-0004-4000-8000-000000000015",
-          "title": "闺蜜",
-          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
-          "voiceSuggestion": "活泼八卦，元气满满，语速偏快",
+          "id": "a1b2c3d4-0004-4000-8000-000000000022",
+          "title": "新人男同事",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "阳光积极，职场萌新略带青涩",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000023",
+          "title": "恶毒情敌女",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "尖酸刻薄，阴阳怪气，充满敌意",
+          "rateOffset": 5,
+          "pitchOffset": 15,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000024",
+          "title": "心机反派男",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "阴险狡诈，笑里藏刀，语速不紧不慢",
+          "rateOffset": -5,
+          "pitchOffset": -10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000025",
+          "title": "资深男管家",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "恭敬得体，沉稳老练，分寸感极强",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000026",
+          "title": "专职司机",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "朴实忠厚，话不多但靠谱",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000027",
+          "title": "主治男医生",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "专业温和，给人以安全感和信赖感",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000028",
+          "title": "儿科女医生",
+          "sourceVoiceID": "zh-CN-XiaoyiNeural",
+          "voiceSuggestion": "亲切温柔，哄孩子般耐心细致",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000029",
+          "title": "大学教授",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "学识渊博，儒雅稳重，语速从容",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000030",
+          "title": "金牌律师",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "逻辑清晰，言辞犀利，气场沉稳",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000031",
+          "title": "律所女合伙人",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "知性优雅，冷静干练，职业女性典范",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000032",
+          "title": "讨嫌前男友",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "死缠烂打，厚脸皮，略带油腻感",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "embarrassed"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000033",
+          "title": "记仇前女友",
+          "sourceVoiceID": "zh-CN-XiaoyouNeural",
+          "voiceSuggestion": "阴阳怪气，酸味十足，处处挑刺",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000034",
+          "title": "能干女秘书",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "职业干练，做事麻利，汇报清晰",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000035",
+          "title": "保安大叔",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "山东口音，豪爽热心，嗓门洪亮",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000036",
+          "title": "咖啡店老板娘",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "温柔文艺，说话慢悠悠，岁月静好",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000037",
+          "title": "外卖小哥",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "风风火火，语速急促，生活气息浓厚",
           "rateOffset": 10,
           "pitchOffset": 10,
           "style": "cheerful"
         },
         {
-          "id": "a1b2c3d4-0004-4000-8000-000000000016",
-          "title": "长辈（父母）",
-          "sourceVoiceID": "zh-CN-XiaohanNeural",
-          "voiceSuggestion": "温和慈祥，语速平缓，安定感",
-          "rateOffset": -5,
-          "pitchOffset": 0,
+          "id": "a1b2c3d4-0004-4000-8000-000000000038",
+          "title": "可爱小侄女",
+          "sourceVoiceID": "zh-CN-XiaoyuNeural",
+          "voiceSuggestion": "奶声奶气，天真烂漫，童言无忌",
+          "rateOffset": 10,
+          "pitchOffset": 18,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000039",
+          "title": "慈祥外婆",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "苍老温和，满满疼爱，语速缓慢",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000040",
+          "title": "和蔼爷爷",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "慈眉善目，笑呵呵，阅历深厚",
+          "rateOffset": -10,
+          "pitchOffset": -10,
           "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000041",
+          "title": "健身私教",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "阳光活力，充满激情，鼓励式喊话",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "excited"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000042",
+          "title": "金牌司仪",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "热情洋溢，台风稳重，字正腔圆",
+          "rateOffset": 5,
+          "pitchOffset": 0,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000043",
+          "title": "心理咨询师",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "温和耐心，善于倾听，语气疗愈",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000044",
+          "title": "娱乐记者",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "八卦嗅觉灵敏，追问犀利，语速飞快",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "excited"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000045",
+          "title": "片区民警",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "正气凛然，说话公道，亲和力强",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000046",
+          "title": "热心邻居阿姨",
+          "sourceVoiceID": "zh-CN-liaoning-XiaobeiNeural",
+          "voiceSuggestion": "东北口音，爽朗爱唠嗑，热心肠",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-000000000047",
+          "title": "萌宠内心独白",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "奶萌可爱，撒娇粘人，内心戏丰富",
+          "rateOffset": 5,
+          "pitchOffset": 15,
+          "style": "affectionate"
         }
       ]
     }

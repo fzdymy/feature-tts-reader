@@ -5,69 +5,353 @@
     {
       "id": "a1b2c3d4-0003-4000-8000-000000000001",
       "name": "历史穿越",
+      "fallbackMaleVoiceID": "zh-CN-YunyeNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
       "roles": [
         {
           "id": "a1b2c3d4-0003-4000-8000-000000000011",
           "title": "旁白",
           "sourceVoiceID": "zh-CN-YunyangNeural",
-          "voiceSuggestion": "醇厚叙事感，有说书人的韵味",
+          "voiceSuggestion": "醇厚叙事感，有说书人的韵味，沉稳大气",
           "rateOffset": -10,
           "pitchOffset": -5,
-          "style": "professional"
+          "style": "neutral"
         },
         {
           "id": "a1b2c3d4-0003-4000-8000-000000000012",
           "title": "穿越男主",
           "sourceVoiceID": "zh-CN-YunxiNeural",
-          "voiceSuggestion": "少年感，现代思维碰撞古代规则，语调富有变化",
+          "voiceSuggestion": "少年感十足，现代思维碰撞古代规则，语调富有变化",
           "rateOffset": 0,
           "pitchOffset": 5,
-          "style": "narration-relaxed"
+          "style": "cheerful"
         },
         {
           "id": "a1b2c3d4-0003-4000-8000-000000000013",
-          "title": "古代女主（大家闺秀）",
-          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
-          "voiceSuggestion": "温婉端庄，知书达理，轻声细语",
-          "rateOffset": -5,
-          "pitchOffset": 0,
-          "style": "gentle"
+          "title": "穿越女主",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "聪慧灵动，现代女性穿越古代，俏皮而不失分寸",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
         },
         {
           "id": "a1b2c3d4-0003-4000-8000-000000000014",
-          "title": "谋士/军师",
-          "sourceVoiceID": "zh-CN-Bo:MAI-Voice-2",
-          "voiceSuggestion": "沉稳理性，足智多谋，语调笃定",
-          "rateOffset": -5,
-          "pitchOffset": 0,
-          "style": "determined"
+          "title": "皇帝",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "帝王威严，不怒自威，字字千钧",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "serious"
         },
         {
           "id": "a1b2c3d4-0003-4000-8000-000000000015",
-          "title": "将军/武将",
-          "sourceVoiceID": "zh-CN-YunjianNeural",
-          "voiceSuggestion": "刚毅勇武，号令三军，中气十足",
-          "rateOffset": 0,
-          "pitchOffset": -3,
-          "style": "sports-commentary"
+          "title": "太子",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "年轻储君，贵气中带着朝气，沉稳又不失锐气",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "calm"
         },
         {
           "id": "a1b2c3d4-0003-4000-8000-000000000016",
-          "title": "丫鬟/侍女",
-          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
-          "voiceSuggestion": "伶俐乖巧，活泼机灵",
+          "title": "王爷",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "皇室贵胄，慵懒中带着锋芒，语调矜贵",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000017",
+          "title": "皇后",
+          "sourceVoiceID": "zh-CN-XiaochenNeural",
+          "voiceSuggestion": "母仪天下，端庄稳重，温厚中不失威严",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000018",
+          "title": "宠妃",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "娇媚动人，恃宠而骄，语调婉转多情",
+          "rateOffset": 0,
+          "pitchOffset": 10,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000019",
+          "title": "公主",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "金枝玉叶，天真烂漫，活泼娇俏",
           "rateOffset": 5,
           "pitchOffset": 10,
           "style": "cheerful"
         },
         {
-          "id": "a1b2c3d4-0003-4000-8000-000000000017",
-          "title": "反派（奸臣/宦官）",
+          "id": "a1b2c3d4-0003-4000-8000-00000000001a",
+          "title": "丞相",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "老谋深算，城府深沉，语速徐缓而字字斟酌",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000001b",
+          "title": "谋士",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "足智多谋，语调笃定，善于剖析局势",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000001c",
+          "title": "将军",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "刚毅勇武，杀伐果断，号令三军气势磅礴",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000001d",
+          "title": "先锋",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "年少气盛，热血沸腾，冲锋陷阵的锐气",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000001e",
+          "title": "御前侍卫",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "冷峻凌厉，话少而精，尽忠职守",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000001f",
+          "title": "大太监",
           "sourceVoiceID": "zh-CN-YunyeNeural",
-          "voiceSuggestion": "阴险狡诈，话中带刺，压低嗓音",
+          "voiceSuggestion": "尖细阴柔，察言观色，说话带着几分谄媚",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000020",
+          "title": "小太监",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "机灵乖巧，跑腿传话，语气轻快",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000021",
+          "title": "掌事宫女",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "利落干练，宫中老人，说话有分量",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000022",
+          "title": "小宫女",
+          "sourceVoiceID": "zh-CN-XiaoyouNeural",
+          "voiceSuggestion": "稚嫩天真，怯生生的小丫头，惹人怜爱",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000023",
+          "title": "神医",
+          "sourceVoiceID": "zh-CN-henan-YundengNeural",
+          "voiceSuggestion": "仙风道骨，河南口音的老中医，从容淡定",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000024",
+          "title": "老道士",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "仙风道骨，超然物外，说话玄奥莫测",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000025",
+          "title": "高僧",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "慈悲祥和，佛法无边，语重心长",
+          "rateOffset": -20,
+          "pitchOffset": -15,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000026",
+          "title": "武林盟主",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "德高望重，内力深厚，说话中气十足",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000027",
+          "title": "江湖侠客",
+          "sourceVoiceID": "zh-CN-sichuan-YunxiNeural",
+          "voiceSuggestion": "豪爽仗义，四川口音的江湖汉子，洒脱不羁",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000028",
+          "title": "江湖女侠",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "英姿飒爽，快意恩仇，语速干脆利落",
+          "rateOffset": 0,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000029",
+          "title": "番邦王子",
+          "sourceVoiceID": "zh-CN-liaoning-YunbiaoNeural",
+          "voiceSuggestion": "草原豪杰，辽东口音，粗犷直率",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000002a",
+          "title": "异族首领",
+          "sourceVoiceID": "zh-CN-guangxi-YunqiNeural",
+          "voiceSuggestion": "南方异族之王，广西口音，神秘而威严",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000002b",
+          "title": "商贾",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "精明圆滑，山东口音的富商，善于算计",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000002c",
+          "title": "市井混混",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "油嘴滑舌，地痞无赖，语速快且轻浮",
+          "rateOffset": 10,
+          "pitchOffset": 5,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000002d",
+          "title": "青楼花魁",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "风情万种，才艺双绝，声音柔媚入骨",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000002e",
+          "title": "说书人",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "抑扬顿挫，拍案惊奇，市井说书先生的韵律感",
+          "rateOffset": 5,
+          "pitchOffset": 0,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-00000000002f",
+          "title": "富商夫人",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "养尊处优，精明势利，语带几分骄矜",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000030",
+          "title": "采药老人",
+          "sourceVoiceID": "zh-CN-henan-YundengNeural",
+          "voiceSuggestion": "饱经风霜，山野老人，语速缓慢而淳朴",
+          "rateOffset": -20,
+          "pitchOffset": -15,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000031",
+          "title": "老顽童",
+          "sourceVoiceID": "zh-CN-shaanxi-XiaoniNeural",
+          "voiceSuggestion": "童心未泯，陕西口音的老前辈，滑稽可爱",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000032",
+          "title": "边疆守将",
+          "sourceVoiceID": "zh-CN-liaoning-XiaobeiNeural",
+          "voiceSuggestion": "塞外风霜，辽东口音，粗犷忠勇",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000033",
+          "title": "忠臣",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "直言敢谏，刚正不阿，忧国忧民",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000034",
+          "title": "奸臣",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "阴险狡诈，口蜜腹剑，话中带刺",
           "rateOffset": -10,
           "pitchOffset": -8,
           "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000035",
+          "title": "皇太后",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "历经三朝，雍容华贵，语重心长中暗藏权谋",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000036",
+          "title": "西域舞姬",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "异域风情，热情奔放，语调婉转妩媚",
+          "rateOffset": 5,
+          "pitchOffset": 15,
+          "style": "cheerful"
         }
       ]
     }
