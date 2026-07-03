@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "exportedAt": "2026-07-03T00:00:00Z",
+  "templates": [
+    {
+      "id": "a1b2c3d4-0005-4000-8000-000000000001",
+      "name": "科幻未来",
+      "roles": [
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000011",
+          "title": "旁白",
+          "voiceSuggestion": "Bo:冷静理性的叙述,带科技感和未来感",
+          "rateOffset": -10,
+          "pitchOffset": 0,
+          "style": "determined"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000012",
+          "title": "主角(理性型)",
+          "voiceSuggestion": "Yunxi:头脑冷静,逻辑清晰,情绪克制但也有爆发",
+          "rateOffset": -5,
+          "pitchOffset": 3,
+          "style": "narration-relaxed"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000013",
+          "title": "AI/系统",
+          "voiceSuggestion": "Xiaoxiao:机械中性,无感情但有温度的设计,或御姐AI",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "assistant"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000014",
+          "title": "女主(科学家/战士)",
+          "voiceSuggestion": "Xiaomo:干练果断,可盐可甜,适应各种极端环境",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000015",
+          "title": "反派(疯狂科学家/外星势力)",
+          "voiceSuggestion": "Yunye:偏执疯狂,低沉压抑中透出危险",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000016",
+          "title": "飞船/基地广播",
+          "voiceSuggestion": "Xiaoxiao:官方播音腔,通知通告,冷静专业",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "newscast"
+        },
+        {
+          "id": "a1b2c3d4-0005-4000-8000-000000000017",
+          "title": "外星生物/变异体",
+          "voiceSuggestion": "Xiaomo:扭曲诡异,非人感,情绪极度不稳定",
+          "rateOffset": 15,
+          "pitchOffset": -20,
+          "style": "fearful"
+        }
+      ]
+    }
+  ]
+}

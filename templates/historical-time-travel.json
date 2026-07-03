@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "exportedAt": "2026-07-03T00:00:00Z",
+  "templates": [
+    {
+      "id": "a1b2c3d4-0003-4000-8000-000000000001",
+      "name": "历史穿越",
+      "roles": [
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000011",
+          "title": "旁白",
+          "voiceSuggestion": "Yunyang:醇厚叙事感,有说书人的韵味",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "professional"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000012",
+          "title": "穿越男主",
+          "voiceSuggestion": "Yunxi:少年感,现代思维碰撞古代规则,语调富有变化",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "narration-relaxed"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000013",
+          "title": "古代女主(大家闺秀)",
+          "voiceSuggestion": "Xiaoxiao:温婉端庄,知书达理,轻声细语",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000014",
+          "title": "谋士/军师",
+          "voiceSuggestion": "Bo:沉稳理性,足智多谋,语调笃定",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "determined"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000015",
+          "title": "将军/武将",
+          "voiceSuggestion": "Yunjian:刚毅勇武,号令三军,中气十足",
+          "rateOffset": 0,
+          "pitchOffset": -3,
+          "style": "sports-commentary"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000016",
+          "title": "丫鬟/侍女",
+          "voiceSuggestion": "Xiaoshuang:伶俐乖巧,活泼机灵",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-000000000017",
+          "title": "反派(奸臣/宦官)",
+          "voiceSuggestion": "Yunye:阴险狡诈,话中带刺,压低嗓音",
+          "rateOffset": -10,
+          "pitchOffset": -8,
+          "style": "disgruntled"
+        }
+      ]
+    }
+  ]
+}
