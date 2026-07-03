@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "exportedAt": "2026-07-03T00:00:00Z",
+  "templates": [
+    {
+      "id": "a1b2c3d4-0008-4000-8000-000000000001",
+      "name": "武侠江湖",
+      "fallbackMaleVoiceID": "zh-CN-YunyeNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
+      "roles": [
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000011",
+          "title": "旁白",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "沧桑厚重，说尽江湖恩怨，语调抑扬顿挫如说书人",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000012",
+          "title": "大侠男主",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "意气风发，侠肝义胆，声线朗朗正气凛然",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000013",
+          "title": "侠女女主",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "英姿飒爽，不让须眉，巾帼不让须眉的豪气",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000014",
+          "title": "武林盟主",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "威震八方，号令群雄，语速沉稳不怒自威",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000015",
+          "title": "反派魔头",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "狂傲邪魅，目空一切，声音低沉中带着癫狂",
+          "rateOffset": -10,
+          "pitchOffset": -10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000016",
+          "title": "少林高僧",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "佛法无边，慈悲为怀，声如洪钟禅意悠远",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000017",
+          "title": "武当道长",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "仙风道骨，太极圆转，语调平和暗藏玄机",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000018",
+          "title": "丐帮帮主",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "豪爽仗义，不拘小节，带山东口音的粗犷与豁达",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000019",
+          "title": "绝色女魔头",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "倾城妖娆，亦正亦邪，声线妩媚中带着凄凉",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "sad"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000001a",
+          "title": "江湖郎中",
+          "sourceVoiceID": "zh-CN-henan-YundengNeural",
+          "voiceSuggestion": "油嘴滑舌，半真半假，带河南口音的游方骗术",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000001b",
+          "title": "客栈老板娘",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "风韵犹存，八面玲珑，迎来送往笑语盈盈",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000001c",
+          "title": "天下第一剑客",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "孤高傲世，剑道通神，话语简洁冷冽如剑锋",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000001d",
+          "title": "神医",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "淡泊名利，妙手回春，语气平和看淡生死",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000001e",
+          "title": "暗器高手",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "阴冷诡异，出手无形，声线飘忽令人防不胜防",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000001f",
+          "title": "豪门千金",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "知书达理，大家闺秀，温婉端庄中不失主见",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000020",
+          "title": "邪教护法",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "阴鸷狠毒，忠心不二，声线阴沉令人胆寒",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000021",
+          "title": "老乞丐",
+          "sourceVoiceID": "zh-CN-liaoning-XiaobeiNeural",
+          "voiceSuggestion": "邋遢落魄，深藏不露，带东北口音的疯癫与智慧",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000022",
+          "title": "铸剑大师",
+          "sourceVoiceID": "zh-CN-guangxi-YunqiNeural",
+          "voiceSuggestion": "痴迷铸剑，性格执拗，带广西口音的专注与狂热",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000023",
+          "title": "青楼花魁",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "倾国倾城，才艺双绝，声线柔媚撩人心魄",
+          "rateOffset": 0,
+          "pitchOffset": 10,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000024",
+          "title": "山匪头子",
+          "sourceVoiceID": "zh-CN-liaoning-YunbiaoNeural",
+          "voiceSuggestion": "凶神恶煞，占山为王，带东北口音的蛮横霸道",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000025",
+          "title": "镖局总镖头",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "重信守诺，刀口舔血，声线沉稳饱经风霜",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000026",
+          "title": "苗疆圣女",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "神秘空灵，精通蛊术，声线缥缈如林间幽泉",
+          "rateOffset": 0,
+          "pitchOffset": 10,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000027",
+          "title": "朝廷密探",
+          "sourceVoiceID": "zh-CN-sichuan-YunxiNeural",
+          "voiceSuggestion": "狡诈机敏，伪装高手，带四川方言的市井伪装",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000028",
+          "title": "隐世高僧",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "看破红尘，不语凡尘，每句话都蕴含禅机",
+          "rateOffset": -20,
+          "pitchOffset": -10,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000029",
+          "title": "世外仙姑",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "温柔出尘，不食人间烟火，声音如春风拂面",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000002a",
+          "title": "少林武僧",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "赤诚刚猛，金刚怒目，声如铜钟正气浩然",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000002b",
+          "title": "武当大师姐",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "清冷严厉，代师授艺，语气中透着对自己的高要求",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000002c",
+          "title": "唐门门主",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "深沉内敛，用毒世家，语调平静却令人畏惧",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000002d",
+          "title": "天山童姥",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "童颜老怪，喜怒无常，声音稚嫩却老气横秋",
+          "rateOffset": 10,
+          "pitchOffset": 18,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000002e",
+          "title": "塞外刀客",
+          "sourceVoiceID": "zh-CN-shaanxi-XiaoniNeural",
+          "voiceSuggestion": "风沙磨砺，独行天涯，带陕西口音的沧桑与孤傲",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-00000000002f",
+          "title": "江南才子",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "风流倜傥，吟诗作赋，声线温润如玉儒雅随和",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000030",
+          "title": "蒙古勇士",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "粗犷豪迈，骑射无双，声如洪钟带着草原的野性",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000031",
+          "title": "女飞贼",
+          "sourceVoiceID": "zh-CN-XiaoyuNeural",
+          "voiceSuggestion": "狡黠灵动，来去如风，声音俏皮带着得意",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000032",
+          "title": "丐帮长老",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "德高望重，手持打狗棒，言语间透着江湖智慧",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000033",
+          "title": "魔教圣女",
+          "sourceVoiceID": "zh-CN-XiaochenNeural",
+          "voiceSuggestion": "凄美决绝，为爱叛教，声音哀婉中带着决然",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000034",
+          "title": "小和尚",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "天真无邪，懵懂问道，声音清脆充满好奇",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000035",
+          "title": "崆峒掌门",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "古板守旧，门派之见极深，语气中充满固执",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0008-4000-8000-000000000036",
+          "title": "峨眉师太",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "清规戒律，不近人情，语调严厉如寒冰",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        }
+      ]
+    }
+  ]
+}

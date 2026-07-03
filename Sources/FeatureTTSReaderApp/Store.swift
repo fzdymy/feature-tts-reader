@@ -168,9 +168,18 @@ final class ReaderStore: NSObject, ObservableObject {
     // MARK: - 推荐模板
 
     func loadRoleTemplates() {
-        guard let data = UserDefaults.standard.data(forKey: "roleTemplates"),
-              let templates = try? JSONDecoder().decode([RoleTemplate].self, from: data) else { return }
+        if let data = UserDefaults.standard.data(forKey: "roleTemplates"),
+           let templates = try? JSONDecoder().decode([RoleTemplate].self, from: data) {
+            roleTemplates = templates
+        } else {
+            loadBundledTemplates()
+        }
+    }
+
+    private func loadBundledTemplates() {
+        guard let templates = DefaultTemplates.load() else { return }
         roleTemplates = templates
+        saveRoleTemplates()
     }
 
     private func saveRoleTemplates() {
@@ -191,10 +200,18 @@ final class ReaderStore: NSObject, ObservableObject {
         defaultFallbackPitchOffset = template.fallbackPitchOffset
         defaultFallbackStyle = template.fallbackStyle
         for role in template.roles where !role.title.isEmpty {
-            if !characters.contains(where: { $0.name == role.title }) {
+            if let i = characters.firstIndex(where: { $0.name == role.title }) {
+                if !role.voiceSuggestion.isEmpty && !characters[i].aliases.contains(role.voiceSuggestion) {
+                    characters[i].aliases.append(role.voiceSuggestion)
+                }
+            } else {
+                var roleType = CharacterRole.character
+                if role.title.contains("旁白") || role.title.contains("叙述") { roleType = .narrator }
+                let isNarr = roleType == .narrator
                 let profile = CharacterProfile(
                     id: UUID(),
                     name: role.title,
+                    aliases: role.voiceSuggestion.isEmpty ? [] : [role.voiceSuggestion],
                     gender: "",
                     age: "",
                     tone: "",
@@ -202,7 +219,9 @@ final class ReaderStore: NSObject, ObservableObject {
                     rate: role.rateOffset,
                     pitch: role.pitchOffset,
                     style: role.style,
-                    sensitivity: 50
+                    sensitivity: 50,
+                    isNarrator: isNarr,
+                    role: roleType
                 )
                 characters.append(profile)
             }

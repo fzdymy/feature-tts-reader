@@ -79,8 +79,12 @@ struct CharacterAssignmentPanel: View {
                 }
                 Spacer()
                 if isScanning {
-                    ProgressView()
-                        .progressViewStyle(.circular)
+                    if scanProgress > 0 {
+                        Text("\(Int(scanProgress * 100))%")
+                            .font(.caption).foregroundColor(.accentColor)
+                    } else {
+                        ProgressView().progressViewStyle(.circular).scaleEffect(0.8)
+                    }
                 } else {
                     Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
                 }
@@ -91,12 +95,13 @@ struct CharacterAssignmentPanel: View {
 
     private func prepareScan() {
         let len = book.text.count
+        let wan = Double(len) / 10000
         if len > 50000 {
-            scanEstimate = "约 \(len / 50000) 分钟 (\(len) 字)"
+            scanEstimate = "约 \(len / 50000) 分钟（\(String(format: "%.1f", wan)) 万字）"
         } else if len > 10000 {
-            scanEstimate = "约 \(max(1, len / 10000)) 分钟 (\(len) 字)"
+            scanEstimate = "约 \(max(1, len / 10000)) 分钟（\(String(format: "%.1f", wan)) 万字）"
         } else {
-            scanEstimate = "文本较短，可快速完成"
+            scanEstimate = "文本较短，可快速完成（\(String(format: "%.1f", wan)) 万字）"
         }
         showScanConfirm = true
     }
@@ -149,16 +154,65 @@ struct CharacterAssignmentPanel: View {
         isScanning = true
         scanProgress = 0
         Task {
-            // 分块进度模拟——实际扫描由 store.scanCharacters 完成
-            let totalChunks = 10
-            for i in 0..<totalChunks {
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                await MainActor.run { scanProgress = Double(i + 1) / Double(totalChunks) }
+            let chunkSize = max(book.text.count / 10, 1)
+            var allNames: [String: Int] = [:]
+            let analyzer = CharacterAnalyzer()
+            await withTaskGroup(of: (chunkIndex: Int, names: [String: Int]).self) { group in
+                for i in 0..<10 {
+                    let start = i * chunkSize
+                    let end = min(start + chunkSize, book.text.count)
+                    guard start < end else { break }
+                    let chunk = String(book.text[book.text.index(book.text.startIndex, offsetBy: start)..<book.text.index(book.text.startIndex, offsetBy: end)])
+                    group.addTask {
+                        let names = analyzer.extractCharacterNames(from: chunk)
+                        var map: [String: Int] = [:]
+                        for n in names { map[n, default: 0] += 1 }
+                        return (i, map)
+                    }
+                }
+                for await result in group {
+                    for (name, count) in result.names {
+                        allNames[name, default: 0] += count
+                    }
+                    await MainActor.run {
+                        scanProgress = Double(result.chunkIndex + 1) / 10.0
+                    }
+                }
             }
-            await store.scanCharacters(chapterText: book.text)
+            var inferred = allNames.sorted { $0.value > $1.value }.map { name, count in
+                CharacterProfile(
+                    id: UUID(),
+                    name: name.key,
+                    gender: "",
+                    age: "",
+                    tone: "",
+                    voice: store.defaultVoice(for: "", tone: "", name: name.key, voices: store.voices),
+                    rate: 0,
+                    pitch: 0,
+                    style: "neutral",
+                    sensitivity: store.defaultSensitivity
+                )
+            }
+            if inferred.isEmpty {
+                inferred = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性",
+                    voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: store.voices),
+                    rate: 0, pitch: 0, style: "neutral", sensitivity: store.defaultSensitivity)]
+            } else if !inferred.contains(where: { $0.isNarrator }) {
+                inferred.insert(CharacterProfile(
+                    id: UUID(), name: "旁白", gender: "未知", age: "未知", tone: "平稳",
+                    voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: store.voices),
+                    rate: 0, pitch: 0, style: "neutral", sensitivity: store.defaultSensitivity,
+                    isNarrator: true, role: .narrator
+                ), at: 0)
+            }
             await MainActor.run {
+                store.characters = inferred
+                store.lastScannedBookText = book.text
+                store.updateRecommendations(from: book.text)
+                store.saveState()
                 isScanning = false
                 showScanConfirm = false
+                store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色"
             }
         }
     }
@@ -248,6 +302,15 @@ struct CharacterAssignmentPanel: View {
                         Text(profile.role.displayName)
                             .font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Color.green.opacity(0.12)).cornerRadius(4)
+                    }
+                    if !profile.aliases.isEmpty {
+                        ForEach(profile.aliases.prefix(2), id: \.self) { alias in
+                            Text(alias).font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.12)).cornerRadius(4)
+                        }
+                    }
+                    if !profile.info.isEmpty {
+                        Text(profile.info).font(.caption2).foregroundColor(.secondary)
                     }
                 }
                 voiceDetailText(profile)

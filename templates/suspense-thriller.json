@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "exportedAt": "2026-07-03T00:00:00Z",
+  "templates": [
+    {
+      "id": "a1b2c3d4-0006-4000-8000-000000000001",
+      "name": "悬疑惊悚",
+      "fallbackMaleVoiceID": "zh-CN-YunyeNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
+      "roles": [
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000011",
+          "title": "旁白",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "沉稳冷静，悬疑氛围的铺陈者，语速平缓暗藏玄机",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000012",
+          "title": "刑侦探长",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "敏锐干练，正义凛然，逻辑缜密，语气坚定有力",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000013",
+          "title": "女法医",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "冷静专业，见惯生死，语调平淡却暗藏悲悯",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000014",
+          "title": "被害人家属",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "悲痛欲绝，泣不成声，情绪崩溃边缘的颤抖",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "sad"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000015",
+          "title": "头号嫌疑人",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "阴沉诡谲，闪烁其词，言语间真伪难辨",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000016",
+          "title": "神秘杀手",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "冷酷无情，杀气凛然，嗓音低哑令人不寒而栗",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000017",
+          "title": "资深记者",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "犀利敏锐，追求真相，语速快而有力，职业嗅觉敏锐",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000018",
+          "title": "心理医生",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "温和专业，循循善诱，语调平缓带着安抚的力量",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000019",
+          "title": "菜鸟警员",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "热血稚嫩，初生牛犊，语气中带着兴奋与紧张",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000001a",
+          "title": "黑帮老大",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "老谋深算，笑里藏刀，语速缓慢却暗藏威胁",
+          "rateOffset": -15,
+          "pitchOffset": -10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000001b",
+          "title": "受害者闺蜜",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "惊慌失措，恐惧不安，声音颤抖语无伦次",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "fearful"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000001c",
+          "title": "犯罪心理学家",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "理性深邃，洞察人心，语速不疾不徐分析入微",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000001d",
+          "title": "实验室技术员",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "严谨专注，沉迷数据，语气机械不带情感色彩",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000001e",
+          "title": "目击者老妇",
+          "sourceVoiceID": "zh-CN-liaoning-XiaobeiNeural",
+          "voiceSuggestion": "苍老絮叨，惊魂未定，带东北口音的质朴与恐惧",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "fearful"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000001f",
+          "title": "沉默真凶",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "阴沉压抑，言语稀少，每个字都透着诡异的气息",
+          "rateOffset": -20,
+          "pitchOffset": -10,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000020",
+          "title": "女检察官",
+          "sourceVoiceID": "zh-CN-XiaoyiNeural",
+          "voiceSuggestion": "威严干练，义正辞严，正义的化身，语速铿锵",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000021",
+          "title": "特警队长",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "杀伐果断，行动派，言语简练短促，不容置疑",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000022",
+          "title": "死者遗孀",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "哀婉绝望，心如死灰，声音空洞带着哭腔",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "sad"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000023",
+          "title": "卧底警察",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "豪爽伪装，粗中有细，带山东口音掩护身份",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000024",
+          "title": "审讯专家",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "老辣沉稳，心理博弈高手，语调平缓施压",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000025",
+          "title": "连环杀手",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "变态扭曲，病态兴奋，声线忽高忽低令人毛骨悚然",
+          "rateOffset": 0,
+          "pitchOffset": 10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000026",
+          "title": "法证专家",
+          "sourceVoiceID": "zh-CN-XiaochenNeural",
+          "voiceSuggestion": "理性冷静，专注物证，语气客观不带感情",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000027",
+          "title": "受害者妹妹",
+          "sourceVoiceID": "zh-CN-XiaoyouNeural",
+          "voiceSuggestion": "年轻惶恐，悲痛中带着不甘，声音清脆带哭腔",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "fearful"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000028",
+          "title": "黑道律师",
+          "sourceVoiceID": "zh-CN-sichuan-YunxiNeural",
+          "voiceSuggestion": "狡诈油滑，钻法律空子，带四川方言的痞气",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000029",
+          "title": "女法警",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "英姿飒爽，刚正不阿，干脆利落中带一丝温柔",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000002a",
+          "title": "私家侦探",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "玩世不恭，街头智慧，语调慵懒但观察入微",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000002b",
+          "title": "警局资料员",
+          "sourceVoiceID": "zh-CN-henan-YundengNeural",
+          "voiceSuggestion": "朴实无华，略显木讷，带河南口音的踏实感",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000002c",
+          "title": "毒枭",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "残忍暴戾，喜怒无常，笑声中带着杀意",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000002d",
+          "title": "人质",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "惊恐绝望，瑟瑟发抖，声音细弱带着哭腔",
+          "rateOffset": 10,
+          "pitchOffset": 18,
+          "style": "fearful"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000002e",
+          "title": "现场女记者",
+          "sourceVoiceID": "zh-CN-XiaoyuNeural",
+          "voiceSuggestion": "语速极快，职业素养高，现场播报充满紧迫感",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-00000000002f",
+          "title": "老刑警",
+          "sourceVoiceID": "zh-CN-guangxi-YunqiNeural",
+          "voiceSuggestion": "经验老到，阅尽沧桑，带广西口音的沉稳老辣",
+          "rateOffset": -10,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000030",
+          "title": "精神病患者",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "疯癫无常，自言自语，语调古怪令人不安",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "depressed"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000031",
+          "title": "法医助理",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "年轻好学，略带紧张，面对尸体的强装镇定",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000032",
+          "title": "警局副局长",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "官僚圆滑，处事谨慎，语调中透着政治考量",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000033",
+          "title": "神秘线人",
+          "sourceVoiceID": "zh-CN-shaanxi-XiaoniNeural",
+          "voiceSuggestion": "鬼鬼祟祟，见不得光，带陕西口音的警惕与狡黠",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "fearful"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000034",
+          "title": "黑帮二当家",
+          "sourceVoiceID": "zh-CN-liaoning-YunbiaoNeural",
+          "voiceSuggestion": "凶狠暴躁，心狠手辣，带东北口音的蛮横",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000035",
+          "title": "催眠师",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "声音飘渺，充满暗示性，语速极慢带有催眠节奏",
+          "rateOffset": -20,
+          "pitchOffset": -15,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0006-4000-8000-000000000036",
+          "title": "安全屋看守",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "沉默寡言，忠于职守，言语简短有力",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        }
+      ]
+    }
+  ]
+}

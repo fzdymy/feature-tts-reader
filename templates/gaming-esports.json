@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "exportedAt": "2026-07-03T00:00:00Z",
+  "templates": [
+    {
+      "id": "a1b2c3d4-0007-4000-8000-000000000001",
+      "name": "游戏竞技",
+      "fallbackMaleVoiceID": "zh-CN-YunyangNeural",
+      "fallbackFemaleVoiceID": "zh-CN-XiaoxiaoNeural",
+      "fallbackRateOffset": 0,
+      "fallbackPitchOffset": 0,
+      "fallbackStyle": "neutral",
+      "roles": [
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000011",
+          "title": "旁白",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "热血激昂，赛事氛围的营造者，声线充满张力",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000012",
+          "title": "职业选手男主",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "天才少年，自信张扬，操作犀利语速快，电竞热血",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000013",
+          "title": "战队女经理",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "干练飒爽，统筹全局，语速快而果断，职场女强人",
+          "rateOffset": 5,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000014",
+          "title": "金牌教练",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "运筹帷幄，战术大师，语气沉稳中暗藏锋芒",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000015",
+          "title": "战队队长",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "领袖气质，临危不乱，指挥时充满压迫感",
+          "rateOffset": 0,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000016",
+          "title": "天才新人",
+          "sourceVoiceID": "zh-CN-XiaoyouNeural",
+          "voiceSuggestion": "青涩稚嫩，天赋异禀，说话带着少年的腼腆与兴奋",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000017",
+          "title": "官方解说A",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "激情澎湃，口若悬河，团战解说语速极快极具感染力",
+          "rateOffset": 10,
+          "pitchOffset": 5,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000018",
+          "title": "美女解说",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "声音甜美，专业流畅，分析到位又不失亲和力",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000019",
+          "title": "战队分析师",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "理性冷静，数据为王，语气平缓透着专业自信",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000001a",
+          "title": "铁杆粉丝",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "热情似火，死忠粉，加油呐喊中带着真挚的情感",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000001b",
+          "title": "对手战队队长",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "高傲自负，王者风范，言语中带着挑衅与不屑",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000001c",
+          "title": "直播平台主播",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "元气满满，互动性强，直播间气氛担当，俏皮活泼",
+          "rateOffset": 10,
+          "pitchOffset": 15,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000001d",
+          "title": "战队投资人",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "商界精英，谈笑间决策，语调从容但暗藏计算",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000001e",
+          "title": "战队领队",
+          "sourceVoiceID": "zh-CN-XiaozhenNeural",
+          "voiceSuggestion": "温柔耐心，事无巨细，像大姐姐一样照顾队员",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000001f",
+          "title": "替补队员",
+          "sourceVoiceID": "zh-CN-XiaoruiNeural",
+          "voiceSuggestion": "默默努力，渴望上场，语气中带着不甘与期待",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000020",
+          "title": "外援选手",
+          "sourceVoiceID": "zh-CN-liaoning-YunbiaoNeural",
+          "voiceSuggestion": "性格豪爽，心直口快，带东北口音的直率与幽默",
+          "rateOffset": 5,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000021",
+          "title": "战队后勤",
+          "sourceVoiceID": "zh-CN-henan-YundengNeural",
+          "voiceSuggestion": "朴实勤恳，默默付出，带河南口音的踏实可靠",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000022",
+          "title": "电竞记者",
+          "sourceVoiceID": "zh-CN-XiaoyanNeural",
+          "voiceSuggestion": "犀利提问，挖掘八卦，语速快问题刁钻",
+          "rateOffset": 10,
+          "pitchOffset": 5,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000023",
+          "title": "黑粉喷子",
+          "sourceVoiceID": "zh-CN-shandong-YunxiangNeural",
+          "voiceSuggestion": "尖酸刻薄，键盘侠，带山东口音的嘲讽与挖苦",
+          "rateOffset": 0,
+          "pitchOffset": 10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000024",
+          "title": "女队队长",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "冷艳霸气，实力超群，话语简短却分量十足",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000025",
+          "title": "青训营教练",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "严格苛刻，恨铁不成钢，训话时声如洪钟",
+          "rateOffset": 0,
+          "pitchOffset": 5,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000026",
+          "title": "比赛裁判",
+          "sourceVoiceID": "zh-CN-XiaoyiNeural",
+          "voiceSuggestion": "公正严肃，按章办事，语气公式化不带感情",
+          "rateOffset": -5,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000027",
+          "title": "队友（辅助位）",
+          "sourceVoiceID": "zh-CN-YunxiaNeural",
+          "voiceSuggestion": "无私奉献，团队核心，配合时话语简短高效",
+          "rateOffset": 5,
+          "pitchOffset": 0,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000028",
+          "title": "队友（打野位）",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "暴躁老哥，操作激进，游戏中语气急躁易怒",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "angry"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000029",
+          "title": "队友（上单位）",
+          "sourceVoiceID": "zh-CN-YunjieNeural",
+          "voiceSuggestion": "沉稳可靠，抗压能力强，关键时刻一锤定音",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "neutral"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000002a",
+          "title": "队友（ADC位）",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "骚话连篇，气氛活跃，比赛也不忘调侃队友",
+          "rateOffset": 10,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000002b",
+          "title": "战队老板",
+          "sourceVoiceID": "zh-CN-YunjianNeural",
+          "voiceSuggestion": "财大气粗，豪掷千金，言语中透着我全都要的霸气",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000002c",
+          "title": "冠军队长",
+          "sourceVoiceID": "zh-CN-YunfengNeural",
+          "voiceSuggestion": "王者风范，自信从容，获奖感言沉稳大气",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000002d",
+          "title": "女粉丝后援会长",
+          "sourceVoiceID": "zh-CN-XiaoqiuNeural",
+          "voiceSuggestion": "狂热追星，声嘶力竭，应援时的尖叫与呐喊",
+          "rateOffset": 10,
+          "pitchOffset": 18,
+          "style": "affectionate"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000002e",
+          "title": "电竞解说嘉宾",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "专业退役选手，点评犀利，语速平缓有见地",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "lyrical"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-00000000002f",
+          "title": "俱乐部经理",
+          "sourceVoiceID": "zh-CN-XiaochenNeural",
+          "voiceSuggestion": "精细管理，面面俱到，语气温和但原则性强",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000030",
+          "title": "心理辅导师",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "温柔体谅，疏解压力，电竞队员的心灵港湾",
+          "rateOffset": -5,
+          "pitchOffset": 5,
+          "style": "gentle"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000031",
+          "title": "对手教练",
+          "sourceVoiceID": "zh-CN-guangxi-YunqiNeural",
+          "voiceSuggestion": "老谋深算，战术阴险，带广西口音的算计与布局",
+          "rateOffset": -5,
+          "pitchOffset": -5,
+          "style": "calm"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000032",
+          "title": "线下赛主持人",
+          "sourceVoiceID": "zh-CN-XiaomengNeural",
+          "voiceSuggestion": "控场能力极强，台风稳健，互动调动全场气氛",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000033",
+          "title": "少年天才",
+          "sourceVoiceID": "zh-CN-XiaoyuNeural",
+          "voiceSuggestion": "年轻气盛，天赋碾压，说话带着少年的狂傲",
+          "rateOffset": 10,
+          "pitchOffset": 10,
+          "style": "cheerful"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000034",
+          "title": "职业黑粉头子",
+          "sourceVoiceID": "zh-CN-sichuan-YunxiNeural",
+          "voiceSuggestion": "阴阳怪气，带节奏大师，带四川方言的嘲讽调侃",
+          "rateOffset": 5,
+          "pitchOffset": 10,
+          "style": "disgruntled"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000035",
+          "title": "赛事导演",
+          "sourceVoiceID": "zh-CN-YunzeNeural",
+          "voiceSuggestion": "指挥若定，掌控全场，对讲机里急促专业",
+          "rateOffset": 0,
+          "pitchOffset": 0,
+          "style": "serious"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-000000000036",
+          "title": "电竞校队队长",
+          "sourceVoiceID": "zh-CN-YunhaoNeural",
+          "voiceSuggestion": "青春热血，校园风云人物，声线阳光充满朝气",
+          "rateOffset": 10,
+          "pitchOffset": 5,
+          "style": "cheerful"
+        }
+      ]
+    }
+  ]
+}
