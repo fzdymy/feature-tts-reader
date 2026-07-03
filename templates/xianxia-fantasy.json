@@ -9,31 +9,35 @@
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000011",
           "title": "旁白",
-          "voiceSuggestion": "Yunyang:沉稳叙事,专业感,语速稍慢",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "沉稳叙事，专业感，语速稍慢",
           "rateOffset": -10,
           "pitchOffset": -3,
           "style": "professional"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000012",
-          "title": "男主(热血少年)",
-          "voiceSuggestion": "Yunxi:阳光少年,修行路上成长型,富有朝气",
+          "title": "男主（热血少年）",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "阳光少年，修行路上成长型，富有朝气",
           "rateOffset": 5,
           "pitchOffset": 5,
           "style": "narration-relaxed"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000013",
-          "title": "女主(仙子)",
-          "voiceSuggestion": "Xiaoxiao:清冷女仙,气质出尘,抒情语调",
+          "title": "女主（仙子）",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "清冷女仙，气质出尘，抒情语调",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "lyrical"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000014",
-          "title": "反派(魔尊)",
-          "voiceSuggestion": "Yunye:低沉威压,魔道枭雄,愤怒时爆发力强",
+          "title": "反派（魔尊）",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "低沉威压，魔道枭雄，愤怒时爆发力强",
           "rateOffset": -15,
           "pitchOffset": -10,
           "style": "angry"
@@ -41,15 +45,17 @@
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000015",
           "title": "长老/老者",
-          "voiceSuggestion": "Yunye:仙风道骨,年迈沉稳,语速缓慢",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "仙风道骨，年迈沉稳，语速缓慢",
           "rateOffset": -20,
           "pitchOffset": -15,
           "style": "serious"
         },
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000016",
-          "title": "小师妹(萝莉)",
-          "voiceSuggestion": "Xiaoshuang:活泼可爱,天真烂漫,语速快音调高",
+          "title": "小师妹（萝莉）",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "活泼可爱，天真烂漫，语速快音调高",
           "rateOffset": 10,
           "pitchOffset": 18,
           "style": "cheerful"
@@ -57,7 +63,8 @@
         {
           "id": "a1b2c3d4-0001-4000-8000-000000000017",
           "title": "妖兽/配角",
-          "voiceSuggestion": "Xiaomo:百变龙套,一人分饰多角,情绪多变",
+          "sourceVoiceID": "zh-CN-XiaomoNeural",
+          "voiceSuggestion": "百变龙套，一人分饰多角，情绪多变",
           "rateOffset": 5,
           "pitchOffset": 0,
           "style": "disgruntled"

@@ -8,32 +8,36 @@
       "roles": [
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000011",
-          "title": "旁白(女)",
-          "voiceSuggestion": "Xiaoxiao:抒情叙述,温柔声线带出画面感",
+          "title": "旁白（女）",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "抒情叙述，温柔声线带出画面感",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "lyrical"
         },
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000012",
-          "title": "女主(甜美)",
-          "voiceSuggestion": "Xiaorou:甜美软糯,撒娇可爱,自带治愈感",
+          "title": "女主（甜美）",
+          "sourceVoiceID": "zh-CN-XiaorouNeural",
+          "voiceSuggestion": "甜美软糯，撒娇可爱，自带治愈感",
           "rateOffset": 0,
           "pitchOffset": 5,
           "style": "cheerful"
         },
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000013",
-          "title": "男主(阳光)",
-          "voiceSuggestion": "Yunxi:温暖少年,宠溺又深情,语调温柔",
+          "title": "男主（阳光）",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "温暖少年，宠溺又深情，语调温柔",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "cheerful"
         },
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000014",
-          "title": "男主(高冷)",
-          "voiceSuggestion": "Yunye:话少面冷,但偶尔流露温柔,反差感",
+          "title": "男主（高冷）",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "话少面冷，但偶尔流露温柔，反差感",
           "rateOffset": -10,
           "pitchOffset": -5,
           "style": "serious"
@@ -41,15 +45,17 @@
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000015",
           "title": "闺蜜",
-          "voiceSuggestion": "Xiaoshuang:活泼八卦,元气满满,语速偏快",
+          "sourceVoiceID": "zh-CN-XiaoshuangNeural",
+          "voiceSuggestion": "活泼八卦，元气满满，语速偏快",
           "rateOffset": 10,
           "pitchOffset": 10,
           "style": "cheerful"
         },
         {
           "id": "a1b2c3d4-0004-4000-8000-000000000016",
-          "title": "长辈(父母)",
-          "voiceSuggestion": "Xiaohan:温和慈祥,语速平缓,安定感",
+          "title": "长辈（父母）",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "温和慈祥，语速平缓，安定感",
           "rateOffset": -5,
           "pitchOffset": 0,
           "style": "calm"

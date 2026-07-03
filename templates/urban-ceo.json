@@ -9,15 +9,17 @@
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000011",
           "title": "旁白",
-          "voiceSuggestion": "Yunyang:干练专业的叙述节奏,都市感强",
+          "sourceVoiceID": "zh-CN-YunyangNeural",
+          "voiceSuggestion": "干练专业的叙述节奏，都市感强",
           "rateOffset": -5,
           "pitchOffset": 0,
           "style": "professional"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000012",
-          "title": "男主(霸总)",
-          "voiceSuggestion": "Yunye:低沉磁性,沉稳威严,冰山总裁范",
+          "title": "男主（霸总）",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "低沉磁性，沉稳威严，冰山总裁范",
           "rateOffset": -10,
           "pitchOffset": -5,
           "style": "serious"
@@ -25,15 +27,17 @@
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000013",
           "title": "女主",
-          "voiceSuggestion": "Xiaoxiao:温柔坚韧,独立女性,情感层次丰富",
+          "sourceVoiceID": "zh-CN-XiaoxiaoNeural",
+          "voiceSuggestion": "温柔坚韧，独立女性，情感层次丰富",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "gentle"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000014",
-          "title": "女配(御姐)",
-          "voiceSuggestion": "Lan:清冷御姐,自带疏离感和气场",
+          "title": "女配（御姐）",
+          "sourceVoiceID": "zh-CN-Lan:MAI-Voice-2",
+          "voiceSuggestion": "清冷御姐，自带疏离感和气场",
           "rateOffset": -5,
           "pitchOffset": -5,
           "style": "happy"
@@ -41,7 +45,8 @@
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000015",
           "title": "兄弟/男配",
-          "voiceSuggestion": "Yunxi:阳光开朗,花花公子或铁哥们",
+          "sourceVoiceID": "zh-CN-YunxiNeural",
+          "voiceSuggestion": "阳光开朗，花花公子或铁哥们",
           "rateOffset": 0,
           "pitchOffset": 3,
           "style": "cheerful"
@@ -49,7 +54,8 @@
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000016",
           "title": "秘书/助理",
-          "voiceSuggestion": "Xiaohan:冷静克制,职业化,语音平稳",
+          "sourceVoiceID": "zh-CN-XiaohanNeural",
+          "voiceSuggestion": "冷静克制，职业化，语音平稳",
           "rateOffset": 0,
           "pitchOffset": 0,
           "style": "calm"
@@ -57,7 +63,8 @@
         {
           "id": "a1b2c3d4-0002-4000-8000-000000000017",
           "title": "反派/对手",
-          "voiceSuggestion": "Yunye:阴沉狡诈,冷嘲热讽,不屑",
+          "sourceVoiceID": "zh-CN-YunyeNeural",
+          "voiceSuggestion": "阴沉狡诈，冷嘲热讽，不屑",
           "rateOffset": -15,
           "pitchOffset": -8,
           "style": "disgruntled"

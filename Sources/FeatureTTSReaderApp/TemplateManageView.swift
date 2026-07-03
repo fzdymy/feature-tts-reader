@@ -131,6 +131,7 @@ struct TemplateManageView: View {
 
 struct TemplateEditView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: ReaderStore
     let template: RoleTemplate?
     let onSave: (RoleTemplate) -> Void
 
@@ -164,7 +165,14 @@ struct TemplateEditView: View {
                                 TextField("角色名", text: $role.title)
                                     .font(.subheadline)
                             }
-                            TextField("音色建议（如：沉稳男声·青年）", text: $role.voiceSuggestion)
+                            Picker("音色", selection: $role.sourceVoiceID) {
+                                Text("未选择").tag("")
+                                ForEach(store.voices) { voice in
+                                    Text("\(voice.name) (\(voice.gender.displayName))").tag(voice.id)
+                                }
+                            }
+                            .font(.caption)
+                            TextField("音色备注（如：沉稳男声·青年）", text: $role.voiceSuggestion)
                                 .font(.caption)
                             HStack(spacing: 12) {
                                 Stepper("语速: \(role.rateOffset)", value: $role.rateOffset, in: -100...100, step: 5)

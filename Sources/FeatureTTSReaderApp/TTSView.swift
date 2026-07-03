@@ -217,8 +217,13 @@ struct TTSView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(template.name).font(.subheadline).fontWeight(.semibold)
                         ForEach(template.roles.prefix(3)) { role in
-                            Text("  ·  \(role.title): \(role.voiceSuggestion)")
+                            let voiceName = store.voices.first(where: { $0.id == role.sourceVoiceID })?.name ?? role.sourceVoiceID
+                            Text("  ·  \(role.title): \(voiceName)")
                                 .font(.caption2).foregroundColor(.secondary)
+                            if !role.voiceSuggestion.isEmpty {
+                                Text("       \(role.voiceSuggestion)")
+                                    .font(.caption2).foregroundColor(.tertiary)
+                            }
                         }
                         if template.roles.count > 3 {
                             Text("  ·  +\(template.roles.count - 3) 个角色")

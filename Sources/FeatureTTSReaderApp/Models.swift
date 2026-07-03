@@ -397,15 +397,18 @@ struct RoleTemplate: Identifiable, Hashable, Codable {
 struct TemplateRole: Identifiable, Hashable, Codable {
     let id: UUID
     var title: String
+    var sourceVoiceID: String
     var voiceSuggestion: String
     var rateOffset: Int
     var pitchOffset: Int
     var style: String
 
-    init(id: UUID = UUID(), title: String, voiceSuggestion: String = "",
+    init(id: UUID = UUID(), title: String, sourceVoiceID: String = "",
+         voiceSuggestion: String = "",
          rateOffset: Int = 0, pitchOffset: Int = 0, style: String = "neutral") {
         self.id = id
         self.title = title
+        self.sourceVoiceID = sourceVoiceID
         self.voiceSuggestion = voiceSuggestion
         self.rateOffset = rateOffset
         self.pitchOffset = pitchOffset
