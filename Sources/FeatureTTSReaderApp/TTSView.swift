@@ -23,8 +23,6 @@ struct TTSView: View {
         }
     }
 
-    // MARK: - 服务器
-
     private var serverPicker: some View {
         Section("TTS 服务器") {
             if store.ttsServers.isEmpty {
@@ -44,15 +42,12 @@ struct TTSView: View {
         }
     }
 
-    // MARK: - 音色目录
-
     private var catalogSection: some View {
         Section("音色") {
             HStack(spacing: 12) {
                 catalogButton(.chinese35)
                 catalogButton(.fullChinese)
             }
-
             NavigationLink(destination: VoiceFineTuneView().environmentObject(store)) {
                 Label("微调管理", systemImage: "slider.horizontal.3")
             }
@@ -73,8 +68,6 @@ struct TTSView: View {
         .buttonStyle(.borderless)
     }
 
-    // MARK: - 朗读
-
     private var playbackSection: some View {
         Section("朗读") {
             if !store.chapters.isEmpty {
@@ -85,35 +78,21 @@ struct TTSView: View {
                 }
                 Button("停止", role: .destructive) { store.stopPlayback() }
             }
-
             if store.playProgress > 0 {
                 ProgressView(value: store.playProgress)
             }
         }
     }
 
-    // MARK: - 导入
-
     private var importSection: some View {
         Section("导入") {
-            TextEditor(text: Binding(
-                get: { store.bookText },
-                set: { _ in }
-            ))
-            .frame(minHeight: 120)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
-
-            if store.importProgress > 0 {
-                ProgressView(value: store.importProgress)
+            NavigationLink(destination: ImportTextView().environmentObject(store)) {
+                Label("编辑文本", systemImage: "square.and.pencil")
             }
-
-            Button("导入文本") { Task { await store.importText(store.bookText) } }
             Button("扫描章节") { Task { await store.parseChaptersAsync() } }
             Button("识别角色") { Task { await store.scanCharacters() } }
         }
     }
-
-    // MARK: - 状态
 
     private var statusSection: some View {
         Section("状态") {
@@ -121,6 +100,25 @@ struct TTSView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+struct ImportTextView: View {
+    @EnvironmentObject private var store: ReaderStore
+    @State private var text: String = ""
+
+    var body: some View {
+        VStack {
+            TextEditor(text: $text)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
+                .padding()
+            Button("导入") {
+                Task { await store.importText(text) }
+            }
+            .padding()
+        }
+        .navigationTitle("编辑文本")
+        .onAppear { text = String(store.bookText.prefix(50000)) }
     }
 }
 
