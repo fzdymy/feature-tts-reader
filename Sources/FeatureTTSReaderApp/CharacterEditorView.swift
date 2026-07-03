@@ -104,7 +104,11 @@ struct CharacterEditorView: View {
             do {
                 let text = "我是\(profile.name)，TTS多角色小说阅读器听《\(store.books.first?.title ?? "未知书籍")》真爽。"
                 let url = try await request.synthesizeAudio(text: text, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style)
-                samplePlayer = try AVAudioPlayer(contentsOf: url)
+                do {
+                    samplePlayer = try AVAudioPlayer(contentsOf: url)
+                } catch {
+                    throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频播放器初始化失败: \(error.localizedDescription)"])
+                }
                 samplePlayer?.prepareToPlay()
                 samplePlayer?.play()
                 isPlaying = false

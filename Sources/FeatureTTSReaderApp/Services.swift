@@ -36,6 +36,16 @@ actor TTSHttpClient {
             throw NSError(domain: "TTSHttpClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "合成失败，状态码：\(http.statusCode)，返回：\(message)"])
         }
 
+        guard data.count > 4 else {
+            throw NSError(domain: "TTSHttpClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "返回数据为空或过短，服务器可能返回了错误页面"])
+        }
+        let isID3 = data[0] == 0x49 && data[1] == 0x44 && data[2] == 0x33
+        let isMPEG = data[0] == 0xFF
+        if !isID3 && !isMPEG {
+            let preview = String(data: data.prefix(200), encoding: .utf8) ?? "二进制数据"
+            throw NSError(domain: "TTSHttpClient", code: -2, userInfo: [NSLocalizedDescriptionKey: "服务器返回的数据不是有效MP3音频(开头: \(preview))"])
+        }
+
         let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let ttsDir = cachesDir.appendingPathComponent("tts_audio", isDirectory: true)
         try? FileManager.default.createDirectory(at: ttsDir, withIntermediateDirectories: true)

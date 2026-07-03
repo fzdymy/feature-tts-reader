@@ -481,6 +481,8 @@ struct BookDetailView: View {
                     } else {
                         InfoRow(label: "章节数", value: "\(chapterCount)")
                     }
+                    let wan = Double(book.text.count) / 10000
+                    InfoRow(label: "字数", value: "\(String(format: "%.1f", wan)) 万字")
                 }
             }
 

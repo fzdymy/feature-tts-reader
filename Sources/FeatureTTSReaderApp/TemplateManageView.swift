@@ -285,6 +285,30 @@ struct TemplateManageView: View {
                         Text("serious").tag("serious")
                     }
                 }
+                Section {
+                    Button(role: .destructive) {
+                        if let tid = editingRoleTemplateID,
+                           let ti = store.roleTemplates.firstIndex(where: { $0.id == tid }),
+                           let ri = store.roleTemplates[ti].roles.firstIndex(where: { $0.id == role.id }) {
+                            store.roleTemplates[ti].roles.remove(at: ri)
+                            store.saveRoleTemplates()
+                            editingRole = nil
+                        }
+                    } label: {
+                        Label("删除此角色", systemImage: "trash")
+                    }
+                    Button {
+                        if let tid = editingRoleTemplateID,
+                           let ti = store.roleTemplates.firstIndex(where: { $0.id == tid }) {
+                            let newRole = TemplateRole(title: "新角色", sourceVoiceID: role.sourceVoiceID, voiceSuggestion: role.voiceSuggestion, rateOffset: role.rateOffset, pitchOffset: role.pitchOffset, style: role.style)
+                            store.roleTemplates[ti].roles.append(newRole)
+                            store.saveRoleTemplates()
+                            editingRole = nil
+                        }
+                    } label: {
+                        Label("复制此角色到模板", systemImage: "doc.on.doc")
+                    }
+                }
             }
             .navigationTitle("微调角色")
             .toolbar {

@@ -13,7 +13,7 @@ struct CharacterAssignmentPanel: View {
     @State private var showScanConfirm = false
     @State private var showTemplatePicker = false
     @State private var showEditor = false
-    @State private var editingProfile: CharacterProfile?
+    @State private var editingCharacterID: UUID?
     @State private var showAliasEditor = false
     @State private var editingAliasProfile: CharacterProfile?
     @State private var newAliasText: String = ""
@@ -55,7 +55,8 @@ struct CharacterAssignmentPanel: View {
             templatePickerSheet
         }
         .sheet(isPresented: $showEditor) {
-            if let profile = editingProfile {
+            if let id = editingCharacterID,
+               let profile = store.characters.first(where: { $0.id == id }) {
                 CharacterEditorView(character: profile, voices: store.voices) { updated in
                     if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
                         store.characters[i] = updated
@@ -135,16 +136,16 @@ struct CharacterAssignmentPanel: View {
         let wan = Double(len) / 10000
         if len > 50000 {
             let chunks = (len + 49999) / 50000
-            let estSec = chunks / 3
+            let estSec = Int(Double(chunks) * 0.4)
             if estSec < 60 {
                 scanEstimate = "约 \(max(1, estSec)) 秒（\(String(format: "%.1f", wan)) 万字）"
             } else {
-                scanEstimate = "约 \(estSec / 60) 分（\(String(format: "%.1f", wan)) 万字）"
+                scanEstimate = "约 \(estSec / 60) 分 \(estSec % 60) 秒（\(String(format: "%.1f", wan)) 万字）"
             }
         } else if len > 10000 {
             scanEstimate = "约 \(max(1, len / 100000)) 分钟（\(String(format: "%.1f", wan)) 万字）"
         } else {
-            scanEstimate = "文本较短，可快速完成（\(String(format: "%.1f", wan)) 万字）"
+            scanEstimate = "快速扫描（\(String(format: "%.1f", wan)) 万字）"
         }
         showScanConfirm = true
     }
@@ -496,27 +497,27 @@ struct CharacterAssignmentPanel: View {
             Spacer()
             HStack(spacing: 4) {
                 Button(action: {
-                    editingProfile = profile
+                    editingCharacterID = profile.id
                     showEditor = true
                 }) {
                     VStack(spacing: 1) {
                         Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 14))
-                        Text("微调").font(.system(size: 8))
+                            .font(.system(size: 16))
+                        Text("微调").font(.system(size: 9))
                     }
                     .foregroundColor(.accentColor)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 48, height: 44)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 Button(action: { deleteCharacter(profile) }) {
                     VStack(spacing: 1) {
                         Image(systemName: "trash")
-                            .font(.system(size: 13))
-                        Text("删除").font(.system(size: 8))
+                            .font(.system(size: 15))
+                        Text("删除").font(.system(size: 9))
                     }
                     .foregroundColor(.red)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 48, height: 44)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -524,7 +525,7 @@ struct CharacterAssignmentPanel: View {
         }
         .padding(.vertical, 2)
         .contextMenu {
-            Button(action: { editingProfile = profile; showEditor = true }) {
+            Button(action: { editingCharacterID = profile.id; showEditor = true }) {
                 Label("微调角色", systemImage: "slider.horizontal.3")
             }
             Button(action: {
