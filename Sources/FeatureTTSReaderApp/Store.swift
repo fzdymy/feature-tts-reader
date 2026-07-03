@@ -168,8 +168,10 @@ final class ReaderStore: NSObject, ObservableObject {
     // MARK: - 推荐模板
 
     func loadRoleTemplates() {
+        // 如果 UserDefaults 有非空数据则使用，否则加载内置模板
         if let data = UserDefaults.standard.data(forKey: "roleTemplates"),
-           let templates = try? JSONDecoder().decode([RoleTemplate].self, from: data) {
+           let templates = try? JSONDecoder().decode([RoleTemplate].self, from: data),
+           !templates.isEmpty {
             roleTemplates = templates
         } else {
             loadBundledTemplates()

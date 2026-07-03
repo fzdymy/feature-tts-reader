@@ -153,67 +153,59 @@ struct CharacterAssignmentPanel: View {
     private func startScan() {
         isScanning = true
         scanProgress = 0
-        Task {
-            let chunkSize = max(book.text.count / 10, 1)
+        let text = book.text
+        let voices = store.voices
+        let defaultSensitivity = store.defaultSensitivity
+
+        Task { @MainActor in
+            let totalLen = text.count
+            let chunkSize = 50_000
+            let totalChunks = max(1, (totalLen + chunkSize - 1) / chunkSize)
             var allNames: [String: Int] = [:]
-            let analyzer = CharacterAnalyzer()
-            await withTaskGroup(of: (chunkIndex: Int, names: [String: Int]).self) { group in
-                for i in 0..<10 {
-                    let start = i * chunkSize
-                    let end = min(start + chunkSize, book.text.count)
-                    guard start < end else { break }
-                    let chunk = String(book.text[book.text.index(book.text.startIndex, offsetBy: start)..<book.text.index(book.text.startIndex, offsetBy: end)])
-                    group.addTask {
-                        let names = analyzer.extractNames(from: chunk)
-                        var map: [String: Int] = [:]
-                        for n in names { map[n, default: 0] += 1 }
-                        return (i, map)
-                    }
+
+            for i in 0..<totalChunks {
+                if Task.isCancelled { break }
+                let startIdx = text.index(text.startIndex, offsetBy: i * chunkSize, limitedBy: text.endIndex) ?? text.startIndex
+                let endIdx = text.index(startIdx, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
+                guard startIdx < endIdx else { break }
+                let chunk = text[startIdx..<endIdx]
+                let names = await Task.detached(priority: .userInitiated) {
+                    CharacterAnalyzer().extractNames(from: String(chunk))
+                }.value
+                for n in names {
+                    allNames[n, default: 0] += 1
                 }
-                for await result in group {
-                    for (name, count) in result.names {
-                        allNames[name, default: 0] += count
-                    }
-                    await MainActor.run {
-                        scanProgress = Double(result.chunkIndex + 1) / 10.0
-                    }
-                }
+                scanProgress = Double(i + 1) / Double(totalChunks)
+                await Task.yield()
             }
-            var inferred = allNames.sorted { $0.value > $1.value }.map { name, count in
+
+            let sorted = allNames.sorted { $0.value > $1.value }
+            var inferred = sorted.map { name, count in
                 CharacterProfile(
-                    id: UUID(),
-                    name: name,
-                    gender: "",
-                    age: "",
-                    tone: "",
-                    voice: store.defaultVoice(for: "", tone: "", name: name, voices: store.voices),
-                    rate: 0,
-                    pitch: 0,
-                    style: "neutral",
-                    sensitivity: store.defaultSensitivity
+                    id: UUID(), name: name, gender: "", age: "", tone: "",
+                    voice: store.defaultVoice(for: "", tone: "", name: name, voices: voices),
+                    rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity
                 )
             }
             if inferred.isEmpty {
                 inferred = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性",
-                    voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: store.voices),
-                    rate: 0, pitch: 0, style: "neutral", sensitivity: store.defaultSensitivity)]
+                    voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
+                    rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
             } else if !inferred.contains(where: { $0.isNarrator }) {
                 inferred.insert(CharacterProfile(
                     id: UUID(), name: "旁白", gender: "未知", age: "未知", tone: "平稳",
-                    voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: store.voices),
-                    rate: 0, pitch: 0, style: "neutral", sensitivity: store.defaultSensitivity,
+                    voice: store.defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
+                    rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity,
                     isNarrator: true, role: .narrator
                 ), at: 0)
             }
-            await MainActor.run {
-                store.characters = inferred
-                store.lastScannedBookText = book.text
-                store.updateRecommendations(from: book.text)
-                store.saveState()
-                isScanning = false
-                showScanConfirm = false
-                store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色"
-            }
+            store.characters = inferred
+            store.lastScannedBookText = text
+            store.updateRecommendations(from: text)
+            store.saveState()
+            isScanning = false
+            showScanConfirm = false
+            store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色"
         }
     }
 
