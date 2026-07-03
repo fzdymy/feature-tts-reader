@@ -7,15 +7,10 @@ struct CharacterAssignmentPanel: View {
 
     @State private var isScanning = false
     @State private var scanProgress: Double = 0
-    @State private var scanEstimate: String = ""
     @State private var elapsedText: String = ""
     @State private var etaText: String = ""
-    @State private var showScanConfirm = false
     @State private var showTemplatePicker = false
     @State private var editingCharacter: CharacterProfile?
-    @State private var showAliasEditor = false
-    @State private var editingAliasProfile: CharacterProfile?
-    @State private var newAliasText: String = ""
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var exportData = Data()
@@ -46,9 +41,6 @@ struct CharacterAssignmentPanel: View {
             if !bookCharacters.isEmpty {
                 exportImportButtons
             }
-        }
-        .sheet(isPresented: $showScanConfirm) {
-            scanConfirmSheet
         }
         .sheet(isPresented: $showTemplatePicker) {
             templatePickerSheet
@@ -92,7 +84,7 @@ struct CharacterAssignmentPanel: View {
     // MARK: - Scan Button
 
     private var scanButton: some View {
-        Button(action: { prepareScan() }) {
+        Button(action: { startScan() }) {
             HStack {
                 Image(systemName: "person.text.rectangle")
                 VStack(alignment: .leading, spacing: 2) {
@@ -106,8 +98,6 @@ struct CharacterAssignmentPanel: View {
                                 Text("剩余 \(etaText)").font(.caption2).foregroundColor(.secondary)
                             }
                         }
-                    } else if !scanEstimate.isEmpty {
-                        Text(scanEstimate).font(.caption2).foregroundColor(.secondary)
                     }
                 }
                 Spacer()
@@ -125,81 +115,6 @@ struct CharacterAssignmentPanel: View {
             }
         }
         .disabled(isScanning)
-    }
-
-    private func prepareScan() {
-        let len = book.text.count
-        let wan = Double(len) / 10000
-        if len > 50000 {
-            let chunks = (len + 49999) / 50000
-            let estSec = Int(Double(chunks) * 0.4)
-            if estSec < 60 {
-                scanEstimate = "约 \(max(1, estSec)) 秒（\(String(format: "%.1f", wan)) 万字）"
-            } else {
-                scanEstimate = "约 \(estSec / 60) 分 \(estSec % 60) 秒（\(String(format: "%.1f", wan)) 万字）"
-            }
-        } else if len > 10000 {
-            scanEstimate = "约 \(max(1, len / 100000)) 分钟（\(String(format: "%.1f", wan)) 万字）"
-        } else {
-            scanEstimate = "快速扫描（\(String(format: "%.1f", wan)) 万字）"
-        }
-        showScanConfirm = true
-    }
-
-    private var scanConfirmSheet: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "person.text.rectangle")
-                    .font(.system(size: 48))
-                    .foregroundColor(.blue)
-                Text("扫描全书角色")
-                    .font(.title2).bold()
-                Text("将分析文本，识别书中出现的所有角色。")
-                    .foregroundColor(.secondary)
-                if !scanEstimate.isEmpty {
-                    Label(scanEstimate, systemImage: "clock")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                if isScanning {
-                    VStack(spacing: 8) {
-                        ProgressView(value: scanProgress)
-                            .progressViewStyle(.linear)
-                            .padding(.horizontal)
-                        HStack {
-                            if !elapsedText.isEmpty {
-                                Text("已用 \(elapsedText)").font(.caption).foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Text("\(Int(scanProgress * 100))%").font(.caption).foregroundColor(.secondary)
-                            Spacer()
-                            if !etaText.isEmpty {
-                                Text("剩余 \(etaText)").font(.caption).foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                }
-                HStack(spacing: 16) {
-                    Button(role: .cancel) {
-                        showScanConfirm = false
-                    } label: {
-                        Text("取消").frame(minWidth: 80)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isScanning)
-
-                    Button(action: startScan) {
-                        Text(isScanning ? "扫描中..." : "开始扫描").frame(minWidth: 80)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isScanning)
-                }
-            }
-            .padding(40)
-            .navigationTitle("确认扫描")
-            .navigationBarTitleDisplayMode(.inline)
-        }
     }
 
     private func startScan() {
@@ -348,7 +263,6 @@ struct CharacterAssignmentPanel: View {
             store.updateRecommendations(from: text)
             store.saveState()
             isScanning = false
-            showScanConfirm = false
             elapsedText = ""
             etaText = ""
             store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，合并 \(resolved.reduce(0) { $0 + $1.aliases.count }) 个别名"
@@ -635,6 +549,13 @@ struct CharacterAssignmentPanel: View {
 
     private var exportImportButtons: some View {
         Group {
+            Button(role: .destructive) {
+                store.characters = []
+                store.saveState()
+            } label: {
+                Label("清空角色分配列表", systemImage: "trash")
+            }
+            .foregroundColor(.red)
             Button(action: exportCharacters) {
                 Label("导出角色配置", systemImage: "square.and.arrow.up")
             }

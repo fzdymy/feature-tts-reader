@@ -107,7 +107,15 @@ struct CharacterEditorView: View {
                 do {
                     samplePlayer = try AVAudioPlayer(contentsOf: url)
                 } catch {
-                    throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频播放器初始化失败: \(error.localizedDescription)"])
+                    if let data = try? Data(contentsOf: url) {
+                        do {
+                            samplePlayer = try AVAudioPlayer(data: data)
+                        } catch {
+                            throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频播放器初始化失败(文件: \(error.localizedDescription); 数据: \(error.localizedDescription))"])
+                        }
+                    } else {
+                        throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频播放器初始化失败: \(error.localizedDescription)"])
+                    }
                 }
                 samplePlayer?.prepareToPlay()
                 samplePlayer?.play()

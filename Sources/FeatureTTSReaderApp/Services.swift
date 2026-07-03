@@ -31,14 +31,17 @@ actor TTSHttpClient {
         request.timeoutInterval = 30
 
         let (data, response) = try await URLSession.shared.data(for: request)
+        let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
             let message = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "TTSHttpClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "合成失败，状态码：\(http.statusCode)，返回：\(message)"])
+            throw NSError(domain: "TTSHttpClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "合成失败，状态码：\(http.statusCode)，Content-Type: \(contentType)，返回：\(message)"])
         }
 
         guard !data.isEmpty else {
-            throw NSError(domain: "TTSHttpClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "服务器返回空数据"])
+            throw NSError(domain: "TTSHttpClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "服务器返回空数据 (Content-Type: \(contentType))"])
         }
+
+        debugPrint("TTS response: \(data.count) bytes, Content-Type: \(contentType)")
 
         let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let ttsDir = cachesDir.appendingPathComponent("tts_audio", isDirectory: true)

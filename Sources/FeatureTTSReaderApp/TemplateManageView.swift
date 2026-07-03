@@ -39,6 +39,17 @@ struct TemplateManageView: View {
                             } else {
                                 ForEach(template.roles) { role in
                                     roleRow(role, templateID: template.id)
+                                        .swipeActions(edge: .trailing) {
+                                            Button(role: .destructive) {
+                                                if let ti = store.roleTemplates.firstIndex(where: { $0.id == template.id }),
+                                                   let ri = store.roleTemplates[ti].roles.firstIndex(where: { $0.id == role.id }) {
+                                                    store.roleTemplates[ti].roles.remove(at: ri)
+                                                    store.saveRoleTemplates()
+                                                }
+                                            } label: {
+                                                Label("删除", systemImage: "trash")
+                                            }
+                                        }
                                 }
                             }
                             HStack(spacing: 12) {
@@ -49,12 +60,6 @@ struct TemplateManageView: View {
                                     }
                                 } label: {
                                     Label("添加角色", systemImage: "plus.circle").font(.caption).foregroundColor(.accentColor)
-                                }
-                                .buttonStyle(.plain)
-                                Button(role: .destructive) {
-                                    store.deleteRoleTemplate(template.id)
-                                } label: {
-                                    Label("删除此模板", systemImage: "trash").font(.caption)
                                 }
                                 .buttonStyle(.plain)
                             }
