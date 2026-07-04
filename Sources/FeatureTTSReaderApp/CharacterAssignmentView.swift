@@ -105,7 +105,6 @@ struct CharacterAssignmentPanel: View {
     private var scanButton: some View {
         Button(action: { startScan() }) {
             Label("扫描全书角色", systemImage: "person.text.rectangle")
-                .font(.caption)
         }
         .buttonStyle(.borderedProminent).controlSize(.small)
         .disabled(isScanning)
@@ -114,7 +113,6 @@ struct CharacterAssignmentPanel: View {
     private var templateButton: some View {
         Button(action: { showTemplatePicker = true }) {
             Label("模板匹配本书", systemImage: "square.on.square")
-                .font(.caption)
         }
         .buttonStyle(.bordered).controlSize(.small)
     }
@@ -125,7 +123,6 @@ struct CharacterAssignmentPanel: View {
             store.saveState()
         } label: {
             Label("清空所有角色", systemImage: "trash")
-                .font(.caption)
         }
         .buttonStyle(.bordered).controlSize(.small)
     }
@@ -233,15 +230,15 @@ struct CharacterAssignmentPanel: View {
     private var bottomButtons: some View {
         HStack(spacing: 12) {
             Button(action: exportCharacters) {
-                Label("导出", systemImage: "square.and.arrow.up").font(.caption)
+                Label("导出", systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.borderless)
             Button(action: { showImporter = true }) {
-                Label("导入", systemImage: "square.and.arrow.down").font(.caption)
+                Label("导入", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.borderless)
             Button(action: exportAsTemplate) {
-                Label("导出为模板", systemImage: "doc.badge.gearshape").font(.caption)
+                Label("导出为模板", systemImage: "doc.badge.gearshape")
             }
             .buttonStyle(.borderless)
         }
@@ -424,9 +421,13 @@ struct CharacterAssignmentPanel: View {
             store.statusMessage = "正在生成试听..."
             let sampleText = "你好，我是\(profile.name)。"
             let voiceID = profile.voice.isEmpty ? "zh-CN-XiaoxiaoNeural" : profile.voice
+            guard let baseURL = URL(string: server.baseURL) else {
+                store.statusMessage = "服务器地址无效"
+                return
+            }
             do {
                 let url = try await TTSHttpClient(
-                    baseURL: URL(string: server.baseURL)!,
+                    baseURL: baseURL,
                     apiKey: server.apiKey
                 ).synthesizeAudio(text: sampleText, voice: voiceID,
                                   rate: profile.rate, pitch: profile.pitch,
@@ -500,8 +501,12 @@ struct CharacterAssignmentPanel: View {
     }
 
     private func applyTemplate(_ template: RoleTemplate) {
-        store.applyTemplate(template)
-        store.saveState()
+        do {
+            store.applyTemplate(template)
+            store.saveState()
+        } catch {
+            store.statusMessage = "模板匹配失败: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Helpers

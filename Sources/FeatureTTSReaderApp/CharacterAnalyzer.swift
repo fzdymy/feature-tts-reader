@@ -125,19 +125,38 @@ final class CharacterAnalyzer {
         "先生", "小姐", "姑娘", "公子", "师父", "师傅", "少爷", "太太",
         "夫人", "阁下", "大人", "前辈", "掌门", "教主", "帮主", "盟主",
         "庄主", "岛主", "兄台", "贤弟", "师妹", "师姐", "师兄", "师弟",
-        "婆婆", "姥姥", "老爷子", "老人家"
+        "婆婆", "姥姥", "老爷子", "老人家", "老公公", "老婆婆"
     ]
 
     static let commonNamePrefixes: Set<String> = ["阿", "小", "老", "大"]
+
+    /// Characters that should NOT appear in positions >= 2 of a name.
+    /// Grammar particles, common verbs, measure words, etc. — never part of a real name.
+    private static let nonNameChars: Set<Character> = {
+        Set("的了着过就把被从以在于这是那哪这么吧吗呢啊呀啦哦嗯嘛哈嘿哟乎焉哉的着过就把被从以在于这是那哪这么吧吗呢啊呀啦哦嗯嘛哈嘿哟乎焉哉的着过就把被从以在于这是那哪这么吧吗呢啊呀啦哦嗯嘛哈嘿哟乎焉哉")
+    }()
+
+    /// Character pairs (positions 1-2) that indicate a non-name.
+    private static let nonNamePrefixes: Set<String> = [
+        "所有", "这种", "那种", "每次", "只见", "忽见", "但见", "却见",
+        "忽听", "只听", "但听", "却听", "突然", "忽然", "猛然", "顿时",
+        "于是", "从此", "此后", "此后", "随后", "接着", "跟着", "然后",
+        "关于", "对于", "由于", "因为", "为了", "除了", "经过", "通过",
+    ]
 
     /// Check if a name looks like a real character name.
     /// NER-confirmed names bypass this check (they are ML-verified).
     static func looksLikeRealName(_ name: String) -> Bool {
         if name.count >= 2, titleSuffixes.contains(String(name.suffix(2))) { return true }
         if name.count == 2 {
-            return firstCharIsSurname(name) || commonNamePrefixes.contains(String(name.prefix(1)))
+            return (firstCharIsSurname(name) || commonNamePrefixes.contains(String(name.prefix(1))))
+                && !nonNamePrefixes.contains(name)
         }
-        return firstCharIsSurname(name)
+        guard firstCharIsSurname(name) else { return false }
+        for ch in name.dropFirst() {
+            if nonNameChars.contains(ch) { return false }
+        }
+        return true
     }
 
     // 百家姓单姓
