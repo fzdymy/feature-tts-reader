@@ -964,11 +964,12 @@ final class ReaderStore: NSObject, ObservableObject {
             content = s
             break
         }
-        guard let text = content else {
+        guard var text = content else {
             statusMessage = "导入失败：无法识别文件编码。"
             await MainActor.run { isBusy = false }
             return
         }
+        text = TextNormalizer.normalize(text)
         let title = url.deletingPathExtension().lastPathComponent
         let bookID = UUID()
         saveBookTextToFile(bookID: bookID, text: text)
@@ -1130,7 +1131,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func importText(_ text: String) async {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = TextNormalizer.normalize(text)
         guard !trimmedText.isEmpty else {
             await MainActor.run { statusMessage = "导入文本为空。" }
             return
@@ -1160,6 +1161,18 @@ final class ReaderStore: NSObject, ObservableObject {
             books.append(book)
             saveState()
         }
+    }
+
+    func reformatBookText(bookID: UUID) {
+        guard let idx = books.firstIndex(where: { $0.id == bookID }) else { return }
+        let text = loadBookTextFromFile(bookID: bookID) ?? books[idx].text
+        let normalized = TextNormalizer.normalize(text)
+        saveBookTextToFile(bookID: bookID, text: normalized)
+        books[idx].text = normalized
+        let oldLen = text.count.formatted()
+        let newLen = normalized.count.formatted()
+        saveState()
+        statusMessage = "格式化完成：\(oldLen) → \(newLen) 字符"
     }
 
     func startParseChapters() {

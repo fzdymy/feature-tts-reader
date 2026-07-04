@@ -197,6 +197,11 @@ struct BookshelfView: View {
         Button(action: { store.navigationPath.append(book) }) {
             Label("查看详情", systemImage: "info.circle")
         }
+        Button {
+            store.reformatBookText(bookID: book.id)
+        } label: {
+            Label("重新格式化", systemImage: "doc.text.magnifyingglass")
+        }
         Button(role: .destructive) {
             if let index = store.books.firstIndex(where: { $0.id == book.id }) {
                 store.removeBook(at: index)
