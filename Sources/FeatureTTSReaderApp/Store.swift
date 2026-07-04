@@ -195,7 +195,7 @@ final class ReaderStore: NSObject, ObservableObject {
         saveRoleTemplates()
     }
 
-    func applyTemplate(_ template: RoleTemplate) {
+    func applyTemplate(_ template: RoleTemplate, bookID: UUID? = nil) {
         defaultMaleVoiceID = template.fallbackMaleVoiceID
         defaultFemaleVoiceID = template.fallbackFemaleVoiceID
         defaultFallbackRateOffset = template.fallbackRateOffset
@@ -278,7 +278,8 @@ final class ReaderStore: NSObject, ObservableObject {
                 gender: "", age: "", tone: "",
                 voice: role.sourceVoiceID, rate: role.rateOffset,
                 pitch: role.pitchOffset, style: role.style,
-                sensitivity: 50, isNarrator: roleType == .narrator, role: roleType
+                sensitivity: 50, isNarrator: roleType == .narrator, role: roleType,
+                bookID: bookID
             )
             characters.append(profile)
         }
@@ -1352,7 +1353,7 @@ final class ReaderStore: NSObject, ObservableObject {
         saveState()
     }
 
-    func addCharacter(name: String, gender: String = "未知", age: String = "未知", tone: String = "平稳") {
+    func addCharacter(name: String, gender: String = "未知", age: String = "未知", tone: String = "平稳", bookID: UUID? = nil) {
         let newCharacter = CharacterProfile(
             id: UUID(),
             name: name,
@@ -1366,7 +1367,8 @@ final class ReaderStore: NSObject, ObservableObject {
             style: "neutral",
             sensitivity: defaultSensitivity,
             isNarrator: false,
-            role: .character
+            role: .character,
+            bookID: bookID
         )
         characters.append(newCharacter)
         statusMessage = "已添加角色「\(name)」。"

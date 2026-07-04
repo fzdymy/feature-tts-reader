@@ -259,6 +259,7 @@ struct ReaderView: View {
             showAllRecommendations: $showAllRecommendations,
             showCharacterFromText: $showCharacterFromText,
             selectedTextForCharacter: selectedTextForCharacter,
+            bookID: book.id,
             currentChapterID: currentChapter.id,
             currentChapterIndex: currentChapterIndex,
             chaptersList: chaptersList,
@@ -1119,6 +1120,7 @@ private struct ReaderSheets: ViewModifier {
     @Binding var showAllRecommendations: Bool
     @Binding var showCharacterFromText: Bool
     let selectedTextForCharacter: String
+    let bookID: UUID
     let currentChapterID: UUID
     let currentChapterIndex: Int
     let chaptersList: [BookChapter]
@@ -1153,7 +1155,7 @@ private struct ReaderSheets: ViewModifier {
             }
             .sheet(isPresented: $showAddCharacter) {
                 AddCharacterView { name, gender, age, tone in
-                    store.addCharacter(name: name, gender: gender, age: age, tone: tone)
+                    store.addCharacter(name: name, gender: gender, age: age, tone: tone, bookID: bookID)
                     showAddCharacter = false
                 }
             }
@@ -1167,7 +1169,7 @@ private struct ReaderSheets: ViewModifier {
                     bookText: store.bookText,
                     existingCharacters: store.characters,
                     onAdd: { name, gender, age, tone in
-                        store.addCharacter(name: name, gender: gender, age: age, tone: tone)
+                        store.addCharacter(name: name, gender: gender, age: age, tone: tone, bookID: bookID)
                     },
                     onEdit: { character in
                         editingCharacter = character

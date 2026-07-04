@@ -450,7 +450,8 @@ struct CharacterAssignmentPanel: View {
             scanPhase = "完成"
             elapsedText = ""
             etaText = ""
-            store.characters = inferred
+            store.characters.removeAll { $0.bookID == nil || $0.bookID == book.id }
+            store.characters.append(contentsOf: inferred)
             store.lastScannedBookText = text
             store.updateRecommendations(from: text)
             store.saveState()
@@ -551,7 +552,7 @@ struct CharacterAssignmentPanel: View {
 
     private func applyTemplate(_ template: RoleTemplate) {
         do {
-            store.applyTemplate(template)
+            store.applyTemplate(template, bookID: book.id)
             store.saveState()
         } catch {
             store.statusMessage = "模板匹配失败: \(error.localizedDescription)"
