@@ -242,6 +242,8 @@ final class CharacterAnalyzer {
     func extractDialogueNames(from chunk: String) -> [String] {
         let nsRange = NSRange(chunk.startIndex..<chunk.endIndex, in: chunk)
         var found = Set<String>()
+        var colonNames = Set<String>()
+        var commaNames = Set<String>()
 
         let patterns: [(NSRegularExpression, Int)] = [
             (Self.speechVerbPattern, 15),
@@ -250,17 +252,29 @@ final class CharacterAnalyzer {
             (Self.commaAddressPattern, 10),
             (Self.speechVerbQuotePattern, 15),
         ]
-        for (pattern, _) in patterns {
+        for (i, (pattern, _)) in patterns.enumerated() {
             pattern.enumerateMatches(in: chunk, range: nsRange) { match, _, _ in
                 guard let m = match, m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: chunk) else { return }
                 let name = String(chunk[r])
                 if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) && !isStopWord(name) {
                     found.insert(name)
+                    if i == 2 { colonNames.insert(name) }
+                    if i == 3 { commaNames.insert(name) }
                 }
             }
         }
-        // Filter: require surname for 2-char names
-        return found.filter { $0.count >= 3 || Self.firstCharIsSurname($0) }
+
+        let verbEndings: Set<String> = ["道", "嘴", "句", "口"]
+        return found.filter { name in
+            if colonNames.contains(name) {
+                if verbEndings.contains(String(name.suffix(1))) { return false }
+                if name.count >= 3 && !Self.firstCharIsSurname(name) { return false }
+            }
+            if commaNames.contains(name) {
+                if name.count >= 3 && !Self.firstCharIsSurname(name) { return false }
+            }
+            return name.count >= 3 || Self.firstCharIsSurname(name)
+        }
     }
 
     // MARK: - Phase 2: AC automaton
@@ -635,6 +649,7 @@ final class CharacterAnalyzer {
             "果然", "居然", "竟然", "难道", "究竟", "到底", "毕竟", "反正",
             "当然", "总归", "或是", "或是", "还有", "尚有", "唯有", "唯有",
             "只有", "惟有", "另外", "此外", "同时", "前后", "左右", "前后",
+            "许多",
         ]
         return stops.contains(word) ||
                word.hasPrefix("第") ||
