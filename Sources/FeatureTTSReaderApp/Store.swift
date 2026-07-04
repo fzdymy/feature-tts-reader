@@ -2089,6 +2089,20 @@ final class ReaderStore: NSObject, ObservableObject {
         return try? JSONEncoder().encode(export)
     }
 
+    func exportCharactersAsTemplate(name: String) -> Data? {
+        let roles = characters.map { ch in
+            TemplateRole(id: UUID(), title: ch.name, sourceVoiceID: ch.voice, voiceSuggestion: ch.aliases.first ?? "", rateOffset: ch.rate, pitchOffset: ch.pitch, style: ch.style)
+        }
+        let template = RoleTemplate(
+            id: UUID(), name: name, genre: "", roles: roles,
+            fallbackMaleVoiceID: defaultMaleVoiceID, fallbackFemaleVoiceID: defaultFemaleVoiceID,
+            fallbackRateOffset: defaultFallbackRateOffset, fallbackPitchOffset: defaultFallbackPitchOffset,
+            fallbackStyle: defaultFallbackStyle
+        )
+        let export = TemplateExport(version: 1, exportedAt: Date(), templates: [template])
+        return try? JSONEncoder().encode(export)
+    }
+
     func exportVoiceProfilesAsYAML() -> String? {
         guard let data = exportVoiceProfiles() else { return nil }
         guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }

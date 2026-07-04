@@ -99,12 +99,13 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
     var sensitivity: Int
     var isNarrator: Bool = false
     var role: CharacterRole = .character
+    var frequency: Int = 0
 
     var info: String {
         [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character) {
+    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, frequency: Int = 0) {
         self.id = id
         self.name = name
         self.aliases = aliases
@@ -118,10 +119,11 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         self.sensitivity = sensitivity
         self.isNarrator = isNarrator
         self.role = role
+        self.frequency = frequency
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role
+        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role, frequency
     }
 
     init(from decoder: Decoder) throws {
@@ -139,6 +141,7 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         sensitivity = try c.decode(Int.self, forKey: .sensitivity)
         isNarrator = try c.decodeIfPresent(Bool.self, forKey: .isNarrator) ?? false
         role = try c.decodeIfPresent(CharacterRole.self, forKey: .role) ?? .character
+        frequency = try c.decodeIfPresent(Int.self, forKey: .frequency) ?? 0
     }
 
     func encode(to encoder: Encoder) throws {
@@ -156,6 +159,7 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         try c.encode(sensitivity, forKey: .sensitivity)
         try c.encode(isNarrator, forKey: .isNarrator)
         try c.encode(role, forKey: .role)
+        try c.encode(frequency, forKey: .frequency)
     }
 }
 

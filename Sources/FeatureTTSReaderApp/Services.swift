@@ -14,6 +14,9 @@ actor TTSHttpClient {
 
     func synthesizeAudio(text: String, voice: String, rate: Int, pitch: Int, style: String) async throws -> URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        if !components.path.hasSuffix("/tts") {
+            components.path = (components.path as NSString).appendingPathComponent("tts")
+        }
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "t", value: text),
             URLQueryItem(name: "v", value: voice),
