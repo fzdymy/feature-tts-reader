@@ -261,13 +261,32 @@ struct CharacterAssignmentPanel: View {
         let analyzer = CharacterAnalyzer()
 
         Task { @MainActor in
-            // Phase 1: fast regex on full text
+            // Phase 1: chunked regex on full text
             scanPhase = "正则匹配中..."
             scanProgress = 0.0
-            let regNames = await Task.detached(priority: .userInitiated) {
-                analyzer.extractDialogueNames(from: text)
-            }.value
-            var allNames = Set(regNames)
+            var allNames = Set<String>()
+            let nsText = text as NSString
+            let totalLen = nsText.length
+            let chunkSize = 30_000
+            let totalChunks = max(1, (totalLen + chunkSize - 1) / chunkSize)
+            for i in 0..<totalChunks {
+                if Task.isCancelled { isScanning = false; return }
+                let start = i * chunkSize
+                let end = min(start + chunkSize, totalLen)
+                let chunk = nsText.substring(with: NSRange(location: start, length: end - start))
+                let names = await Task.detached(priority: .userInitiated) {
+                    analyzer.extractDialogueNames(from: chunk)
+                }.value
+                for n in names { allNames.insert(n) }
+                let elapsed = Date().timeIntervalSince(startTime)
+                scanProgress = Double(i + 1) / Double(totalChunks) * 0.33
+                elapsedText = formatDuration(elapsed)
+                if i >= 3 {
+                    let perChunk = elapsed / Double(i + 1)
+                    etaText = "剩余 \(formatDuration(perChunk * Double(totalChunks - i - 1)))"
+                }
+                await Task.yield()
+            }
 
             let elapsed1 = Date().timeIntervalSince(startTime)
             elapsedText = formatDuration(elapsed1)
@@ -282,7 +301,7 @@ struct CharacterAssignmentPanel: View {
                     engine.extractPersonNames(from: sampleText) { chunk, total in
                         DispatchQueue.main.async {
                             let p = Double(chunk) / Double(total)
-                            self.scanProgress = p * 0.35
+                            self.scanProgress = 0.33 + p * 0.33
                             let elapsed = Date().timeIntervalSince(startTime)
                             self.elapsedText = self.formatDuration(elapsed)
                             if chunk >= 5 {
@@ -306,13 +325,39 @@ struct CharacterAssignmentPanel: View {
 
             let elapsed2 = Date().timeIntervalSince(startTime)
             elapsedText = formatDuration(elapsed2)
-            let uniqueNames = allNames.sorted()
 
-            // Phase 3: attribute analysis
+            // Phase 2b: frequency filter — count occurrences in first 500K chars
+            // Eliminates regex false positives (names appearing 0-1 times)
+            scanPhase = "频率过滤中..."
+            let freqLimit = min(500_000, text.count)
+            let freqText = String(text.prefix(freqLimit)) as NSString
+            let minFreq = max(3, freqLimit / 100000)
+            let nameList = allNames.sorted()
+            var freqMap = [String: Int]()
+            for (fidx, name) in nameList.enumerated() {
+                if Task.isCancelled { isScanning = false; return }
+                var count = 0
+                var searchRange = NSRange(location: 0, length: freqText.length)
+                while searchRange.location < freqText.length {
+                    let found = freqText.range(of: name, options: [], range: searchRange)
+                    if found.location == NSNotFound { break }
+                    count += 1
+                    if count >= minFreq { break }
+                    searchRange.location = found.location + found.length
+                    searchRange.length = freqText.length - searchRange.location
+                }
+                freqMap[name] = count
+                scanProgress = 0.66 + Double(fidx + 1) / Double(nameList.count) * 0.02
+                await Task.yield()
+            }
+            let filteredNames = allNames.filter { (freqMap[$0] ?? 0) >= minFreq }.sorted()
+
+            // Phase 3: attribute analysis (progress 0.68 → 1.0)
             scanPhase = "属性分析中..."
             var inferred = [CharacterProfile]()
             let contextLimit = min(500_000, text.count)
             let contextText = text.prefix(contextLimit)
+            let uniqueNames = filteredNames
 
             for (idx, name) in uniqueNames.enumerated() {
                 if Task.isCancelled { isScanning = false; return }
@@ -338,7 +383,7 @@ struct CharacterAssignmentPanel: View {
                     sensitivity: defaultSensitivity, frequency: 0
                 ))
                 let elapsed = Date().timeIntervalSince(startTime)
-                scanProgress = 0.35 + Double(idx + 1) / Double(uniqueNames.count) * 0.63
+                scanProgress = 0.68 + Double(idx + 1) / Double(uniqueNames.count) * 0.32
                 elapsedText = formatDuration(elapsed)
                 if idx >= 3 {
                     let perItem = elapsed / Double(idx + 1)
