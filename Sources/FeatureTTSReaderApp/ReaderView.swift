@@ -616,6 +616,24 @@ struct ReaderView: View {
             Divider()
 
             HStack(spacing: 0) {
+                Button(action: {
+                    if store.ttsIsPlaying {
+                        store.audioController.pause()
+                    } else {
+                        store.audioController.resume()
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 20))
+                        Text(store.ttsIsPlaying ? "暂停" : "播放")
+                            .font(.caption2)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 40)
+                }
+                .buttonStyle(.borderless)
+                Divider().frame(height: 20)
                 barButton("list.bullet", label: "目录", action: { showTOC = true })
                 Divider().frame(height: 20)
                 barButton(themeIcon(store.readerTheme), label: "主题", action: {
@@ -1064,6 +1082,12 @@ struct ReaderView: View {
 
 
     private func startPlayback() async {
+        guard store.activeServer != nil else {
+            store.statusMessage = "请先在TTS标签页配置服务器地址。"
+            isAudioMode = false
+            isPlaying = false
+            return
+        }
         do {
             guard currentChapterIndex < chaptersList.count else { return }
             guard !store.bookText.isEmpty else {

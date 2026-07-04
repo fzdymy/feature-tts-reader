@@ -340,23 +340,24 @@ struct CharacterAssignmentPanel: View {
             }
             allNames = dedupNames
 
-            // Phase 2c: NL tagger validation — eliminate common-word false positives
-            // (任务/别人/包裹/卫生间/双手/后面/方向 etc.)
+            // Phase 2c: NL tagger validation — soft boost, don't drop
+            // validated names sort first (preferred by top-100 cap),
+            // but unvalidated names survive so real characters are never lost.
             scanPhase = "智能验证中..."
             let nlLimit = min(500_000, text.count)
             let nlText = String(text.prefix(nlLimit))
             let validatedNames = await Task.detached(priority: .userInitiated) { [analyzer] in
                 analyzer.validateWithNL(text: nlText, candidates: allNames)
             }.value
-            // Keep names that passed NL validation; if NL drops everything (e.g. all names are novel-specific),
-            // fall back to the dedup set
-            if !validatedNames.isEmpty {
-                allNames = validatedNames
-            }
 
-            // Phase 2d: cap at top 100 by frequency
+            // Phase 2d: cap at top 100 by frequency, with NL-validated names prioritized
             let freqMap = Dictionary(uniqueKeysWithValues: rankedNames.filter { allNames.contains($0.key) })
-            let sortedByFreq = allNames.sorted { (freqMap[$0] ?? 0) > (freqMap[$1] ?? 0) }
+            let sortedByFreq = allNames.sorted { (name1, name2) in
+                let v1 = validatedNames.contains(name1)
+                let v2 = validatedNames.contains(name2)
+                if v1 != v2 { return v1 && !v2 }  // validated before unvalidated
+                return (freqMap[name1] ?? 0) > (freqMap[name2] ?? 0)
+            }
             allNames = Set(sortedByFreq.prefix(100))
 
             // Phase 3: attribute analysis (progress 0.50 → 1.0)
@@ -384,8 +385,9 @@ struct CharacterAssignmentPanel: View {
                 let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
                 let ctx = String(contextText[ctxStart..<ctxEnd])
                 let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
-                gender = attrs.gender; age = attrs.age; tone = attrs.baseTone
-                style = attrs.baseStyle; rate = attrs.baseRate; pitch = attrs.basePitch
+                gender = attrs.gender; age = attrs.age
+                // Tone inference from a single window is unreliable; default to neutral
+                tone = "平稳"; style = "neutral"; rate = 0; pitch = 0
                 if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: [],
@@ -402,6 +404,17 @@ struct CharacterAssignmentPanel: View {
                     etaText = formatDuration(perItem * Double(uniqueNames.count - idx - 1))
                 }
                 await Task.yield()
+            }
+
+            // Phase 3b: resolve aliases (陈无忌 → 无忌, 张公子 → 张无忌)
+            if inferred.count >= 2 {
+                let names = inferred.map(\.name)
+                let resolved = CharacterAnalyzer.resolveAliases(names)
+                for (canonical, aliases) in resolved where !aliases.isEmpty {
+                    if let idx = inferred.firstIndex(where: { $0.name == canonical }) {
+                        inferred[idx].aliases = aliases
+                    }
+                }
             }
 
             if inferred.isEmpty {

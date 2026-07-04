@@ -262,13 +262,10 @@ final class ReaderStore: NSObject, ObservableObject {
         }
 
         // For unmatched template roles, create new characters
+        // Only check role.title against existing names/aliases (not voiceSuggestion)
+        // to prevent cross-contamination where one character's alias blocks another role.
         for role in template.roles where !role.title.isEmpty {
-            var alreadyMatched = false
-            for ci in characters.indices {
-                if characters[ci].name == role.title || characters[ci].aliases.contains(role.title) || characters[ci].aliases.contains(role.voiceSuggestion) {
-                    alreadyMatched = true; break
-                }
-            }
+            let alreadyMatched = characters.contains { $0.name == role.title || $0.aliases.contains(role.title) }
             if alreadyMatched { continue }
             var roleType = CharacterRole.character
             if role.title.contains("旁白") || role.title.contains("叙述") { roleType = .narrator }
@@ -1754,7 +1751,7 @@ final class ReaderStore: NSObject, ObservableObject {
         var lastSpeaker: String? = nil
         for paragraph in paragraphs {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lines = trimmed.chunked(into: 900)
+            let lines = trimmed.chunked(into: 200)
             for line in lines {
                 let analyzer = CharacterAnalyzer()
                 let speaker = detectSpeaker(in: line, characters: characters) ?? lastSpeaker ?? characters.first?.name ?? "叙述者"
