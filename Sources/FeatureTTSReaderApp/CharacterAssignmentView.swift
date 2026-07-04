@@ -11,18 +11,8 @@ struct CharacterAssignmentPanel: View {
     @State private var scanPhase: String = ""
     @State private var elapsedText: String = ""
     @State private var etaText: String = ""
-    @State private var activeSheet: SheetTarget?
-
-    private enum SheetTarget: Identifiable {
-        case editor(CharacterProfile)
-        case templatePicker
-        var id: String {
-            switch self {
-            case .editor: return "editor"
-            case .templatePicker: return "template"
-            }
-        }
-    }
+    @State private var showTemplatePicker = false
+    @State private var editingCharacter: CharacterProfile?
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showTemplateExporter = false
@@ -33,7 +23,10 @@ struct CharacterAssignmentPanel: View {
 
     private var bookCharacters: [CharacterProfile] {
         store.characters.filter { $0.bookID == nil || $0.bookID == book.id }
-            .sorted { $0.frequency > $1.frequency }
+            .sorted { a, b in
+                if a.isNarrator != b.isNarrator { return a.isNarrator }
+                return a.frequency > b.frequency
+            }
     }
 
     private var displayedCharacters: [CharacterProfile] {
@@ -59,22 +52,20 @@ struct CharacterAssignmentPanel: View {
                 bottomButtons
             }
         }
-        .sheet(item: $activeSheet) { target in
-            switch target {
-            case .templatePicker:
-                templatePickerSheet
-            case .editor(let profile):
-                CharacterEditorView(
-                    character: profile,
-                    voices: store.voices
-                ) { updated in
-                    if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
-                        store.characters[i] = updated
-                    }
-                    store.saveState()
+        .sheet(isPresented: $showTemplatePicker) {
+            templatePickerSheet
+        }
+        .sheet(item: $editingCharacter) { profile in
+            CharacterEditorView(
+                character: profile,
+                voices: store.voices
+            ) { updated in
+                if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
+                    store.characters[i] = updated
                 }
-                .environmentObject(store)
+                store.saveState()
             }
+            .environmentObject(store)
         }
         .fileExporter(isPresented: $showExporter, document: JSONDocument(data: exportData),
                       contentType: .json, defaultFilename: "book-characters-\(book.title)") { result in
@@ -119,7 +110,7 @@ struct CharacterAssignmentPanel: View {
             .buttonStyle(.borderedProminent)
             .disabled(isScanning)
             HStack(spacing: 8) {
-                Button(action: { activeSheet = .templatePicker }) {
+                Button(action: { showTemplatePicker = true }) {
                     HStack(spacing: 6) {
                         Image(systemName: "square.on.square")
                         Text("模板匹配")
@@ -220,11 +211,11 @@ struct CharacterAssignmentPanel: View {
         .background(Color.gray.opacity(0.06))
         .cornerRadius(10)
         .onTapGesture {
-            activeSheet = .editor(profile)
+            editingCharacter = profile
         }
         .contextMenu {
             Button {
-                activeSheet = .editor(profile)
+                editingCharacter = profile
             } label: {
                 Label("微调编辑", systemImage: "slider.horizontal.3")
             }
@@ -528,7 +519,7 @@ struct CharacterAssignmentPanel: View {
                 ForEach(store.roleTemplates) { template in
                     Section {
                         Button(action: {
-                            activeSheet = nil
+                            showTemplatePicker = false
                             applyTemplate(template)
                         }) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -544,7 +535,7 @@ struct CharacterAssignmentPanel: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { activeSheet = nil }
+                    Button("取消") { showTemplatePicker = false }
                 }
             }
         }

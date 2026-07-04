@@ -577,16 +577,16 @@ struct ReaderView: View {
         VStack(spacing: 0) {
             Divider()
             if scrolledAway {
-                HStack(spacing: 40) {
+                HStack(spacing: 24) {
                     Button(action: {
                         scrollCoordinator.scrollTo(offset: segmentStartOffset, animated: true)
                         scrolledAway = false
                     }) {
-                        VStack(spacing: 4) {
+                        VStack(spacing: 2) {
                             Image(systemName: "arrow.backward.circle")
-                                .font(.title2)
+                                .font(.body)
                             Text("原进度")
-                                .font(.caption)
+                                .font(.caption2)
                         }
                     }
                     Button(action: {
@@ -596,16 +596,16 @@ struct ReaderView: View {
                         segmentStartOffset = scrollOffset
                         Task { await startPlayback(fromParagraphText: paraText) }
                     }) {
-                        VStack(spacing: 4) {
+                        VStack(spacing: 2) {
                             Image(systemName: "headphones.circle")
-                                .font(.title2)
+                                .font(.body)
                             Text("从本页听")
-                                .font(.caption)
+                                .font(.caption2)
                         }
                     }
                 }
                 .foregroundColor(textColor)
-                .padding(.vertical, 12)
+                .padding(.vertical, 6)
             } else {
                 Button(action: {
                     if store.ttsIsPlaying {
@@ -614,14 +614,14 @@ struct ReaderView: View {
                         store.audioController.resume()
                     }
                 }) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 36))
+                            .font(.system(size: 20))
                         Text(store.ttsIsPlaying ? "暂停播放" : "继续播放")
-                            .font(.subheadline)
+                            .font(.caption)
                     }
                     .foregroundColor(textColor)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 6)
                 }
                 .buttonStyle(.borderless)
             }

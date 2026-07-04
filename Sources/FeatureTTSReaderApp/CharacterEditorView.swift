@@ -24,8 +24,19 @@ struct CharacterEditorView: View {
             Form {
                 Section(header: Text("角色信息")) {
                     TextField("名称", text: $profile.name)
-                    TextField("性别", text: $profile.gender)
-                    TextField("年龄", text: $profile.age)
+                    Picker("性别", selection: $profile.gender) {
+                        Text("未知").tag("未知")
+                        Text("男性").tag("男性")
+                        Text("女性").tag("女性")
+                    }
+                    Picker("年龄", selection: $profile.age) {
+                        Text("未知").tag("未知")
+                        Text("儿童").tag("儿童")
+                        Text("少年").tag("少年")
+                        Text("青年").tag("青年")
+                        Text("中年").tag("中年")
+                        Text("老年").tag("老年")
+                    }
                     TextField("语气", text: $profile.tone)
                 }
                 Section(header: Text("音色与参数")) {
