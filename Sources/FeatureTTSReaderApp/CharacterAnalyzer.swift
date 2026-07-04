@@ -139,7 +139,7 @@ final class CharacterAnalyzer {
     /// Characters that are HIGHLY suspicious at positions 3-4 in a 3-4 char name.
     /// Grammar particles, directional verbs, common suffixes — reject if found at pos 3+.
     private static let weakRejectChars: Set<Character> = {
-        Set("的着了过把被从以在于会就能能可不倒也还很都来来出去上回起开住好出进")
+        Set("的着了过把被从以在于会就能能可不倒也还很都来来出去上回起开住好出进是到有能就在说")
     }()
 
     /// Grammar particles that are NEVER valid at position 3+ in a Chinese name.
@@ -147,6 +147,28 @@ final class CharacterAnalyzer {
     private static let grammarRejectChars: Set<Character> = {
         Set("的着了过")
     }()
+
+    /// Characters at position 2+ that make a 2-char name almost certainly not a real name.
+    /// Directional/positional suffixes, grammar particles, etc.
+    private static let nonNameSuffix2Chars: Set<Character> = {
+        Set("了着过的地得上下列里面前后边外内中旁左右东西南北")
+    }()
+
+    /// 3+‑char phrases that are known non‑name false positives (user-reported from 官仙).
+    private static let nonNamePhrases: Set<String> = [
+        "卫生间", "尤其是", "能感觉到", "有男朋友", "双腿发软", "安全通", "安全通道",
+        "居高临下", "白的肌肤", "从后面", "有意思", "高跟鞋",
+        "单膝跪地", "可以想象", "看在眼里", "能理解", "看起来", "听起来", "说起来",
+        "看不起", "瞧不起", "来不及", "恨不得", "巴不得", "顾不得", "免不得",
+        "不由得", "忍不住", "禁不住", "按不住", "挡不住", "拦不住", "瞒不住",
+        "吃不住", "熬不住", "撑不住",
+        "干什么", "凭什么", "为什么", "什么时候", "什么地方", "凭什么这么说",
+        "一不小心", "一不留神", "一不留意", "一个不小心",
+        "说到底", "说白了", "说穿了", "说来说去", "归根到底",
+        "半信半疑", "将信将疑", "似信非信", "不可置信",
+        "接下来", "然后呢", "所以说", "也就是说", "那就是说",
+        "按道理", "按理说", "照理说", "照道理",
+    ]
 
     /// 2‑char names that are common non‑name function‑word pairs.
     private static let nonNamePairs: Set<String> = [
@@ -162,6 +184,21 @@ final class CharacterAnalyzer {
         "万一", "一切", "一个", "一种", "一次", "一时", "一刻",
         "难道", "究竟", "到底", "几乎", "似乎", "好像", "仿佛", "大约",
         "只见", "忽听", "便见", "就见",
+        // 用户报告的2字假阳性
+        "别人", "干部", "时间", "双手", "后排", "厉害", "卫生间",
+        "单纯", "仰望", "何况", "别说", "包厢", "包裹", "帅气",
+        "怀里", "成一", "成功", "成熟", "扶着", "房间",
+        "明天", "明白", "明知", "有力", "有钱", "束缚",
+        "沙发", "沙哑", "滑腻", "滑动", "满脸", "白色",
+        "皮肤", "经验", "舒服", "解锁", "车子", "车门",
+        "那一", "那你", "那头", "都好", "金主", "金钱",
+        "马上", "麻烦", "头发", "水声", "哈哈", "白的",
+        "肌肤", "江城", "能不", "有几", "高跟鞋", "安全通",
+        "怀中", "那一", "地面", "摇头", "整个", "如今",
+        "此处", "哪些", "那些", "全身", "眉头", "心头",
+        "双手", "双手", "内心", "片刻", "刹那", "其中",
+        "脚下", "边上", "头上", "脸上", "身上", "手里",
+        "身后", "眼前", "面前",
     ]
 
     /// Check if a name looks like a real character name.
@@ -169,12 +206,18 @@ final class CharacterAnalyzer {
         // Title suffix → always valid
         if name.count >= 2, titleSuffixes.contains(String(name.suffix(2))) { return true }
 
+        // Known non-name phrases
+        if nonNamePhrases.contains(name) { return false }
+
         let chars = Array(name)
 
         // 2-char: surname OR common prefix, AND not a known non-name pair
         if chars.count == 2 {
             guard firstCharIsSurname(name) || commonNamePrefixes.contains(String(name.prefix(1))) else { return false }
-            return !nonNamePairs.contains(name)
+            if nonNamePairs.contains(name) { return false }
+            // Reject if last char is directional/positional/particle
+            if let last = name.last, nonNameSuffix2Chars.contains(String(last)) { return false }
+            return true
         }
 
         // 3+ char: first char must be surname (or first 2 chars a compound surname)
@@ -187,10 +230,10 @@ final class CharacterAnalyzer {
             if strongRejectChars.contains(chars[i]) { return false }
         }
 
-        // For 3-char names: check grammar particles at position 3 (的/了/着/过)
-        // but NOT content words (来/可/好) which can appear in real names.
+        // For 3-char names: check weak reject chars at position 3
         if chars.count == 3 {
             if grammarRejectChars.contains(chars[2]) { return false }
+            if weakRejectChars.contains(chars[2]) { return false }
         }
         // For 4+ char names: check all weak reject chars at positions 3+
         if chars.count >= 4 {
@@ -869,7 +912,9 @@ final class CharacterAnalyzer {
             "却见一个", "便见一个", "就见一个",
             "只听一个", "只听一人", "只听有人",
             "突然一个", "忽然一个", "突然一位",
-            "只见那", "忽听那", "只听那",
+             "只见那", "忽听那", "只听那",
+             // 用户报告的3+字假阳性
+             "安全通道", "居高临下", "白的肌肤", "从后面", "有意思", "高跟鞋",
         ]
         return stops.contains(word) ||
                word.hasPrefix("第") ||

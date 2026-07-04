@@ -1494,52 +1494,52 @@ final class ReaderStore: NSObject, ObservableObject {
             let audioURL: URL
         }
 
-        let slice = segments.dropFirst(startIndex)
+        // Separate cached and uncached segments, starting from startIndex
         var synthesized: [SynthesizedSegment] = []
-        // Limit concurrent synthesis to 3 to avoid overloading the TTS server
-        let semaphore = AsyncSemaphore(maxConcurrent: 3)
-        try await withThrowingTaskGroup(of: (Int, ScriptSegment, URL).self) { group in
-            for (offset, segment) in slice.enumerated() {
-                let originalIndex = startIndex + offset
-                let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
-                let safeStyle = sanitizeStyle(segment.style, for: segment.voice)
-                let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(safeStyle):\(content.hashValue)"
-
-                if let cachedURL = ttsCache[cacheKey] {
-                    synthesized.append(SynthesizedSegment(index: originalIndex, segment: segment, audioURL: cachedURL))
-                    continue
-                }
-
-                _ = group.addTaskUnlessCancelled {
-                    await semaphore.wait()
-                    do {
-                        let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
-                        await semaphore.signal()
-                        return (originalIndex, segment, url)
-                    } catch {
-                        await semaphore.signal()
-                        throw error
-                    }
-                }
+        var pendingSegments: [(index: Int, content: String, segment: ScriptSegment, safeStyle: String)] = []
+        for i in startIndex..<segments.count {
+            let segment = segments[i]
+            let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
+            let safeStyle = sanitizeStyle(segment.style, for: segment.voice)
+            let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(safeStyle):\(content.hashValue)"
+            if let cachedURL = ttsCache[cacheKey] {
+                synthesized.append(SynthesizedSegment(index: i, segment: segment, audioURL: cachedURL))
+            } else {
+                pendingSegments.append((i, content, segment, safeStyle))
             }
+        }
 
-            var completed = 0
-            let total = slice.count
-            for try await (idx, seg, url) in group {
-                let key = "\(seg.voice):\(seg.rate):\(seg.pitch):\(seg.style):\(seg.text.hashValue)"
-                ttsCache[key] = url
-                synthesized.append(SynthesizedSegment(index: idx, segment: seg, audioURL: url))
-                // evict oldest if over limit
-                if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first, let staleURL = ttsCache[stale] {
-                    ttsCache.removeValue(forKey: stale)
-                    DispatchQueue.global(qos: .utility).async {
-                        try? FileManager.default.removeItem(at: staleURL)
+        // Process uncached segments in batches of 3 (no semaphore to avoid deadlock)
+        let maxConcurrent = 3
+        var completed = synthesized.count // cached segments already "done"
+        let total = segments.count - startIndex
+        for batchStart in stride(from: 0, to: pendingSegments.count, by: maxConcurrent) {
+            try Task.checkCancellation()
+            let batchEnd = min(batchStart + maxConcurrent, pendingSegments.count)
+            try await withThrowingTaskGroup(of: (Int, URL).self) { group in
+                for i in batchStart..<batchEnd {
+                    let (originalIndex, content, segment, safeStyle) = pendingSegments[i]
+                    _ = group.addTaskUnlessCancelled {
+                        let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
+                        return (originalIndex, url)
                     }
                 }
-                completed += 1
-                await MainActor.run {
-                    ttsProgressMessage = "正在合成：\(seg.characterName) (\(completed)/\(total))"
-                    playProgress = Double(completed) / Double(total)
+                for try await (idx, url) in group {
+                    let seg = segments[idx]
+                    let cacheKey = "\(seg.voice):\(seg.rate):\(seg.pitch):\(seg.style):\(seg.text.hashValue)"
+                    ttsCache[cacheKey] = url
+                    synthesized.append(SynthesizedSegment(index: idx, segment: seg, audioURL: url))
+                    if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first, let staleURL = ttsCache[stale] {
+                        ttsCache.removeValue(forKey: stale)
+                        DispatchQueue.global(qos: .utility).async {
+                            try? FileManager.default.removeItem(at: staleURL)
+                        }
+                    }
+                    completed += 1
+                    await MainActor.run {
+                        ttsProgressMessage = "正在合成：\(seg.characterName) (\(completed)/\(total))"
+                        playProgress = Double(completed) / Double(total)
+                    }
                 }
             }
         }
@@ -1723,7 +1723,10 @@ final class ReaderStore: NSObject, ObservableObject {
         for n in candidates { candidateScores[n, default: 0] += 1 }
         let scores = analyzer.countWithAC(text: raw, candidates: candidateScores)
         let sorted = scores.keys.sorted { scores[$0, default: 0] > scores[$1, default: 0] }
-        for n in sorted { names.append(n) }
+        for n in sorted {
+            guard CharacterAnalyzer.looksLikeRealName(n) || CharacterAnalyzer.titleSuffixes.contains(where: { n.hasSuffix($0) }) else { continue }
+            names.append(n)
+        }
 
         // Resolve aliases: 无忌 → 张无忌, 张公子 → 张无忌, etc.
         let resolved = CharacterAnalyzer.resolveAliases(Array(names))
