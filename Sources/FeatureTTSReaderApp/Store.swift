@@ -1478,10 +1478,15 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
 
                 _ = group.addTaskUnlessCancelled {
-                    try await semaphore.wait()
-                    defer { semaphore.signal() }
-                    let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
-                    return (index, segment, url)
+                    await semaphore.wait()
+                    do {
+                        let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
+                        await semaphore.signal()
+                        return (index, segment, url)
+                    } catch {
+                        await semaphore.signal()
+                        throw error
+                    }
                 }
             }
 
