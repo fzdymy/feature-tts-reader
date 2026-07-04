@@ -1468,7 +1468,8 @@ final class ReaderStore: NSObject, ObservableObject {
         try await withThrowingTaskGroup(of: (Int, ScriptSegment, URL).self) { group in
             for (index, segment) in segments.enumerated() {
                 let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
-                let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(segment.style):\(content.hashValue)"
+                let safeStyle = sanitizeStyle(segment.style, for: segment.voice)
+                let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(safeStyle):\(content.hashValue)"
 
                 if let cachedURL = ttsCache[cacheKey] {
                     synthesized.append(SynthesizedSegment(index: index, segment: segment, audioURL: cachedURL))
@@ -1476,7 +1477,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
 
                 _ = group.addTaskUnlessCancelled {
-                    let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: segment.style)
+                    let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
                     return (index, segment, url)
                 }
             }
@@ -2132,6 +2133,15 @@ final class ReaderStore: NSObject, ObservableObject {
             UserDefaults.standard.set(tagData, forKey: "tagPresets")
         }
         return true
+    }
+
+    func sanitizeStyle(_ style: String, for voiceID: String) -> String {
+        guard let voice = voices.first(where: { $0.id == voiceID }), let list = voice.styleList else {
+            return "neutral"
+        }
+        if style.isEmpty || style == "neutral" { return "neutral" }
+        if list.contains(style) { return style }
+        return list.first ?? "neutral"
     }
 
     /// 从中文名字推测性别（启发式）
