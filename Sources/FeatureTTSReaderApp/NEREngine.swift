@@ -20,15 +20,17 @@ final class NEREngine {
         } else if let url = Bundle.module.url(forResource: "ckip_ner_q8", withExtension: "mlpackage") {
             modelURL = url
         } else {
-            // Development fallback: relative to package source
-            let devPath = URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .appendingPathComponent("Resources/ckip_ner_q8.mlpackage")
-            if FileManager.default.fileExists(atPath: devPath.path) {
-                modelURL = devPath
-            } else {
+            // Development fallbacks: temp dir (CI download) or source tree
+            let candidates = [
+                URL(fileURLWithPath: "/tmp/ner-model/ckip_ner_q8.mlpackage"),
+                URL(fileURLWithPath: #filePath)
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Resources/ckip_ner_q8.mlpackage")
+            ]
+            guard let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
                 throw NRError.modelNotFound
             }
+            modelURL = found
         }
         model = try MLModel(contentsOf: modelURL, configuration: config)
 
@@ -38,14 +40,16 @@ final class NEREngine {
         } else if let url = Bundle.module.url(forResource: "vocab", withExtension: "txt") {
             vocabURL = url
         } else {
-            let devPath = URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .appendingPathComponent("Resources/vocab.txt")
-            if FileManager.default.fileExists(atPath: devPath.path) {
-                vocabURL = devPath
-            } else {
+            let candidates = [
+                URL(fileURLWithPath: "/tmp/ner-model/vocab.txt"),
+                URL(fileURLWithPath: #filePath)
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Resources/vocab.txt")
+            ]
+            guard let found = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
                 throw NRError.vocabNotFound
             }
+            vocabURL = found
         }
         guard let content = try? String(contentsOf: vocabURL, encoding: .utf8) else {
             throw NRError.vocabNotFound
