@@ -276,11 +276,11 @@ struct CharacterAssignmentPanel: View {
                 }.value
                 for n in names { allNames.insert(n) }
                 let elapsed = Date().timeIntervalSince(startTime)
-                scanProgress = Double(i + 1) / Double(totalChunks) * 0.33
+                scanProgress = Double(i + 1) / Double(totalChunks) * 0.50
                 elapsedText = formatDuration(elapsed)
                 if i >= 3 {
                     let perChunk = elapsed / Double(i + 1)
-                    etaText = "剩余 \(formatDuration(perChunk * Double(totalChunks - i - 1)))"
+                    etaText = formatDuration(perChunk * Double(totalChunks - i - 1))
                 }
                 await Task.yield()
             }
@@ -288,61 +288,41 @@ struct CharacterAssignmentPanel: View {
             let elapsed1 = Date().timeIntervalSince(startTime)
             elapsedText = formatDuration(elapsed1)
 
-            // Phase 2: NER on a sample of the text (first 150K chars)
-            // to catch names that regex patterns miss (e.g. indirect speech)
-            var nerNames = [String]()
-            if let engine = try? NEREngine() {
-                scanPhase = "NER 智能识别中..."
-                let sampleSize = min(150_000, text.count)
-                let sampleText = String(text.prefix(sampleSize))
-                nerNames = await Task.detached(priority: .userInitiated) { [engine] in
-                    engine.extractPersonNames(from: sampleText) { chunk, total in
-                        DispatchQueue.main.async {
-                            let p = Double(chunk) / Double(total)
-                            self.scanProgress = 0.33 + p * 0.33
-                            let elapsed = Date().timeIntervalSince(startTime)
-                            self.elapsedText = self.formatDuration(elapsed)
-                            if chunk >= 5 {
-                                let perChunk = elapsed / Double(chunk)
-                                let remaining = perChunk * Double(total - chunk)
-                                self.etaText = "剩余 \(self.formatDuration(remaining))"
-                            }
-                        }
-                    }
-                }.value
-                allNames.formUnion(nerNames)
-            } else {
-                // No NER engine — Phase 2 fallback: regex on sample for extra recall
-                let sampleSize = min(150_000, text.count)
-                let sampleText = String(text.prefix(sampleSize))
-                let more = await Task.detached(priority: .userInitiated) {
-                    analyzer.extractDialogueNames(from: sampleText)
-                }.value
-                allNames.formUnion(more)
-            }
-
-            let elapsed2 = Date().timeIntervalSince(startTime)
-            elapsedText = formatDuration(elapsed2)
-
-            // Name quality filter:
-            // - NER names: always keep (ML model is accurate)
-            // - Regex-only names: must look like a real name (surname/title/prefix check)
-            scanPhase = "过滤非角色名..."
-            let nerSet = Set(nerNames)
-            let beforeCount = allNames.count
-            allNames = allNames.filter { nerSet.contains($0) || CharacterAnalyzer.looksLikeRealName($0) }
-            scanProgress = 0.66
-            if beforeCount > allNames.count {
-                let removed = beforeCount - allNames.count
-                elapsedText = formatDuration(Date().timeIntervalSince(startTime))
-                // No ETA update here — this step is near-instant
+            // Phase 2: AC自动机频率统计 (Aho-Corasick 多模匹配)
+            // 用字典树对前 500K 字做 O(n) 扫描，频次低于阈值的丢弃
+            scanPhase = "频率统计中..."
+            etaText = ""
+            let freqLimit = min(500_000, text.count)
+            let freqText = String(text.prefix(freqLimit))
+            let candidateDict = Dictionary(uniqueKeysWithValues: allNames.map { ($0, 0) })
+            let freqResult = await Task.detached(priority: .userInitiated) { [analyzer] in
+                analyzer.countWithAC(text: freqText, candidates: candidateDict)
+            }.value
+            let minFreq = max(2, freqLimit / 100_000)
+            allNames = Set(freqResult.filter { $0.value >= minFreq }.map(\.key))
+            scanProgress = 0.50
+            elapsedText = formatDuration(Date().timeIntervalSince(startTime))
+            if allNames.isEmpty && !candidateDict.isEmpty {
+                // If frequency filter wiped everything, fall back to top 20% by freq
+                let ranked = freqResult.sorted { $0.value > $1.value }
+                let keepCount = max(5, ranked.count / 5)
+                allNames = Set(ranked.prefix(keepCount).map(\.key))
             }
             await Task.yield()
 
-            // Phase 3: attribute analysis (progress 0.66 → 1.0)
-            // Names that don't appear in the first 500K chars are skipped
-            // (they are likely regex false positives)
+            // Name quality filter: 姓氏/称谓/虚词检查
+            scanPhase = "过滤非角色名..."
+            let beforeCount = allNames.count
+            allNames = allNames.filter { CharacterAnalyzer.looksLikeRealName($0) }
+            scanProgress = 0.60
+            if beforeCount > allNames.count {
+                elapsedText = formatDuration(Date().timeIntervalSince(startTime))
+            }
+            await Task.yield()
+
+            // Phase 3: attribute analysis (progress 0.60 → 1.0)
             scanPhase = "属性分析中..."
+            etaText = ""
             var inferred = [CharacterProfile]()
             let contextLimit = min(500_000, text.count)
             let contextText = text.prefix(contextLimit)
@@ -357,7 +337,7 @@ struct CharacterAssignmentPanel: View {
                 var rate = 0
                 var pitch = 0
                 guard let range = contextText.range(of: name) else {
-                    scanProgress = 0.66 + Double(idx + 1) / Double(uniqueNames.count) * 0.34
+                    scanProgress = 0.60 + Double(idx + 1) / Double(uniqueNames.count) * 0.40
                     await Task.yield()
                     continue
                 }
@@ -375,11 +355,11 @@ struct CharacterAssignmentPanel: View {
                     sensitivity: defaultSensitivity, frequency: 0
                 ))
                 let elapsed = Date().timeIntervalSince(startTime)
-                scanProgress = 0.66 + Double(idx + 1) / Double(uniqueNames.count) * 0.34
+                scanProgress = 0.60 + Double(idx + 1) / Double(uniqueNames.count) * 0.40
                 elapsedText = formatDuration(elapsed)
                 if idx >= 3 {
                     let perItem = elapsed / Double(idx + 1)
-                    etaText = "剩余 \(formatDuration(perItem * Double(uniqueNames.count - idx - 1)))"
+                    etaText = formatDuration(perItem * Double(uniqueNames.count - idx - 1))
                 }
                 await Task.yield()
             }

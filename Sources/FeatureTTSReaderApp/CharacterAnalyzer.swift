@@ -193,6 +193,15 @@ final class CharacterAnalyzer {
     private static let speechVerbQuotePattern = RegexCache.shared.get(
         "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道)[：:]*[「\\u300c\\u201c『\\u300e\"'\\u2018\\u201c]"
     )!
+    // Novel action + speech cross pattern: "纳兰嫣然！纳兰桀怒喝道"
+    // Captures both the addressee and the speaker
+    private static let exclamationSpeechPattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})[！!][「\\u300c\"'\\u201c]?([\\p{Han}]{2,4})(?:怒道|喝道|冷笑道|沉声道|厉声道|喊道|叫道)"
+    )!
+    // Name + novel action (no speech verb needed): "林动身形一闪"
+    private static let novelActionPattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})(?:身形一闪|脸色一变|心中一动|心头一震|眉头一皱|脚步一顿|目光一凝|袖袍一挥|嘴角一勾|嘴角一撇|瞳孔一缩|身形一顿|面色一沉|脸色一沉|眼神一冷|神情一滞)"
+    )!
     // Dialogue quote patterns
     private static let quoteExtractPatterns: [NSRegularExpression] = [
         RegexCache.shared.get("[「\\u300c]([^」\\u300d]+)[」\\u300d]")!,
@@ -289,15 +298,23 @@ final class CharacterAnalyzer {
             (Self.dialogueBeforeQuotePattern, 12),
             (Self.commaAddressPattern, 10),
             (Self.speechVerbQuotePattern, 15),
+            (Self.novelActionPattern, 12),
+            (Self.exclamationSpeechPattern, 14),
         ]
         for (i, (pattern, _)) in patterns.enumerated() {
             pattern.enumerateMatches(in: chunk, range: nsRange) { match, _, _ in
-                guard let m = match, m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: chunk) else { return }
-                let name = String(chunk[r])
-                if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) && !isStopWord(name) {
-                    found.insert(name)
-                    if i == 2 { colonNames.insert(name) }
-                    if i == 3 { commaNames.insert(name) }
+                guard let m = match else { return }
+                // Handle both single-capture and double-capture patterns
+                let ranges: [Range<String.Index>] = (1..<m.numberOfRanges).compactMap { ri in
+                    Range(m.range(at: ri), in: chunk)
+                }
+                for r in ranges {
+                    let name = String(chunk[r])
+                    if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) && !isStopWord(name) {
+                        found.insert(name)
+                        if i == 2 { colonNames.insert(name) }
+                        if i == 3 { commaNames.insert(name) }
+                    }
                 }
             }
         }
