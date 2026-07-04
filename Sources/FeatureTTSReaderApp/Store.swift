@@ -1503,6 +1503,16 @@ final class ReaderStore: NSObject, ObservableObject {
         // Sort by original index
         synthesized.sort { $0.index < $1.index }
 
+        guard !synthesized.isEmpty else {
+            await MainActor.run {
+                isSpeaking = false
+                isBusy = false
+                ttsIsPlaying = false
+                statusMessage = "合成结果为空，无法播放。"
+            }
+            return
+        }
+
         var queueItems: [TTSQueueItem] = []
         for (index, syn) in synthesized.enumerated() {
             let seg = syn.segment
@@ -1534,16 +1544,19 @@ final class ReaderStore: NSObject, ObservableObject {
         }
 
         // Wait for playback to complete via Combine publisher (no polling)
-        await withCheckedContinuation { [weak self] (cont: CheckedContinuation<Void, Never>) in
-            let c = self?.audioController.$isPlaying
-                .dropFirst()
-                .filter { !$0 }
-                .sink { _ in
-                    cont.resume()
-                }
-            self?.playbackContinuationCancellable = c
+        // If isPlaying is already false (playback finished immediately), skip waiting.
+        if audioController.isPlaying {
+            await withCheckedContinuation { [weak self] (cont: CheckedContinuation<Void, Never>) in
+                let c = self?.audioController.$isPlaying
+                    .filter { !$0 }
+                    .first()
+                    .sink { _ in
+                        cont.resume()
+                    }
+                self?.playbackContinuationCancellable = c
+            }
+            playbackContinuationCancellable = nil
         }
-        playbackContinuationCancellable = nil
 
         await MainActor.run {
             isSpeaking = false

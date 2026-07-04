@@ -406,17 +406,6 @@ struct CharacterAssignmentPanel: View {
                 await Task.yield()
             }
 
-            // Phase 3b: resolve aliases (陈无忌 → 无忌, 张公子 → 张无忌)
-            if inferred.count >= 2 {
-                let names = inferred.map(\.name)
-                let resolved = CharacterAnalyzer.resolveAliases(names)
-                for (canonical, aliases) in resolved where !aliases.isEmpty {
-                    if let idx = inferred.firstIndex(where: { $0.name == canonical }) {
-                        inferred[idx].aliases = aliases
-                    }
-                }
-            }
-
             if inferred.isEmpty {
                 inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: "未知",
                     age: "未知", tone: "平稳", voice: "", rate: 0, pitch: 0, style: "neutral",
@@ -434,29 +423,39 @@ struct CharacterAssignmentPanel: View {
             let titleSuffixes: Set<String> = ["书记", "市长", "局长", "经理", "医生",
                                               "老师", "公主", "殿下", "仙子", "同学",
                                               "同志", "总裁", "主管", "主任", "姑娘"]
-            var mergedProfiles = [CharacterProfile]()
+            var mergedMap: [UUID: CharacterProfile] = [:]
             var toRemove = Set<UUID>()
-            for profile in inferred where profile.name.count >= titleSuffixes.first?.count ?? 2 {
+            for profile in inferred where profile.name.count >= (titleSuffixes.first?.count ?? 2) {
                 guard let suffix = titleSuffixes.first(where: { profile.name.hasSuffix($0) }),
                       profile.name.count > suffix.count else { continue }
                 let base = String(profile.name.dropLast(suffix.count))
-                // Find a character whose full name starts with this base prefix
                 let candidates = inferred.filter {
                     $0.id != profile.id && !$0.isNarrator && $0.name.hasPrefix(base)
                 }
                 if let best = candidates.max(by: { $0.frequency < $1.frequency }) {
-                    if !best.aliases.contains(profile.name) {
-                        var merged = best
-                        merged.aliases = (merged.aliases + [profile.name]).sorted()
-                        mergedProfiles.append(merged)
-                        toRemove.insert(best.id)
-                    }
                     toRemove.insert(profile.id)
+                    var merged = mergedMap[best.id] ?? best
+                    if !merged.aliases.contains(profile.name) {
+                        merged.aliases = (merged.aliases + [profile.name]).sorted()
+                    }
+                    mergedMap[best.id] = merged
                 }
             }
             if !toRemove.isEmpty {
-                inferred.removeAll { toRemove.contains($0.id) }
-                inferred.append(contentsOf: mergedProfiles)
+                inferred.removeAll { toRemove.contains($0.id) || mergedMap.keys.contains($0.id) }
+                inferred.append(contentsOf: mergedMap.values)
+            }
+
+            // Phase 3b: resolve aliases (陈无忌 → 无忌, 张公子 → 张无忌)
+            if inferred.count >= 2 {
+                let names = inferred.map(\.name)
+                let resolved = CharacterAnalyzer.resolveAliases(names)
+                for (canonical, aliases) in resolved where !aliases.isEmpty {
+                    if let idx = inferred.firstIndex(where: { $0.name == canonical }) {
+                        let existing = Set(inferred[idx].aliases)
+                        inferred[idx].aliases = (inferred[idx].aliases + aliases.filter { !existing.contains($0) }).sorted()
+                    }
+                }
             }
 
             scanProgress = 1.0
