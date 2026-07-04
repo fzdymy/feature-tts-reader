@@ -10,9 +10,6 @@ DerivedData/
 .build/
 .swiftpm/
 
-# Core ML model (downloaded via script, not committed)
-Sources/FeatureTTSReaderApp/Resources/*.mlpackage
-
 # Temporary files
 *.swp
 *.tmp

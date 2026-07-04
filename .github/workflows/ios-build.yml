@@ -23,10 +23,6 @@ jobs:
       - name: Install dependencies
         run: swift package resolve
 
-      - name: Download NER Core ML model
-        run: |
-          bash .github/scripts/download-ner-model.sh
-
       - name: Build unsigned app product
         run: |
           xcodebuild build \
@@ -53,21 +49,7 @@ jobs:
             cp -R "build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle" "$APP_DIR/"
           fi
           
-          # 3. Copy NER model (downloaded to /tmp/ner-model/ to avoid Xcode Core ML compilation)
-          MODEL_SRC="/tmp/ner-model/ckip_ner_q8.mlpackage"
-          if [ -d "$MODEL_SRC" ]; then
-            cp -R "$MODEL_SRC" "$APP_DIR/"
-            echo "✅ NER model copied into IPA ($(du -sh "$APP_DIR/ckip_ner_q8.mlpackage" | cut -f1))"
-          fi
-          
-          # 4. Copy vocab.txt to app root for easy Bundle.main lookup
-          if [ -f "/tmp/ner-model/vocab.txt" ]; then
-            cp "/tmp/ner-model/vocab.txt" "$APP_DIR/"
-          elif [ -f "Sources/FeatureTTSReaderApp/Resources/vocab.txt" ]; then
-            cp "Sources/FeatureTTSReaderApp/Resources/vocab.txt" "$APP_DIR/"
-          fi
-          
-          # 5. Create required Info.plist with APPLICATION type (APPL)
+          # 3. Create required Info.plist with APPLICATION type (APPL)
           PLIST_PATH="$APP_DIR/Info.plist"
           plutil -create xml1 "$PLIST_PATH"
           plutil -insert CFBundleDevelopmentRegion -string "en" "$PLIST_PATH"
