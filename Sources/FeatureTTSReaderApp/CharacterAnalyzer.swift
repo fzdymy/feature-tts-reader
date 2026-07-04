@@ -142,6 +142,12 @@ final class CharacterAnalyzer {
         Set("的着了过把被从以在于会就能能可不倒也还很都来来出去上回起开住好出进")
     }()
 
+    /// Grammar particles that are NEVER valid at position 3+ in a Chinese name.
+    /// (的/了/着/过 are pure grammar markers; 来/可/好 can appear in real 3-char names)
+    private static let grammarRejectChars: Set<Character> = {
+        Set("的着了过")
+    }()
+
     /// 2‑char names that are common non‑name function‑word pairs.
     private static let nonNamePairs: Set<String> = [
         "所有", "这种", "那种", "每次", "只见", "忽见", "但见", "却见",
@@ -181,8 +187,13 @@ final class CharacterAnalyzer {
             if strongRejectChars.contains(chars[i]) { return false }
         }
 
-        // For 3-4 char names: check weak reject chars at positions 3+
-        if chars.count >= 3 {
+        // For 3-char names: check grammar particles at position 3 (的/了/着/过)
+        // but NOT content words (来/可/好) which can appear in real names.
+        if chars.count == 3 {
+            if grammarRejectChars.contains(chars[2]) { return false }
+        }
+        // For 4+ char names: check all weak reject chars at positions 3+
+        if chars.count >= 4 {
             for i in 2..<chars.count {
                 if weakRejectChars.contains(chars[i]) { return false }
             }
@@ -356,10 +367,10 @@ final class CharacterAnalyzer {
         return found.filter { name in
             if colonNames.contains(name) {
                 if verbEndings.contains(String(name.suffix(1))) { return false }
-                if name.count >= 3 && !Self.firstCharIsSurname(name) { return false }
+                if name.count >= 3 && !Self.firstCharIsSurname(name) && !Self.startsWithCompoundSurname(name) { return false }
             }
             if commaNames.contains(name) {
-                if name.count >= 3 && !Self.firstCharIsSurname(name) { return false }
+                if name.count >= 3 && !Self.firstCharIsSurname(name) && !Self.startsWithCompoundSurname(name) { return false }
             }
             return name.count >= 3 || Self.firstCharIsSurname(name)
         }
@@ -374,7 +385,7 @@ final class CharacterAnalyzer {
             // Also insert common substrings for better aliasing
             if name.count == 3 {
                 let lastTwo = String(name.suffix(2))
-                if Self.firstCharIsSurname(lastTwo) { ac.insert(lastTwo) }
+                if Self.firstCharIsSurname(lastTwo) && !isStopWord(lastTwo) { ac.insert(lastTwo) }
             }
         }
 
@@ -728,6 +739,12 @@ final class CharacterAnalyzer {
             "自从", "由于", "关于", "对于", "根据", "先生", "小姐", "姑娘",
             "公子", "师父", "师傅", "少爷", "夫人", "阁下", "大人", "前辈",
             "掌门", "教主", "帮主",
+            // 常被误认为人名的2字普通词语
+            "有一", "有的", "温柔", "应该", "那就", "怀中", "解释", "空气",
+            "方式", "闻言", "温热", "简直", "何人", "许久", "强者", "路上",
+            "干净", "那边", "那位", "一脸", "不由", "不错", "不愿", "不到",
+            "不敢", "不能", "不会", "不好", "不用", "不知", "不断", "不停",
+            "轻声", "师尊", "宗主", "师兄", "师姐", "师妹", "师弟", "怀中",
             "于是", "那啥", "那个", "算了", "还能", "还是", "再说", "回头",
             "哪天", "到时", "按理", "要不", "或是", "除了", "其中", "其他",
             "其余", "哪些", "哪些", "接着", "跟着", "反正", "总之", "虽说",

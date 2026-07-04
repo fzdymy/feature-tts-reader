@@ -32,7 +32,7 @@ struct CharacterAssignmentPanel: View {
     private let maxDisplayed = 100
 
     private var bookCharacters: [CharacterProfile] {
-        store.characters
+        store.characters.filter { $0.bookID == nil || $0.bookID == book.id }
     }
 
     private var displayedCharacters: [CharacterProfile] {
@@ -108,24 +108,33 @@ struct CharacterAssignmentPanel: View {
     private var actionButtons: some View {
         VStack(spacing: 8) {
             Button(action: { startScan() }) {
-                Label("扫描全书角色", systemImage: "person.text.rectangle")
-                    .frame(maxWidth: .infinity)
+                HStack(spacing: 6) {
+                    Image(systemName: "person.text.rectangle")
+                    Text("扫描全书角色")
+                }
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .disabled(isScanning)
             HStack(spacing: 8) {
                 Button(action: { activeSheet = .templatePicker }) {
-                    Label("模板匹配", systemImage: "square.on.square")
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.on.square")
+                        Text("模板匹配")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 if !bookCharacters.isEmpty {
                     Button(role: .destructive) {
-                        store.characters = []
+                        store.characters.removeAll { $0.bookID == nil || $0.bookID == book.id }
                         store.saveState()
                     } label: {
-                        Label("清空角色", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash")
+                            Text("清空角色")
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -293,6 +302,9 @@ struct CharacterAssignmentPanel: View {
             let elapsed1 = Date().timeIntervalSince(startTime)
             elapsedText = formatDuration(elapsed1)
 
+            // Phase 1b: filter out non-real names (surname check, reject pronouns/particles)
+            allNames = allNames.filter { CharacterAnalyzer.looksLikeRealName($0) }
+
             // Phase 2: AC自动机频率统计 (Aho-Corasick 多模匹配)
             // 用字典树对前 500K 字做 O(n) 扫描，频次低于阈值的丢弃
             // 阈值按全文长度自适应：短文本从严，长文本从宽
@@ -315,6 +327,23 @@ struct CharacterAssignmentPanel: View {
                 allNames = Set(ranked.prefix(keepCount).map(\.key))
             }
             await Task.yield()
+
+            // Phase 2b: dedup — remove candidates that are prefixed by a higher-frequency name
+            let rankedNames = freqResult.sorted { $0.value > $1.value }
+            var dedupNames = Set<String>()
+            for (name, _) in rankedNames {
+                if !allNames.contains(name) { continue }
+                let isPrefix = dedupNames.contains { $0.count >= 2 && name.hasPrefix($0) && $0 != name }
+                if !isPrefix {
+                    dedupNames.insert(name)
+                }
+            }
+            allNames = dedupNames
+
+            // Phase 2c: cap at top 60 by frequency
+            let freqMap = Dictionary(uniqueKeysWithValues: rankedNames.filter { allNames.contains($0.key) })
+            let sortedByFreq = allNames.sorted { (freqMap[$0] ?? 0) > (freqMap[$1] ?? 0) }
+            allNames = Set(sortedByFreq.prefix(60))
 
             // Phase 3: attribute analysis (progress 0.50 → 1.0)
             scanPhase = "属性分析中..."
@@ -348,7 +377,8 @@ struct CharacterAssignmentPanel: View {
                     id: UUID(), name: name, aliases: [],
                     gender: gender, age: age, tone: tone,
                     voice: "", rate: rate, pitch: pitch, style: style,
-                    sensitivity: defaultSensitivity, frequency: 0
+                    sensitivity: defaultSensitivity, frequency: 0,
+                    bookID: book.id
                 ))
                 let elapsed = Date().timeIntervalSince(startTime)
                 scanProgress = 0.50 + Double(idx + 1) / Double(uniqueNames.count) * 0.50
@@ -363,13 +393,13 @@ struct CharacterAssignmentPanel: View {
             if inferred.isEmpty {
                 inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: "未知",
                     age: "未知", tone: "平稳", voice: "", rate: 0, pitch: 0, style: "neutral",
-                    sensitivity: defaultSensitivity, frequency: 1)]
+                    sensitivity: defaultSensitivity, frequency: 1, bookID: book.id)]
             } else if !inferred.contains(where: { $0.isNarrator }) {
                 inferred.insert(CharacterProfile(
                     id: UUID(), name: "旁白", aliases: [], gender: "未知", age: "未知", tone: "平稳",
                     voice: "", rate: 0, pitch: 0, style: "neutral",
                     sensitivity: defaultSensitivity, isNarrator: true, role: .narrator,
-                    frequency: 1
+                    frequency: 1, bookID: book.id
                 ), at: 0)
             }
 

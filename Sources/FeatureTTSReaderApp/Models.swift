@@ -100,12 +100,13 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
     var isNarrator: Bool = false
     var role: CharacterRole = .character
     var frequency: Int = 0
+    var bookID: UUID?
 
     var info: String {
         [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, frequency: Int = 0) {
+    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, frequency: Int = 0, bookID: UUID? = nil) {
         self.id = id
         self.name = name
         self.aliases = aliases
@@ -120,10 +121,11 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         self.isNarrator = isNarrator
         self.role = role
         self.frequency = frequency
+        self.bookID = bookID
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role, frequency
+        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role, frequency, bookID
     }
 
     init(from decoder: Decoder) throws {
@@ -142,6 +144,7 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         isNarrator = try c.decodeIfPresent(Bool.self, forKey: .isNarrator) ?? false
         role = try c.decodeIfPresent(CharacterRole.self, forKey: .role) ?? .character
         frequency = try c.decodeIfPresent(Int.self, forKey: .frequency) ?? 0
+        bookID = try c.decodeIfPresent(UUID.self, forKey: .bookID)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -160,6 +163,7 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         try c.encode(isNarrator, forKey: .isNarrator)
         try c.encode(role, forKey: .role)
         try c.encode(frequency, forKey: .frequency)
+        try c.encodeIfPresent(bookID, forKey: .bookID)
     }
 }
 
