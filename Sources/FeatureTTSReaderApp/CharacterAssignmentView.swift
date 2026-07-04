@@ -291,13 +291,14 @@ struct CharacterAssignmentPanel: View {
             let elapsed1 = Date().timeIntervalSince(startTime)
             elapsedText = formatDuration(elapsed1)
 
-            // Phase 2: NER on a sample of the text (first 300K chars)
+            // Phase 2: NER on a sample of the text (first 150K chars)
             // to catch names that regex patterns miss (e.g. indirect speech)
+            var nerNames = [String]()
             if let engine = try? NEREngine() {
                 scanPhase = "NER 智能识别中..."
-                let sampleSize = min(300_000, text.count)
+                let sampleSize = min(150_000, text.count)
                 let sampleText = String(text.prefix(sampleSize))
-                let nerNames = await Task.detached(priority: .userInitiated) { [engine] in
+                nerNames = await Task.detached(priority: .userInitiated) { [engine] in
                     engine.extractPersonNames(from: sampleText) { chunk, total in
                         DispatchQueue.main.async {
                             let p = Double(chunk) / Double(total)
@@ -315,7 +316,7 @@ struct CharacterAssignmentPanel: View {
                 allNames.formUnion(nerNames)
             } else {
                 // No NER engine — Phase 2 fallback: regex on sample for extra recall
-                let sampleSize = min(300_000, text.count)
+                let sampleSize = min(150_000, text.count)
                 let sampleText = String(text.prefix(sampleSize))
                 let more = await Task.detached(priority: .userInitiated) {
                     analyzer.extractDialogueNames(from: sampleText)
@@ -326,38 +327,29 @@ struct CharacterAssignmentPanel: View {
             let elapsed2 = Date().timeIntervalSince(startTime)
             elapsedText = formatDuration(elapsed2)
 
-            // Phase 2b: frequency filter — count occurrences in first 500K chars
-            // Eliminates regex false positives (names appearing 0-1 times)
-            scanPhase = "频率过滤中..."
-            let freqLimit = min(500_000, text.count)
-            let freqText = String(text.prefix(freqLimit)) as NSString
-            let minFreq = max(3, freqLimit / 100000)
-            let nameList = allNames.sorted()
-            var freqMap = [String: Int]()
-            for (fidx, name) in nameList.enumerated() {
-                if Task.isCancelled { isScanning = false; return }
-                var count = 0
-                var searchRange = NSRange(location: 0, length: freqText.length)
-                while searchRange.location < freqText.length {
-                    let found = freqText.range(of: name, options: [], range: searchRange)
-                    if found.location == NSNotFound { break }
-                    count += 1
-                    if count >= minFreq { break }
-                    searchRange.location = found.location + found.length
-                    searchRange.length = freqText.length - searchRange.location
-                }
-                freqMap[name] = count
-                scanProgress = 0.66 + Double(fidx + 1) / Double(nameList.count) * 0.02
-                await Task.yield()
+            // Name quality filter:
+            // - NER names: always keep (ML model is accurate)
+            // - Regex-only names: must look like a real name (surname/title/prefix check)
+            scanPhase = "过滤非角色名..."
+            let nerSet = Set(nerNames)
+            let beforeCount = allNames.count
+            allNames = allNames.filter { nerSet.contains($0) || CharacterAnalyzer.looksLikeRealName($0) }
+            scanProgress = 0.66
+            if beforeCount > allNames.count {
+                let removed = beforeCount - allNames.count
+                elapsedText = formatDuration(Date().timeIntervalSince(startTime))
+                // No ETA update here — this step is near-instant
             }
-            let filteredNames = allNames.filter { (freqMap[$0] ?? 0) >= minFreq }.sorted()
+            await Task.yield()
 
-            // Phase 3: attribute analysis (progress 0.68 → 1.0)
+            // Phase 3: attribute analysis (progress 0.66 → 1.0)
+            // Names that don't appear in the first 500K chars are skipped
+            // (they are likely regex false positives)
             scanPhase = "属性分析中..."
             var inferred = [CharacterProfile]()
             let contextLimit = min(500_000, text.count)
             let contextText = text.prefix(contextLimit)
-            let uniqueNames = filteredNames
+            let uniqueNames = allNames.sorted()
 
             for (idx, name) in uniqueNames.enumerated() {
                 if Task.isCancelled { isScanning = false; return }
@@ -367,14 +359,17 @@ struct CharacterAssignmentPanel: View {
                 var style = "neutral"
                 var rate = 0
                 var pitch = 0
-                if let range = contextText.range(of: name) {
-                    let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
-                    let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
-                    let ctx = String(contextText[ctxStart..<ctxEnd])
-                    let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
-                    gender = attrs.gender; age = attrs.age; tone = attrs.baseTone
-                    style = attrs.baseStyle; rate = attrs.baseRate; pitch = attrs.basePitch
+                guard let range = contextText.range(of: name) else {
+                    scanProgress = 0.66 + Double(idx + 1) / Double(uniqueNames.count) * 0.34
+                    await Task.yield()
+                    continue
                 }
+                let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
+                let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
+                let ctx = String(contextText[ctxStart..<ctxEnd])
+                let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
+                gender = attrs.gender; age = attrs.age; tone = attrs.baseTone
+                style = attrs.baseStyle; rate = attrs.baseRate; pitch = attrs.basePitch
                 if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: [],
@@ -383,7 +378,7 @@ struct CharacterAssignmentPanel: View {
                     sensitivity: defaultSensitivity, frequency: 0
                 ))
                 let elapsed = Date().timeIntervalSince(startTime)
-                scanProgress = 0.68 + Double(idx + 1) / Double(uniqueNames.count) * 0.32
+                scanProgress = 0.66 + Double(idx + 1) / Double(uniqueNames.count) * 0.34
                 elapsedText = formatDuration(elapsed)
                 if idx >= 3 {
                     let perItem = elapsed / Double(idx + 1)

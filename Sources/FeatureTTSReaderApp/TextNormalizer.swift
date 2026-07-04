@@ -24,10 +24,10 @@ struct TextNormalizer {
         s = lines.joined(separator: "\n")
 
         // 4. Collapse excessive blank lines (≥3 consecutive → 2)
-        s = s.replacingOccurrences(of: "\n{4,}", with: "\n\n\n", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
 
-        // 5. Collapse multiple horizontal spaces (but not newlines)
-        s = s.replacingOccurrences(of: " {3,}", with: "  ", options: .regularExpression)
+        // 5. Collapse multiple horizontal spaces (2+ → 1)
+        s = s.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
 
         // 6. Remove stray control characters except \n, \t
         s = s.unicodeScalars.filter { c in

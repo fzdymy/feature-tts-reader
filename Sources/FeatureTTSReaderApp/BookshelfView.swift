@@ -6,6 +6,7 @@ struct BookshelfView: View {
     @State private var viewMode: ViewMode = .grid
     @State private var sortOption: SortOption = .recent
     @State private var searchText = ""
+    @State private var showStatus = false
 
     enum ViewMode: String, CaseIterable, Identifiable {
         case grid, list
@@ -39,12 +40,32 @@ struct BookshelfView: View {
                         .padding(.horizontal)
                         .padding(.top, 8)
 
+                    if showStatus && !store.statusMessage.isEmpty {
+                        Text(store.statusMessage)
+                            .font(.subheadline)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.accentColor)
+                            .cornerRadius(6)
+                            .padding(.horizontal)
+                            .padding(.top, 4)
+                            .transition(.opacity)
+                    }
+
                     if store.books.isEmpty {
                         emptyStateView
                     } else if viewMode == .grid {
                         gridView
                     } else {
                         listView
+                    }
+                }
+                .onChange(of: store.statusMessage) { _ in
+                    showStatus = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        withAnimation { showStatus = false }
                     }
                 }
             }
