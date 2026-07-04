@@ -13,6 +13,7 @@ struct CharacterAssignmentPanel: View {
     @State private var etaText: String = ""
     @State private var showTemplatePicker = false
     @State private var editingCharacter: CharacterProfile?
+    @State private var showEditor = false
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showTemplateExporter = false
@@ -50,14 +51,16 @@ struct CharacterAssignmentPanel: View {
         .sheet(isPresented: $showTemplatePicker) {
             templatePickerSheet
         }
-        .sheet(item: $editingCharacter) { profile in
-            CharacterEditorView(character: profile, voices: store.voices) { updated in
-                if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
-                    store.characters[i] = updated
+        .sheet(isPresented: $showEditor) {
+            if let profile = editingCharacter {
+                CharacterEditorView(character: profile, voices: store.voices) { updated in
+                    if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
+                        store.characters[i] = updated
+                    }
+                    store.saveState()
                 }
-                store.saveState()
+                .environmentObject(store)
             }
-            .environmentObject(store)
         }
         .fileExporter(isPresented: $showExporter, document: JSONDocument(data: exportData),
                       contentType: .json, defaultFilename: "book-characters-\(book.title)") { result in
@@ -105,6 +108,7 @@ struct CharacterAssignmentPanel: View {
     private var scanButton: some View {
         Button(action: { startScan() }) {
             Label("扫描全书角色", systemImage: "person.text.rectangle")
+                .font(.caption)
         }
         .buttonStyle(.borderedProminent).controlSize(.small)
         .disabled(isScanning)
@@ -113,6 +117,7 @@ struct CharacterAssignmentPanel: View {
     private var templateButton: some View {
         Button(action: { showTemplatePicker = true }) {
             Label("模板匹配本书", systemImage: "square.on.square")
+                .font(.caption)
         }
         .buttonStyle(.bordered).controlSize(.small)
     }
@@ -123,6 +128,7 @@ struct CharacterAssignmentPanel: View {
             store.saveState()
         } label: {
             Label("清空所有角色", systemImage: "trash")
+                .font(.caption)
         }
         .buttonStyle(.bordered).controlSize(.small)
     }
@@ -199,16 +205,18 @@ struct CharacterAssignmentPanel: View {
             .foregroundColor(.secondary)
         }
         .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
         .background(Color.gray.opacity(0.06))
         .cornerRadius(10)
-        .contentShape(Rectangle())
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 10))
         .onTapGesture {
             editingCharacter = store.characters.first(where: { $0.id == profile.id })
+            showEditor = true
         }
         .contextMenu {
             Button {
                 editingCharacter = store.characters.first(where: { $0.id == profile.id })
+                showEditor = true
             } label: {
                 Label("微调编辑", systemImage: "slider.horizontal.3")
             }
@@ -290,6 +298,7 @@ struct CharacterAssignmentPanel: View {
 
             // Phase 2: AC自动机频率统计 (Aho-Corasick 多模匹配)
             // 用字典树对前 500K 字做 O(n) 扫描，频次低于阈值的丢弃
+            // 阈值按全文长度自适应：短文本从严，长文本从宽
             scanPhase = "频率统计中..."
             etaText = ""
             let freqLimit = min(500_000, text.count)
@@ -298,7 +307,7 @@ struct CharacterAssignmentPanel: View {
             let freqResult = await Task.detached(priority: .userInitiated) { [analyzer] in
                 analyzer.countWithAC(text: freqText, candidates: candidateDict)
             }.value
-            let minFreq = max(2, freqLimit / 100_000)
+            let minFreq = max(3, freqLimit / 100_000)
             allNames = Set(freqResult.filter { $0.value >= minFreq }.map(\.key))
             scanProgress = 0.50
             elapsedText = formatDuration(Date().timeIntervalSince(startTime))

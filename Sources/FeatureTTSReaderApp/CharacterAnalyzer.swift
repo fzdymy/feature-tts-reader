@@ -125,37 +125,69 @@ final class CharacterAnalyzer {
         "先生", "小姐", "姑娘", "公子", "师父", "师傅", "少爷", "太太",
         "夫人", "阁下", "大人", "前辈", "掌门", "教主", "帮主", "盟主",
         "庄主", "岛主", "兄台", "贤弟", "师妹", "师姐", "师兄", "师弟",
-        "婆婆", "姥姥", "老爷子", "老人家", "老公公", "老婆婆"
+        "婆婆", "姥姥", "老爷子", "老人家", "老公公", "老婆婆",
     ]
 
     static let commonNamePrefixes: Set<String> = ["阿", "小", "老", "大"]
 
-    /// Characters that should NOT appear in positions >= 2 of a name.
-    /// Grammar particles, common verbs, measure words, etc. — never part of a real name.
-    private static let nonNameChars: Set<Character> = {
-        Set("的了着过就把被从以在于这是那哪这么吧吗呢啊呀啦哦嗯嘛哈嘿哟乎焉哉的着过就把被从以在于这是那哪这么吧吗呢啊呀啦哦嗯嘛哈嘿哟乎焉哉的着过就把被从以在于这是那哪这么吧吗呢啊呀啦哦嗯嘛哈嘿哟乎焉哉")
+    /// Characters that should NEVER appear at positions >= 2 in a real Chinese name.
+    /// Pronouns, question words, particles, copula — absolutely reject.
+    private static let strongRejectChars: Set<Character> = {
+        Set("你我他她它这那哪什么怎么多么吧吗呢啊呀哦嗯哟啦嘛哈嘿喂咚罢了")
     }()
 
-    /// Character pairs (positions 1-2) that indicate a non-name.
-    private static let nonNamePrefixes: Set<String> = [
+    /// Characters that are HIGHLY suspicious at positions 3-4 in a 3-4 char name.
+    /// Grammar particles, directional verbs, common suffixes — reject if found at pos 3+.
+    private static let weakRejectChars: Set<Character> = {
+        Set("的着了过把被从以在于会就能能可不倒也还很都来来出去上回起开住好出进")
+    }()
+
+    /// 2‑char names that are common non‑name function‑word pairs.
+    private static let nonNamePairs: Set<String> = [
         "所有", "这种", "那种", "每次", "只见", "忽见", "但见", "却见",
         "忽听", "只听", "但听", "却听", "突然", "忽然", "猛然", "顿时",
-        "于是", "从此", "此后", "此后", "随后", "接着", "跟着", "然后",
+        "于是", "从此", "随后", "接着", "接着", "跟着", "然后", "转而",
         "关于", "对于", "由于", "因为", "为了", "除了", "经过", "通过",
+        "我们", "你们", "他们", "她们", "它们", "自己", "大家", "诸位",
+        "这个", "那个", "这里", "那里", "怎么", "什么", "这么", "那么",
+        "没有", "不是", "就是", "还是", "但是", "可是", "然而", "而且",
+        "如果", "因为", "所以", "虽然", "然后", "之后", "之前", "之中",
+        "之中", "其中", "期间", "之间", "之际", "以来", "以前", "以后",
+        "万一", "一切", "一个", "一种", "一次", "一时", "一刻",
+        "难道", "究竟", "到底", "几乎", "似乎", "好像", "仿佛", "大约",
+        "只见", "忽听", "便见", "就见",
     ]
 
     /// Check if a name looks like a real character name.
-    /// NER-confirmed names bypass this check (they are ML-verified).
     static func looksLikeRealName(_ name: String) -> Bool {
+        // Title suffix → always valid
         if name.count >= 2, titleSuffixes.contains(String(name.suffix(2))) { return true }
-        if name.count == 2 {
-            return (firstCharIsSurname(name) || commonNamePrefixes.contains(String(name.prefix(1))))
-                && !nonNamePrefixes.contains(name)
+
+        let chars = Array(name)
+
+        // 2-char: surname OR common prefix, AND not a known non-name pair
+        if chars.count == 2 {
+            guard firstCharIsSurname(name) || commonNamePrefixes.contains(String(name.prefix(1))) else { return false }
+            return !nonNamePairs.contains(name)
         }
-        guard firstCharIsSurname(name) else { return false }
-        for ch in name.dropFirst() {
-            if nonNameChars.contains(ch) { return false }
+
+        // 3+ char: first char must be surname (or first 2 chars a compound surname)
+        let hasSingleSurname = firstCharIsSurname(name)
+        let hasCompoundSurname = chars.count >= 3 && compoundSurnames.contains(String(name.prefix(2)))
+        guard hasSingleSurname || hasCompoundSurname else { return false }
+
+        // Check positions 2+ for strong reject chars
+        for i in 1..<chars.count {
+            if strongRejectChars.contains(chars[i]) { return false }
         }
+
+        // For 3-4 char names: check weak reject chars at positions 3+
+        if chars.count >= 3 {
+            for i in 2..<chars.count {
+                if weakRejectChars.contains(chars[i]) { return false }
+            }
+        }
+
         return true
     }
 
@@ -172,7 +204,8 @@ final class CharacterAnalyzer {
         "公冶", "宗政", "濮阳", "淳于", "仲孙", "太叔", "申屠", "公孙",
         "乐正", "轩辕", "令狐", "钟离", "闾丘", "长孙", "慕容", "鲜于",
         "宇文", "司徒", "司空", "亓官", "司寇", "子车", "颛孙", "端木",
-        "巫马", "公西", "漆雕", "壤驷", "公良", "夹谷", "宰父", "微生", "羊舌"
+        "巫马", "公西", "漆雕", "壤驷", "公良", "夹谷", "宰父", "微生", "羊舌",
+        "纳兰", "贺兰", "完颜", "拓跋", "耶律"
     ]
 
     // Pre-compiled regex patterns (compiled once, cached forever)

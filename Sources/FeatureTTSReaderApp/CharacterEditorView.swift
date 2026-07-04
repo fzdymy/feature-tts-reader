@@ -101,6 +101,7 @@ struct CharacterEditorView: View {
                 }
             }
             .navigationTitle(profile.name.isEmpty ? "编辑角色" : profile.name)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
