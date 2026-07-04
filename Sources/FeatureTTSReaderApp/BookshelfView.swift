@@ -61,7 +61,7 @@ struct BookshelfView: View {
                         listView
                     }
                 }
-                .onChange(of: store.statusMessage) { _ in
+                .onChange(of: store.statusMessage) { _, _ in
                     showStatus = true
                     Task {
                         try? await Task.sleep(nanoseconds: 3_000_000_000)
