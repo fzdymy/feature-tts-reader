@@ -13,9 +13,13 @@ actor TTSHttpClient {
     }
 
     func synthesizeAudio(text: String, voice: String, rate: Int, pitch: Int, style: String) async throws -> URL {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        if !components.path.hasSuffix("/tts") {
-            components.path = (components.path as NSString).appendingPathComponent("tts")
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw NSError(domain: "TTSHttpClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "无效的服务器地址: \(baseURL.absoluteString)"])
+        }
+        let path = components.path
+        if !path.hasSuffix("/tts") {
+            let cleanPath = path.hasSuffix("/") ? String(path.dropLast()) : path
+            components.path = cleanPath + "/tts"
         }
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "t", value: text),
@@ -29,7 +33,10 @@ actor TTSHttpClient {
         }
         components.queryItems = queryItems
 
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw NSError(domain: "TTSHttpClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "构造URL失败"])
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
 
@@ -411,6 +418,31 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         let bookID: String
         let chapterIndex: Int
         let segmentIndex: Int
+    }
+}
+
+// MARK: - Async semaphore for concurrency limiting
+
+actor AsyncSemaphore {
+    private var count: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(maxConcurrent: Int) {
+        count = maxConcurrent
+    }
+
+    func wait() async {
+        if count > 0 { count -= 1; return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func signal() {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume()
+        } else {
+            count += 1
+        }
     }
 }
 

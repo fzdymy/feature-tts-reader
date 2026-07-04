@@ -1464,6 +1464,8 @@ final class ReaderStore: NSObject, ObservableObject {
         }
 
         var synthesized: [SynthesizedSegment] = []
+        // Limit concurrent synthesis to 3 to avoid overloading the TTS server
+        let semaphore = AsyncSemaphore(maxConcurrent: 3)
         try await withThrowingTaskGroup(of: (Int, ScriptSegment, URL).self) { group in
             for (index, segment) in segments.enumerated() {
                 let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
@@ -1476,6 +1478,8 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
 
                 _ = group.addTaskUnlessCancelled {
+                    try await semaphore.wait()
+                    defer { semaphore.signal() }
                     let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
                     return (index, segment, url)
                 }
@@ -1764,7 +1768,7 @@ final class ReaderStore: NSObject, ObservableObject {
         var lastSpeaker: String? = nil
         for paragraph in paragraphs {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lines = trimmed.chunked(into: 200)
+            let lines = trimmed.chunked(into: 350)
             for line in lines {
                 let analyzer = CharacterAnalyzer()
                 let speaker = detectSpeaker(in: line, characters: characters) ?? lastSpeaker ?? characters.first?.name ?? "叙述者"

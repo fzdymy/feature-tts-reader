@@ -33,10 +33,12 @@ struct CharacterAssignmentPanel: View {
 
     private var bookCharacters: [CharacterProfile] {
         store.characters.filter { $0.bookID == nil || $0.bookID == book.id }
+            .sorted { $0.frequency > $1.frequency }
     }
 
     private var displayedCharacters: [CharacterProfile] {
-        showAllCharacters ? bookCharacters : Array(bookCharacters.prefix(maxDisplayed))
+        let sorted = bookCharacters
+        return showAllCharacters ? sorted : Array(sorted.prefix(maxDisplayed))
     }
 
     var body: some View {
@@ -340,24 +342,9 @@ struct CharacterAssignmentPanel: View {
             }
             allNames = dedupNames
 
-            // Phase 2c: NL tagger validation — soft boost, don't drop
-            // validated names sort first (preferred by top-100 cap),
-            // but unvalidated names survive so real characters are never lost.
-            scanPhase = "智能验证中..."
-            let nlLimit = min(500_000, text.count)
-            let nlText = String(text.prefix(nlLimit))
-            let validatedNames = await Task.detached(priority: .userInitiated) { [analyzer] in
-                analyzer.validateWithNL(text: nlText, candidates: allNames)
-            }.value
-
-            // Phase 2d: cap at top 100 by frequency, with NL-validated names prioritized
+            // Phase 2c: cap at top 100 by frequency
             let freqMap = Dictionary(uniqueKeysWithValues: rankedNames.filter { allNames.contains($0.key) })
-            let sortedByFreq = allNames.sorted { (name1, name2) in
-                let v1 = validatedNames.contains(name1)
-                let v2 = validatedNames.contains(name2)
-                if v1 != v2 { return v1 && !v2 }  // validated before unvalidated
-                return (freqMap[name1] ?? 0) > (freqMap[name2] ?? 0)
-            }
+            let sortedByFreq = allNames.sorted { (freqMap[$0] ?? 0) > (freqMap[$1] ?? 0) }
             allNames = Set(sortedByFreq.prefix(100))
 
             // Phase 3: attribute analysis (progress 0.50 → 1.0)
@@ -389,11 +376,12 @@ struct CharacterAssignmentPanel: View {
                 // Tone inference from a single window is unreliable; default to neutral
                 tone = "平稳"; style = "neutral"; rate = 0; pitch = 0
                 if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
+                let acFreq = freqMap[name] ?? 0
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: [],
                     gender: gender, age: age, tone: tone,
                     voice: "", rate: rate, pitch: pitch, style: style,
-                    sensitivity: defaultSensitivity, frequency: 0,
+                    sensitivity: defaultSensitivity, frequency: acFreq,
                     bookID: book.id
                 ))
                 let elapsed = Date().timeIntervalSince(startTime)
