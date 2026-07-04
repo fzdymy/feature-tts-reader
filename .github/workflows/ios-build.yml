@@ -25,7 +25,7 @@ jobs:
 
       - name: Download NER Core ML model
         run: |
-          SRCROOT=$PWD bash .github/scripts/download-ner-model.sh
+          SRCROOT=$GITHUB_WORKSPACE bash .github/scripts/download-ner-model.sh
 
       - name: Build unsigned app product
         run: |
@@ -54,7 +54,7 @@ jobs:
           fi
           
           # 3. Copy NER model (SPM .process() does not handle .mlpackage bundle directories)
-          MODEL_SRC="Sources/FeatureTTSReaderApp/Resources/ckip_ner_q8.mlpackage"
+          MODEL_SRC="${GITHUB_WORKSPACE}/Sources/FeatureTTSReaderApp/Resources/ckip_ner_q8.mlpackage"
           if [ -d "$MODEL_SRC" ]; then
             cp -R "$MODEL_SRC" "$APP_DIR/"
             echo "✅ NER model copied into IPA ($(du -sh "$APP_DIR/ckip_ner_q8.mlpackage" | cut -f1))"

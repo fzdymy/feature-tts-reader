@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-MODEL_DIR="${SRCROOT:-$(dirname "$0")/../../Sources/FeatureTTSReaderApp/Resources}"
+BASE_DIR="${SRCROOT:-$(dirname "$0")/../..}"
+MODEL_DIR="$BASE_DIR/Sources/FeatureTTSReaderApp/Resources"
 MODEL_NAME="ckip_ner_q8"
 BASE_URL="https://huggingface.co/FakeRockert543/ckip-coreml/resolve/main/${MODEL_NAME}.mlpackage"
 
