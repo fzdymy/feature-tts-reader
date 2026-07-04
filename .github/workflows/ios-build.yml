@@ -23,6 +23,10 @@ jobs:
       - name: Install dependencies
         run: swift package resolve
 
+      - name: Download NER Core ML model
+        run: |
+          SRCROOT=$PWD bash .github/scripts/download-ner-model.sh
+
       - name: Build unsigned app product
         run: |
           xcodebuild build \

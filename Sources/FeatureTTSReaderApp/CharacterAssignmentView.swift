@@ -1,6 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import NaturalLanguage
+
 
 struct CharacterAssignmentPanel: View {
     @EnvironmentObject private var store: ReaderStore
@@ -252,6 +252,7 @@ struct CharacterAssignmentPanel: View {
     private func startScan() {
         isScanning = true
         scanProgress = 0
+        scanPhase = ""
         elapsedText = ""
         etaText = ""
         let startTime = Date()
@@ -259,225 +260,80 @@ struct CharacterAssignmentPanel: View {
         let defaultSensitivity = store.defaultSensitivity
 
         Task { @MainActor in
-            // Phase 1: chunked dialogue regex
-            let nsText = text as NSString
-            let totalLen = nsText.length
-            let chunkSize = 30_000
-            let totalChunks = max(1, (totalLen + chunkSize - 1) / chunkSize)
-            var candidateScores = [String: Int]()
+            var inferred = [CharacterProfile]()
 
-            for i in 0..<totalChunks {
+            scanPhase = "NER 实体识别中..."
+            scanProgress = 0.0
+
+            let names: [String]
+            if let engine = try? NEREngine() {
+                names = engine.extractPersonNames(from: text)
+            } else {
+                // Fallback: simple regex extraction
+                let a = CharacterAnalyzer()
+                names = a.extractDialogueNames(from: text)
+            }
+
+            scanProgress = 0.6
+            let uniqueNames = Set(names)
+
+            let contextLimit = min(500_000, text.count)
+            let contextText = text.prefix(contextLimit)
+            let analyzer = CharacterAnalyzer()
+
+            scanPhase = "属性分析中..."
+            for (idx, name) in uniqueNames.sorted().enumerated() {
                 if Task.isCancelled { isScanning = false; return }
-                let start = i * chunkSize
-                let end = min(start + chunkSize, totalLen)
-                let chunk = nsText.substring(with: NSRange(location: start, length: end - start))
-                let names = await Task.detached(priority: .userInitiated) {
-                    CharacterAnalyzer().extractDialogueNames(from: chunk)
-                }.value
-                for n in names { candidateScores[n, default: 0] += 1 }
-                scanProgress = Double(i + 1) / Double(totalChunks) * 0.85
-                let elapsed = Date().timeIntervalSince(startTime)
-                elapsedText = formatDuration(elapsed)
-                if i >= 3 && totalChunks > i + 1 {
-                    etaText = formatDuration((elapsed / Double(i + 1)) * Double(totalChunks - i - 1))
+                var gender = "未知"
+                var age = "未知"
+                var tone = "平稳"
+                var style = "neutral"
+                var rate = 0
+                var pitch = 0
+                if let range = contextText.range(of: name) {
+                    let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
+                    let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
+                    let ctx = String(contextText[ctxStart..<ctxEnd])
+                    let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
+                    gender = attrs.gender; age = attrs.age; tone = attrs.baseTone
+                    style = attrs.baseStyle; rate = attrs.baseRate; pitch = attrs.basePitch
                 }
+                if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
+                inferred.append(CharacterProfile(
+                    id: UUID(), name: name, aliases: [],
+                    gender: gender, age: age, tone: tone,
+                    voice: "", rate: rate, pitch: pitch, style: style,
+                    sensitivity: defaultSensitivity, frequency: 0
+                ))
+                scanProgress = 0.6 + Double(idx + 1) / Double(uniqueNames.count) * 0.38
                 await Task.yield()
             }
 
-            // Phase 2: chunked AC with timeout + progress
-            scanPhase = "频率统计中..."
-            scanProgress = 0.85
-            let zeroBase = candidateScores.mapValues { _ in 0 }
-            var acAggregated = [String: Int]()
-            let acChunkSize = 100_000
-
-            do {
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask(priority: .userInitiated) {
-                        var offset = 0
-                        let len = text.count
-                        while offset < len {
-                            let end = min(offset + acChunkSize, len)
-                            let idxLo = text.index(text.startIndex, offsetBy: offset)
-                            let idxHi = text.index(text.startIndex, offsetBy: end)
-                            let chunkText = String(text[idxLo..<idxHi])
-                            let chunkScores = await Task.detached(priority: .userInitiated) { [chunkText, zeroBase] in
-                                CharacterAnalyzer().countWithAC(text: chunkText, candidates: zeroBase)
-                            }.value
-                            for (k, v) in chunkScores { acAggregated[k, default: 0] += v }
-                            offset = end
-                            scanPhase = "频率统计中... (\(offset/1000)k/\(len/1000)k)"
-                            scanProgress = 0.85 + Double(offset) / Double(len) * 0.10
-                            await Task.yield()
-                            try Task.checkCancellation()
-                        }
-                    }
-                    group.addTask(priority: .background) {
-                        try await Task.sleep(nanoseconds: 15_000_000_000)
-                        throw CancellationError()
-                    }
-                    try await group.next()
-                    group.cancelAll()
-                }
-            } catch {
-                scanPhase = "频率统计跳过（超时）"
-                acAggregated.merge(candidateScores) { $0 + $1 }
-                finishScan(scores: acAggregated, defaultSensitivity: defaultSensitivity, startTime: startTime)
-                return
+            if inferred.isEmpty {
+                inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: "未知",
+                    age: "未知", tone: "平稳", voice: "", rate: 0, pitch: 0, style: "neutral",
+                    sensitivity: defaultSensitivity, frequency: 1)]
+            } else if !inferred.contains(where: { $0.isNarrator }) {
+                inferred.insert(CharacterProfile(
+                    id: UUID(), name: "旁白", aliases: [], gender: "未知", age: "未知", tone: "平稳",
+                    voice: "", rate: 0, pitch: 0, style: "neutral",
+                    sensitivity: defaultSensitivity, isNarrator: true, role: .narrator,
+                    frequency: 1
+                ), at: 0)
             }
 
-            acAggregated.merge(candidateScores) { $0 + $1 }
-
-            // Phase 3: batched NL NER with timeout + progress
-            scanPhase = "智能识别补全中..."
-            scanProgress = 0.95
-            let nlScores: [String: Int]
-
-            do {
-                nlScores = try await withThrowingTaskGroup(of: [String: Int].self) { group in
-                    group.addTask(priority: .userInitiated) {
-                        let paragraphs = text.components(separatedBy: "\n")
-                        let dialogueParas = paragraphs.filter { p in
-                            p.count >= 10 && p.count < 5000 &&
-                            (p.contains("说") || p.contains("道") || p.contains("喊") || p.contains("问") || p.contains("「"))
-                        }
-                        let maxParas = min(dialogueParas.count, 500)
-                        let knownNames = Set(acAggregated.keys)
-                        var allFound = [String: Int]()
-
-                        for batchStart in stride(from: 0, to: maxParas, by: 20) {
-                            let batchEnd = min(batchStart + 20, maxParas)
-                            let batch = Array(dialogueParas[batchStart..<batchEnd])
-                            let batchFound = await Task.detached(priority: .background) { [batch, knownNames] in
-                                let tagger = NLTagger(tagSchemes: [.nameType])
-                                var found = [String: Int]()
-                                let a = CharacterAnalyzer()
-                                for para in batch {
-                                    tagger.string = para
-                                    tagger.enumerateTags(in: para.startIndex..<para.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
-                                        if tag == .personalName {
-                                            let name = String(para[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                                            if name.count >= 2 && name.count <= 4 && !knownNames.contains(name) && !a.isStopWord(name) {
-                                                if name.count == 2 && !CharacterAnalyzer.firstCharIsSurname(name) { return true }
-                                                found[name, default: 0] += 1
-                                            }
-                                        }
-                                        return true
-                                    }
-                                }
-                                return found
-                            }.value
-                            for (k, v) in batchFound { allFound[k, default: 0] += v }
-                            scanPhase = "智能识别补全中... (\(batchEnd)/\(maxParas))"
-                            scanProgress = 0.95 + Double(batchEnd) / Double(maxParas) * 0.04
-                            await Task.yield()
-                            try Task.checkCancellation()
-                        }
-                        return allFound
-                    }
-                    group.addTask(priority: .background) {
-                        try await Task.sleep(nanoseconds: 30_000_000_000)
-                        throw CancellationError()
-                    }
-                    let result = try await group.next() ?? [:]
-                    group.cancelAll()
-                    return result
-                }
-            } catch {
-                scanPhase = "智能识别补全跳过（超时）"
-                finishScan(scores: acAggregated, defaultSensitivity: defaultSensitivity, startTime: startTime)
-                return
-            }
-
-            var finalScores = acAggregated
-            for (name, count) in nlScores { finalScores[name, default: 0] += count * 15 }
-            finishScan(scores: finalScores, defaultSensitivity: defaultSensitivity, startTime: startTime)
+            scanProgress = 1.0
+            scanPhase = "完成"
+            store.characters = inferred
+            store.lastScannedBookText = text
+            store.updateRecommendations(from: text)
+            store.saveState()
+            isScanning = false
+            scanPhase = ""
+            elapsedText = ""
+            etaText = ""
+            store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，耗时 \(formatDuration(Date().timeIntervalSince(startTime)))"
         }
-    }
-
-    private func finishScan(scores: [String: Int], defaultSensitivity: Int, startTime: Date) {
-        let text = book.text
-        let totalLen = text.count
-
-        let uniqueNames = scores.keys.sorted { scores[$0, default: 0] > scores[$1, default: 0] }
-        let resolved = CharacterAnalyzer.resolveAliases(uniqueNames)
-        let usedNames = Set(resolved.map { $0.canonical })
-        let minFreq = max(1, totalLen / 100000)
-
-        func isValidCharacterName(_ name: String, freq: Int) -> Bool {
-            if freq < minFreq { return false }
-            if name.count == 1 { return false }
-            if name.count == 2 && !CharacterAnalyzer.firstCharIsSurname(name) { return false }
-            return true
-        }
-
-        var mergedMap: [String: (frequency: Int, aliases: [String])] = [:]
-        for (canonical, aliases) in resolved {
-            let freq = scores[canonical, default: 0]
-            let aliasFreq = aliases.reduce(0) { $0 + scores[$1, default: 0] }
-            let total = freq + aliasFreq
-            if isValidCharacterName(canonical, freq: total) {
-                mergedMap[canonical] = (total, aliases)
-            }
-        }
-        for (name, freq) in scores where !usedNames.contains(name) && !name.isEmpty {
-            if mergedMap[name] == nil && isValidCharacterName(name, freq: freq) {
-                mergedMap[name] = (freq, [])
-            }
-        }
-
-        let sortedProfiles = mergedMap.sorted { $0.value.frequency > $1.value.frequency }
-        let contextLimit = min(500_000, totalLen)
-        let contextText = text.prefix(contextLimit)
-        let analyzer = CharacterAnalyzer()
-        var inferred: [CharacterProfile] = []
-
-        for (name, data) in sortedProfiles {
-            var gender = "未知"
-            var age = "未知"
-            var tone = "平稳"
-            var style = "neutral"
-            var rate = 0
-            var pitch = 0
-            if let range = contextText.range(of: name) {
-                let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
-                let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
-                let ctx = String(contextText[ctxStart..<ctxEnd])
-                let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
-                gender = attrs.gender; age = attrs.age; tone = attrs.baseTone
-                style = attrs.baseStyle; rate = attrs.baseRate; pitch = attrs.basePitch
-            }
-            if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
-            inferred.append(CharacterProfile(
-                id: UUID(), name: name, aliases: data.aliases,
-                gender: gender, age: age, tone: tone,
-                voice: "", rate: rate, pitch: pitch, style: style,
-                sensitivity: defaultSensitivity, frequency: data.frequency
-            ))
-        }
-
-        if inferred.isEmpty {
-            inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: "未知",
-                age: "未知", tone: "平稳", voice: "", rate: 0, pitch: 0, style: "neutral",
-                sensitivity: defaultSensitivity, frequency: 1)]
-        } else if !inferred.contains(where: { $0.isNarrator }) {
-            inferred.insert(CharacterProfile(
-                id: UUID(), name: "旁白", aliases: [], gender: "未知", age: "未知", tone: "平稳",
-                voice: "", rate: 0, pitch: 0, style: "neutral",
-                sensitivity: defaultSensitivity, isNarrator: true, role: .narrator,
-                frequency: inferred.first?.frequency ?? 1
-            ), at: 0)
-        }
-
-        store.characters = inferred
-        store.lastScannedBookText = text
-        store.updateRecommendations(from: text)
-        store.saveState()
-        isScanning = false
-        scanPhase = ""
-        elapsedText = ""
-        etaText = ""
-        store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，耗时 \(formatDuration(Date().timeIntervalSince(startTime)))"
     }
 
     // MARK: - Generate Sample
