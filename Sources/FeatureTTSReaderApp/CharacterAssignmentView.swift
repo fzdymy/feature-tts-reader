@@ -11,9 +11,18 @@ struct CharacterAssignmentPanel: View {
     @State private var scanPhase: String = ""
     @State private var elapsedText: String = ""
     @State private var etaText: String = ""
-    @State private var showTemplatePicker = false
-    @State private var editingCharacter: CharacterProfile?
-    @State private var showEditor = false
+    @State private var activeSheet: SheetTarget?
+
+    private enum SheetTarget: Identifiable {
+        case editor(CharacterProfile)
+        case templatePicker
+        var id: String {
+            switch self {
+            case .editor: return "editor"
+            case .templatePicker: return "template"
+            }
+        }
+    }
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showTemplateExporter = false
@@ -48,12 +57,15 @@ struct CharacterAssignmentPanel: View {
                 bottomButtons
             }
         }
-        .sheet(isPresented: $showTemplatePicker) {
-            templatePickerSheet
-        }
-        .sheet(isPresented: $showEditor) {
-            if let profile = editingCharacter {
-                CharacterEditorView(character: profile, voices: store.voices) { updated in
+        .sheet(item: $activeSheet) { target in
+            switch target {
+            case .templatePicker:
+                templatePickerSheet
+            case .editor(let profile):
+                CharacterEditorView(
+                    character: profile,
+                    voices: store.voices
+                ) { updated in
                     if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
                         store.characters[i] = updated
                     }
@@ -95,42 +107,30 @@ struct CharacterAssignmentPanel: View {
 
     private var actionButtons: some View {
         VStack(spacing: 8) {
+            Button(action: { startScan() }) {
+                Label("扫描全书角色", systemImage: "person.text.rectangle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isScanning)
             HStack(spacing: 8) {
-                scanButton
-                templateButton
+                Button(action: { activeSheet = .templatePicker }) {
+                    Label("模板匹配", systemImage: "square.on.square")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                if !bookCharacters.isEmpty {
+                    Button(role: .destructive) {
+                        store.characters = []
+                        store.saveState()
+                    } label: {
+                        Label("清空角色", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
-            if !bookCharacters.isEmpty {
-                clearButton
-            }
         }
-    }
-
-    private var scanButton: some View {
-        Button(action: { startScan() }) {
-            Label("扫描全书角色", systemImage: "person.text.rectangle")
-                .font(.caption)
-        }
-        .buttonStyle(.borderedProminent).controlSize(.small)
-        .disabled(isScanning)
-    }
-
-    private var templateButton: some View {
-        Button(action: { showTemplatePicker = true }) {
-            Label("模板匹配本书", systemImage: "square.on.square")
-                .font(.caption)
-        }
-        .buttonStyle(.bordered).controlSize(.small)
-    }
-
-    private var clearButton: some View {
-        Button(role: .destructive) {
-            store.characters = []
-            store.saveState()
-        } label: {
-            Label("清空所有角色", systemImage: "trash")
-                .font(.caption)
-        }
-        .buttonStyle(.bordered).controlSize(.small)
     }
 
     // MARK: - Scan Progress
@@ -205,18 +205,15 @@ struct CharacterAssignmentPanel: View {
             .foregroundColor(.secondary)
         }
         .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
         .background(Color.gray.opacity(0.06))
         .cornerRadius(10)
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 10))
         .onTapGesture {
-            editingCharacter = store.characters.first(where: { $0.id == profile.id })
-            showEditor = true
+            activeSheet = .editor(profile)
         }
         .contextMenu {
             Button {
-                editingCharacter = store.characters.first(where: { $0.id == profile.id })
-                showEditor = true
+                activeSheet = .editor(profile)
             } label: {
                 Label("微调编辑", systemImage: "slider.horizontal.3")
             }
@@ -319,17 +316,7 @@ struct CharacterAssignmentPanel: View {
             }
             await Task.yield()
 
-            // Name quality filter: 姓氏/称谓/虚词检查
-            scanPhase = "过滤非角色名..."
-            let beforeCount = allNames.count
-            allNames = allNames.filter { CharacterAnalyzer.looksLikeRealName($0) }
-            scanProgress = 0.60
-            if beforeCount > allNames.count {
-                elapsedText = formatDuration(Date().timeIntervalSince(startTime))
-            }
-            await Task.yield()
-
-            // Phase 3: attribute analysis (progress 0.60 → 1.0)
+            // Phase 3: attribute analysis (progress 0.50 → 1.0)
             scanPhase = "属性分析中..."
             etaText = ""
             var inferred = [CharacterProfile]()
@@ -346,7 +333,7 @@ struct CharacterAssignmentPanel: View {
                 var rate = 0
                 var pitch = 0
                 guard let range = contextText.range(of: name) else {
-                    scanProgress = 0.60 + Double(idx + 1) / Double(uniqueNames.count) * 0.40
+                    scanProgress = 0.50 + Double(idx + 1) / Double(uniqueNames.count) * 0.50
                     await Task.yield()
                     continue
                 }
@@ -364,7 +351,7 @@ struct CharacterAssignmentPanel: View {
                     sensitivity: defaultSensitivity, frequency: 0
                 ))
                 let elapsed = Date().timeIntervalSince(startTime)
-                scanProgress = 0.60 + Double(idx + 1) / Double(uniqueNames.count) * 0.40
+                scanProgress = 0.50 + Double(idx + 1) / Double(uniqueNames.count) * 0.50
                 elapsedText = formatDuration(elapsed)
                 if idx >= 3 {
                     let perItem = elapsed / Double(idx + 1)
@@ -467,8 +454,8 @@ struct CharacterAssignmentPanel: View {
                 ForEach(store.roleTemplates) { template in
                     Section {
                         Button(action: {
+                            activeSheet = nil
                             applyTemplate(template)
-                            showTemplatePicker = false
                         }) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(template.name).font(.headline)
@@ -483,7 +470,7 @@ struct CharacterAssignmentPanel: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { showTemplatePicker = false }
+                    Button("取消") { activeSheet = nil }
                 }
             }
         }
