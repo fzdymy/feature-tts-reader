@@ -2094,7 +2094,7 @@ final class ReaderStore: NSObject, ObservableObject {
             TemplateRole(id: UUID(), title: ch.name, sourceVoiceID: ch.voice, voiceSuggestion: ch.aliases.first ?? "", rateOffset: ch.rate, pitchOffset: ch.pitch, style: ch.style)
         }
         let template = RoleTemplate(
-            id: UUID(), name: name, genre: "", roles: roles,
+            id: UUID(), name: name, roles: roles,
             fallbackMaleVoiceID: defaultMaleVoiceID, fallbackFemaleVoiceID: defaultFemaleVoiceID,
             fallbackRateOffset: defaultFallbackRateOffset, fallbackPitchOffset: defaultFallbackPitchOffset,
             fallbackStyle: defaultFallbackStyle
