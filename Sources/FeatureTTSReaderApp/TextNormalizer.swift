@@ -31,7 +31,7 @@ struct TextNormalizer {
 
         // 6. Remove stray control characters except \n, \t
         s = s.unicodeScalars.filter { c in
-            c == "\n" || c == "\t" || !c.properties.isControl
+            c == "\n" || c == "\t" || !CharacterSet.controlCharacters.contains(c)
         }.map(String.init).joined()
 
         // 7. NFC normalization (composed form) — preferred for Han text
