@@ -14,12 +14,40 @@ final class NEREngine {
     init() throws {
         let config = MLModelConfiguration()
         config.computeUnits = .all
-        guard let url = Bundle.main.url(forResource: "ckip_ner_q8", withExtension: "mlpackage") else {
-            throw NRError.modelNotFound
+        let modelURL: URL
+        if let url = Bundle.main.url(forResource: "ckip_ner_q8", withExtension: "mlpackage") {
+            modelURL = url
+        } else if let url = Bundle.module.url(forResource: "ckip_ner_q8", withExtension: "mlpackage") {
+            modelURL = url
+        } else {
+            // Development fallback: relative to package source
+            let devPath = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/ckip_ner_q8.mlpackage")
+            if FileManager.default.fileExists(atPath: devPath.path) {
+                modelURL = devPath
+            } else {
+                throw NRError.modelNotFound
+            }
         }
-        model = try MLModel(contentsOf: url, configuration: config)
-        guard let vurl = Bundle.main.url(forResource: "vocab", withExtension: "txt"),
-              let content = try? String(contentsOf: vurl, encoding: .utf8) else {
+        model = try MLModel(contentsOf: modelURL, configuration: config)
+
+        let vocabURL: URL
+        if let url = Bundle.main.url(forResource: "vocab", withExtension: "txt") {
+            vocabURL = url
+        } else if let url = Bundle.module.url(forResource: "vocab", withExtension: "txt") {
+            vocabURL = url
+        } else {
+            let devPath = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/vocab.txt")
+            if FileManager.default.fileExists(atPath: devPath.path) {
+                vocabURL = devPath
+            } else {
+                throw NRError.vocabNotFound
+            }
+        }
+        guard let content = try? String(contentsOf: vocabURL, encoding: .utf8) else {
             throw NRError.vocabNotFound
         }
         vocab = Self.parseVocab(content)

@@ -40,6 +40,17 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
+      - name: Copy NER model into app bundle
+        run: |
+          APP_BUNDLE="build_output/Release-iphoneos/FeatureTTSReader.app"
+          MODEL_SRC="Sources/FeatureTTSReaderApp/Resources/ckip_ner_q8.mlpackage"
+          if [ -d "$MODEL_SRC" ] && [ -d "$APP_BUNDLE" ]; then
+            cp -R "$MODEL_SRC" "$APP_BUNDLE/"
+            echo "✅ Model copied into app bundle ($(du -sh "$APP_BUNDLE/ckip_ner_q8.mlpackage" | cut -f1))"
+          else
+            echo "⚠️  Model or app bundle not found — model will not be available at runtime"
+          fi
+
       - name: Package app into IPA
         run: |
           APP_DIR="build/Payload/FeatureTTSReader.app"
@@ -53,7 +64,13 @@ jobs:
             cp -R "build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle" "$APP_DIR/"
           fi
           
-          # 3. Create required Info.plist with APPLICATION type (APPL)
+          # 3. Copy NER model into app bundle
+          if [ -d "build_output/Release-iphoneos/FeatureTTSReader.app/ckip_ner_q8.mlpackage" ]; then
+            cp -R "build_output/Release-iphoneos/FeatureTTSReader.app/ckip_ner_q8.mlpackage" "$APP_DIR/"
+            echo "✅ NER model copied into IPA"
+          fi
+          
+          # 4. Create required Info.plist with APPLICATION type (APPL)
           PLIST_PATH="$APP_DIR/Info.plist"
           plutil -create xml1 "$PLIST_PATH"
           plutil -insert CFBundleDevelopmentRegion -string "en" "$PLIST_PATH"
