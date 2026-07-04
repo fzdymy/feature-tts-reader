@@ -46,6 +46,8 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsChapterTitle: String = ""
     @Published var ttsSegmentTitle: String = ""
 
+    @Published var ttsProgressMessage: String = ""
+
     // TTS 服务器列表
     @Published var ttsServers: [TTSServer] = []
     @Published var voiceProfiles: [VoiceProfileTuning] = []
@@ -53,6 +55,8 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var roleTemplates: [RoleTemplate] = []
     @Published var activeServerTestResult: String = ""
     @Published var isTestingServer: Bool = false
+
+    private var playbackTask: Task<Void, Never>?
 
     var activeServer: TTSServer? {
         ttsServers.first(where: { $0.isActive })
@@ -108,11 +112,13 @@ final class ReaderStore: NSObject, ObservableObject {
     /// 测试当前活跃服务器的连接
     func testActiveServer() async {
         guard let server = activeServer else {
-            activeServerTestResult = "无活跃服务器"
+            await MainActor.run { activeServerTestResult = "无活跃服务器" }
             return
         }
-        isTestingServer = true
-        activeServerTestResult = "测试中..."
+        await MainActor.run {
+            isTestingServer = true
+            activeServerTestResult = "测试中..."
+        }
         let client = TTSHttpClient(
             baseURL: URL(string: server.baseURL) ?? URL(string: "http://127.0.0.1:8080")!,
             apiKey: server.apiKey.isEmpty ? nil : server.apiKey
@@ -124,11 +130,11 @@ final class ReaderStore: NSObject, ObservableObject {
                 rate: 0, pitch: 0, style: "neutral"
             )
             let elapsed = Int(Date().timeIntervalSince(start) * 1000)
-            activeServerTestResult = "\(elapsed)ms"
+            await MainActor.run { activeServerTestResult = "\(elapsed)ms" }
         } catch {
-            activeServerTestResult = "失败: \(error.localizedDescription)"
+            await MainActor.run { activeServerTestResult = "失败: \(error.localizedDescription)" }
         }
-        isTestingServer = false
+        await MainActor.run { isTestingServer = false }
     }
 
     func addVoiceProfile(_ vp: VoiceProfileTuning) {
@@ -1387,60 +1393,82 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func playSelectedChapter() async {
         guard !bookText.isEmpty else {
-            statusMessage = "请先导入小说文本。"
+            await MainActor.run { statusMessage = "请先导入小说文本。" }
             return
         }
         await buildScript(for: false)
         do {
             try await playScriptSegments(scriptSegments)
         } catch {
-            statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。"
+            await MainActor.run { statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。" }
             await playLocalSpeech(bookText)
         }
     }
 
     func playWholeBook() async {
         guard !bookText.isEmpty else {
-            statusMessage = "请先导入小说文本。"
+            await MainActor.run { statusMessage = "请先导入小说文本。" }
             return
         }
         await buildScript(for: true)
         do {
             try await playScriptSegments(scriptSegments)
         } catch {
-            statusMessage = "远程 TTS 服务不可用，使用系统语音播放整本小说。"
+            await MainActor.run { statusMessage = "远程 TTS 服务不可用，使用系统语音播放整本小说。" }
             await playLocalSpeech(bookText)
         }
     }
 
     func stopPlayback() {
+        playbackTask?.cancel()
+        playbackTask = nil
         audioController.stop()
         speechSynthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
+        ttsIsPlaying = false
         statusMessage = "已停止播放。"
+        ttsProgressMessage = ""
     }
 
-    func playChapterWithTTS(chapter: BookChapter) async {
-        statusMessage = "正在准备朗读章节..."
+    func startPlaybackTask(chapter: BookChapter, fromParagraph: String? = nil) {
+        playbackTask?.cancel()
+        playbackTask = Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                try Task.checkCancellation()
+            } catch { return }
+            await self.playChapterWithTTS(chapter: chapter, fromParagraph: fromParagraph)
+        }
+    }
+
+    func playChapterWithTTS(chapter: BookChapter, fromParagraph: String? = nil) async {
+        await MainActor.run { statusMessage = "正在准备朗读章节..." }
 
         let segments = await createScriptSegmentsAsync(from: chapter.text)
         guard !segments.isEmpty else {
-            statusMessage = "当前章节脚本为空，无法朗读。"
+            await MainActor.run { statusMessage = "当前章节脚本为空，无法朗读。" }
             return
         }
 
+        let startIndex: Int
+        if let paraText = fromParagraph, !paraText.isEmpty {
+            startIndex = segments.firstIndex(where: { $0.text.contains(paraText) || paraText.contains($0.text) }) ?? 0
+        } else {
+            startIndex = 0
+        }
+
         do {
-            try await playScriptSegments(segments)
+            try await playScriptSegments(segments, startIndex: startIndex)
         } catch {
-            statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。"
+            await MainActor.run { statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。" }
             await playLocalSpeech(chapter.text)
-            isBusy = false
+            await MainActor.run { isBusy = false }
         }
     }
 
-    private func playScriptSegments(_ segments: [ScriptSegment]) async throws {
+    private func playScriptSegments(_ segments: [ScriptSegment], startIndex: Int = 0) async throws {
         guard !segments.isEmpty else {
-            statusMessage = "当前没有可播放的朗读段落。"
+            await MainActor.run { statusMessage = "当前没有可播放的朗读段落。" }
             return
         }
 
@@ -1450,8 +1478,11 @@ final class ReaderStore: NSObject, ObservableObject {
         let bookID = UUID(uuidString: currentBookID) ?? UUID()
         let chapterIndex = currentChapters.firstIndex(where: { $0.id == selectedChapterID }) ?? 0
 
-        isBusy = true
-        playProgress = 0
+        await MainActor.run {
+            isBusy = true
+            playProgress = 0
+            ttsProgressMessage = "正在准备合成..."
+        }
 
         // Use a single client for all requests
         let ttsClient = client
@@ -1463,17 +1494,19 @@ final class ReaderStore: NSObject, ObservableObject {
             let audioURL: URL
         }
 
+        let slice = segments.dropFirst(startIndex)
         var synthesized: [SynthesizedSegment] = []
         // Limit concurrent synthesis to 3 to avoid overloading the TTS server
         let semaphore = AsyncSemaphore(maxConcurrent: 3)
         try await withThrowingTaskGroup(of: (Int, ScriptSegment, URL).self) { group in
-            for (index, segment) in segments.enumerated() {
+            for (offset, segment) in slice.enumerated() {
+                let originalIndex = startIndex + offset
                 let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
                 let safeStyle = sanitizeStyle(segment.style, for: segment.voice)
                 let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(safeStyle):\(content.hashValue)"
 
                 if let cachedURL = ttsCache[cacheKey] {
-                    synthesized.append(SynthesizedSegment(index: index, segment: segment, audioURL: cachedURL))
+                    synthesized.append(SynthesizedSegment(index: originalIndex, segment: segment, audioURL: cachedURL))
                     continue
                 }
 
@@ -1482,7 +1515,7 @@ final class ReaderStore: NSObject, ObservableObject {
                     do {
                         let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
                         await semaphore.signal()
-                        return (index, segment, url)
+                        return (originalIndex, segment, url)
                     } catch {
                         await semaphore.signal()
                         throw error
@@ -1491,7 +1524,7 @@ final class ReaderStore: NSObject, ObservableObject {
             }
 
             var completed = 0
-            let total = segments.count
+            let total = slice.count
             for try await (idx, seg, url) in group {
                 let key = "\(seg.voice):\(seg.rate):\(seg.pitch):\(seg.style):\(seg.text.hashValue)"
                 ttsCache[key] = url
@@ -1504,8 +1537,10 @@ final class ReaderStore: NSObject, ObservableObject {
                     }
                 }
                 completed += 1
-                statusMessage = "正在合成：\(seg.characterName) (\(completed)/\(total))"
-                playProgress = Double(completed) / Double(total)
+                await MainActor.run {
+                    ttsProgressMessage = "正在合成：\(seg.characterName) (\(completed)/\(total))"
+                    playProgress = Double(completed) / Double(total)
+                }
             }
         }
 
@@ -1518,6 +1553,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 isBusy = false
                 ttsIsPlaying = false
                 statusMessage = "合成结果为空，无法播放。"
+                ttsProgressMessage = ""
             }
             return
         }
@@ -1539,11 +1575,15 @@ final class ReaderStore: NSObject, ObservableObject {
             queueItems.append(queueItem)
         }
 
-        ttsQueue = queueItems
-        ttsCurrentIndex = 0
-        ttsChapterTitle = chapterTitle
-        ttsSegmentTitle = queueItems.first?.segment.characterName ?? ""
-        ttsIsPlaying = true
+        await MainActor.run {
+            ttsQueue = queueItems
+            ttsCurrentIndex = 0
+            ttsChapterTitle = chapterTitle
+            ttsSegmentTitle = queueItems.first?.segment.characterName ?? ""
+            ttsIsPlaying = true
+            statusMessage = "正在朗读 \(chapterTitle)"
+            ttsProgressMessage = ""
+        }
 
         // Play via audio controller
         audioController.playQueue(queueItems)
@@ -1571,9 +1611,9 @@ final class ReaderStore: NSObject, ObservableObject {
             isSpeaking = false
             isBusy = false
             ttsIsPlaying = false
+            statusMessage = "已播放完毕。"
+            ttsProgressMessage = ""
         }
-
-        statusMessage = "已播放完毕。"
     }
 
     private func playLocalSpeech(_ text: String) async {

@@ -198,6 +198,10 @@ struct ReaderView: View {
             .onChange(of: store.ttsCurrentIndex) { _ in
                 segmentStartOffset = scrollOffset
                 scrolledAway = false
+                withAnimation { isPlaying = store.ttsIsPlaying }
+            }
+            .onChange(of: store.ttsIsPlaying) { newValue in
+                isPlaying = newValue
             }
 
             VStack {
@@ -212,24 +216,76 @@ struct ReaderView: View {
                 }
             }
 
-            if !isImmersive && !isAudioMode && !chaptersList.isEmpty {
-                VStack {
-                    Spacer()
-                    HStack {
+            if !chaptersList.isEmpty {
+                if isAudioMode {
+                    // Right-side floating playback controls
+                    VStack(spacing: 12) {
                         Spacer()
                         Button(action: {
-                            isAudioMode = true
-                            isPlaying = true
-                            Task { await startPlayback() }
+                            store.audioController.playPrevious()
                         }) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 44))
+                            Image(systemName: "backward.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(textColor)
+                                .frame(width: 40, height: 40)
+                                .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
+                        }
+                        .buttonStyle(.borderless)
+                        Button(action: {
+                            if store.ttsIsPlaying {
+                                store.audioController.pause()
+                            } else {
+                                store.audioController.resume()
+                            }
+                        }) {
+                            Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 36))
                                 .foregroundColor(.blue)
                                 .background(Circle().fill(bgColor).shadow(radius: 4))
                         }
                         .buttonStyle(.borderless)
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 100)
+                        Button(action: {
+                            store.audioController.playNext()
+                        }) {
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(textColor)
+                                .frame(width: 40, height: 40)
+                                .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
+                        }
+                        .buttonStyle(.borderless)
+                        if !store.ttsProgressMessage.isEmpty {
+                            Text(store.ttsProgressMessage)
+                                .font(.system(size: 8))
+                                .foregroundColor(textColor.opacity(0.6))
+                                .lineLimit(2)
+                                .frame(width: 60)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 120)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                } else if !isImmersive {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                isAudioMode = true
+                                isPlaying = true
+                                segmentStartOffset = scrollOffset
+                                Task { await startPlayback() }
+                            }) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 44))
+                                    .foregroundColor(.blue)
+                                    .background(Circle().fill(bgColor).shadow(radius: 4))
+                            }
+                            .buttonStyle(.borderless)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 100)
+                        }
                     }
                 }
             }
@@ -379,7 +435,7 @@ struct ReaderView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, paraText == paragraphs.last ? 0 : 4)
-                    .background(isReading ? Color.accentColor.opacity(0.12) : Color.clear)
+                    .background(isReading ? Color.accentColor.opacity(0.25) : Color.clear)
                     .cornerRadius(4)
                     .contextMenu {
                         let names = extractCandidateNames(from: paraText)
@@ -536,7 +592,9 @@ struct ReaderView: View {
                     Button(action: {
                         scrolledAway = false
                         store.stopPlayback()
-                        Task { await startPlayback() }
+                        let paraText = segmentTextForCurrentPosition()
+                        segmentStartOffset = scrollOffset
+                        Task { await startPlayback(fromParagraphText: paraText) }
                     }) {
                         VStack(spacing: 4) {
                             Image(systemName: "headphones.circle")
@@ -1081,37 +1139,56 @@ struct ReaderView: View {
     // MARK: - Navigation
 
 
-    private func startPlayback() async {
+    private func segmentTextForCurrentPosition() -> String? {
+        guard currentChapterIndex < chaptersList.count else { return nil }
+        let ch = chaptersList[currentChapterIndex]
+        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
+        let offsetInChapter = scrollOffset - pastHeight
+        let titleHeight: CGFloat = 58
+        let hPad: CGFloat = 40
+        let containerWidth = UIScreen.main.bounds.width - hPad
+        let fontSize = store.readerFontSize
+        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
+        let cjkCharWidth = fontSize
+        let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
+        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
+        var y: CGFloat = titleHeight
+        for paraText in paragraphs {
+            let trimmed = paraText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
+            let paraHeight = CGFloat(paraLineCount) * lineHeight + 8
+            if offsetInChapter >= y && offsetInChapter < y + paraHeight {
+                return trimmed
+            }
+            y += paraHeight
+        }
+        return nil
+    }
+
+    private func startPlayback(fromParagraphText: String? = nil) async {
         guard store.activeServer != nil else {
-            store.statusMessage = "请先在TTS标签页配置服务器地址。"
+            await MainActor.run { store.statusMessage = "请先在TTS标签页配置服务器地址。" }
             isAudioMode = false
             isPlaying = false
             return
         }
-        do {
-            guard currentChapterIndex < chaptersList.count else { return }
-            guard !store.bookText.isEmpty else {
-                store.statusMessage = "文本尚未加载，请稍后再试。"
-                isPlaying = false
-                return
-            }
-            let chapter = chaptersList[currentChapterIndex]
-            store.audioController.playbackRate = Float(playbackSpeed)
-            if store.characters.isEmpty {
-                store.statusMessage = "未检测到角色，正在自动扫描..."
-                await store.scanCharacters()
-            }
-            if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
-                await store.buildScript(for: false)
-            }
-            await store.playChapterWithTTS(chapter: chapter)
+        guard currentChapterIndex < chaptersList.count else { return }
+        guard !store.bookText.isEmpty else {
+            await MainActor.run { store.statusMessage = "文本尚未加载，请稍后再试。" }
             isPlaying = false
-            store.isBusy = false
-        } catch {
-            store.statusMessage = "朗读失败：\(error.localizedDescription)"
-            isPlaying = false
-            store.isBusy = false
+            return
         }
+        let chapter = chaptersList[currentChapterIndex]
+        store.audioController.playbackRate = Float(playbackSpeed)
+        if store.characters.isEmpty {
+            await MainActor.run { store.statusMessage = "未检测到角色，正在自动扫描..." }
+            await store.scanCharacters()
+        }
+        if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
+            await store.buildScript(for: false)
+        }
+        store.startPlaybackTask(chapter: chapter, fromParagraph: fromParagraphText)
     }
 
     // MARK: - Helpers

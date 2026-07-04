@@ -40,7 +40,7 @@ struct BookshelfView: View {
                         .padding(.horizontal)
                         .padding(.top, 8)
 
-                    if showStatus && !store.statusMessage.isEmpty {
+                    if showStatus && !store.statusMessage.isEmpty && !store.statusMessage.contains("合成") && !store.statusMessage.contains("朗读") && !store.statusMessage.contains("播放") {
                         Text(store.statusMessage)
                             .font(.subheadline)
                             .foregroundColor(.white)
@@ -61,7 +61,8 @@ struct BookshelfView: View {
                         listView
                     }
                 }
-                .onChange(of: store.statusMessage) { _, _ in
+                .onChange(of: store.statusMessage) { _, newValue in
+                    guard !newValue.contains("合成") && !newValue.contains("朗读") && !newValue.contains("播放") else { return }
                     showStatus = true
                     Task {
                         try? await Task.sleep(nanoseconds: 3_000_000_000)

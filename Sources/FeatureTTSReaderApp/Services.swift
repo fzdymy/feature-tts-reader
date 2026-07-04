@@ -94,12 +94,6 @@ final class AudioPlaybackController: NSObject, ObservableObject {
         setupAudioSession()
         setupRemoteCommands()
         restorePlaybackState()
-        // Safety net: clean any stray audio files from previous runs
-        DispatchQueue.global(qos: .utility).async {
-            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let ttsDir = cachesDir.appendingPathComponent("tts_audio", isDirectory: true)
-            try? FileManager.default.removeItem(at: ttsDir)
-        }
     }
 
     private func setupAudioSession() {
@@ -448,20 +442,26 @@ actor AsyncSemaphore {
 
 extension AudioPlaybackController: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        deleteCurrentAudioFile()
-        if flag {
-            playNext()
-        } else {
-            finishPlayback()
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.deleteCurrentAudioFile()
+            if flag {
+                self.playNext()
+            } else {
+                self.finishPlayback()
+            }
         }
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        if let error = error {
-            Logger.log(error: error)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if let error = error {
+                Logger.log(error: error)
+            }
+            self.deleteCurrentAudioFile()
+            self.playNext()
         }
-        deleteCurrentAudioFile()
-        playNext()
     }
 
     private func deleteCurrentAudioFile() {
