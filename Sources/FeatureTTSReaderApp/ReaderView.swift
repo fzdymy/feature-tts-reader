@@ -380,6 +380,21 @@ struct ReaderView: View {
                     .padding(.vertical, paraText == paragraphs.last ? 0 : 4)
                     .background(isReading ? Color.accentColor.opacity(0.12) : Color.clear)
                     .cornerRadius(4)
+                    .contextMenu {
+                        let names = extractCandidateNames(from: paraText)
+                        if !names.isEmpty {
+                            Text("添加为角色").font(.caption).foregroundColor(.secondary)
+                            ForEach(names, id: \.self) { name in
+                                Button(name) {
+                                    selectedTextForCharacter = name
+                                    showCharacterFromText = true
+                                }
+                            }
+                        }
+                        Button("复制段落") {
+                            UIPasteboard.general.string = paraText
+                        }
+                    }
             }
 
             Divider()
@@ -388,6 +403,21 @@ struct ReaderView: View {
         }
         .padding(.horizontal, 20)
         .frame(minHeight: estimatedChapterHeight(ch))
+    }
+
+    private func extractCandidateNames(from text: String) -> [String] {
+        var names = Set<String>()
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        let pattern = try? NSRegularExpression(pattern: "[\\p{Han}]{2,4}")
+        pattern?.enumerateMatches(in: text, range: nsRange) { match, _, _ in
+            guard let m = match, let r = Range(m.range, in: text) else { return }
+            let candidate = String(text[r])
+            // Filter out stop words and names already in character list
+            if CharacterAnalyzer().isStopWord(candidate) { return }
+            if store.characters.contains(where: { $0.name == candidate || $0.aliases.contains(candidate) }) { return }
+            names.insert(candidate)
+        }
+        return names.sorted()
     }
 
     private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {

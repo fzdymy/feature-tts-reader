@@ -399,6 +399,49 @@ final class CharacterAnalyzer {
         return scores
     }
 
+    // MARK: - Phase 2c: NL tagger validation
+
+    /// Validate candidates using Apple's NL tagger.
+    /// For each candidate, check up to 3 context windows.
+    /// A candidate is valid if the NL tagger tags it as `.personalName` in at least 1 window.
+    /// This eliminates common-word false positives (任务/别人/包裹 etc.)
+    func validateWithNL(text: String, candidates: Set<String>) -> Set<String> {
+        let tagger = NLTagger(tagSchemes: [.nameType])
+        var validated = Set<String>()
+        let contextRadius = 80
+
+        for name in candidates {
+            var found = false
+            var searchStart = text.startIndex
+
+            for _ in 0..<3 {
+                guard let range = text.range(of: name, range: searchStart..<text.endIndex) else { break }
+                let ws = text.index(range.lowerBound, offsetBy: -contextRadius, limitedBy: text.startIndex) ?? text.startIndex
+                let we = text.index(range.upperBound, offsetBy: contextRadius, limitedBy: text.endIndex) ?? text.endIndex
+                let window = String(text[ws..<we])
+
+                tagger.string = window
+                tagger.enumerateTags(in: window.startIndex..<window.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, tagRange in
+                    if tag == .personalName {
+                        let taggedName = String(window[tagRange])
+                        if taggedName == name {
+                            found = true
+                            return false
+                        }
+                    }
+                    return true
+                }
+
+                if found { break }
+                searchStart = range.upperBound
+            }
+
+            if found { validated.insert(name) }
+        }
+
+        return validated
+    }
+
     // MARK: - Phase 3: NL NER on dialogue paragraphs (limited to first 500 dialogue paragraphs)
 
     func extractNLMissing(text: String, known: [String: Int]) -> [String: Int] {

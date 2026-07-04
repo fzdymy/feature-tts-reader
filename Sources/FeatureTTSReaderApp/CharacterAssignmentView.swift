@@ -340,10 +340,24 @@ struct CharacterAssignmentPanel: View {
             }
             allNames = dedupNames
 
-            // Phase 2c: cap at top 60 by frequency
+            // Phase 2c: NL tagger validation — eliminate common-word false positives
+            // (任务/别人/包裹/卫生间/双手/后面/方向 etc.)
+            scanPhase = "智能验证中..."
+            let nlLimit = min(500_000, text.count)
+            let nlText = String(text.prefix(nlLimit))
+            let validatedNames = await Task.detached(priority: .userInitiated) { [analyzer] in
+                analyzer.validateWithNL(text: nlText, candidates: allNames)
+            }.value
+            // Keep names that passed NL validation; if NL drops everything (e.g. all names are novel-specific),
+            // fall back to the dedup set
+            if !validatedNames.isEmpty {
+                allNames = validatedNames
+            }
+
+            // Phase 2d: cap at top 100 by frequency
             let freqMap = Dictionary(uniqueKeysWithValues: rankedNames.filter { allNames.contains($0.key) })
             let sortedByFreq = allNames.sorted { (freqMap[$0] ?? 0) > (freqMap[$1] ?? 0) }
-            allNames = Set(sortedByFreq.prefix(60))
+            allNames = Set(sortedByFreq.prefix(100))
 
             // Phase 3: attribute analysis (progress 0.50 → 1.0)
             scanPhase = "属性分析中..."
@@ -401,6 +415,35 @@ struct CharacterAssignmentPanel: View {
                     sensitivity: defaultSensitivity, isNarrator: true, role: .narrator,
                     frequency: 1, bookID: book.id
                 ), at: 0)
+            }
+
+            // Phase 4: merge title-suffixed aliases (陈书记 → 陈太忠, 段市长 → 段卫华)
+            let titleSuffixes: Set<String> = ["书记", "市长", "局长", "经理", "医生",
+                                              "老师", "公主", "殿下", "仙子", "同学",
+                                              "同志", "总裁", "主管", "主任", "姑娘"]
+            var mergedProfiles = [CharacterProfile]()
+            var toRemove = Set<UUID>()
+            for profile in inferred where profile.name.count >= titleSuffixes.first?.count ?? 2 {
+                guard let suffix = titleSuffixes.first(where: { profile.name.hasSuffix($0) }),
+                      profile.name.count > suffix.count else { continue }
+                let base = String(profile.name.dropLast(suffix.count))
+                // Find a character whose full name starts with this base prefix
+                let candidates = inferred.filter {
+                    $0.id != profile.id && !$0.isNarrator && $0.name.hasPrefix(base)
+                }
+                if let best = candidates.max(by: { $0.frequency < $1.frequency }) {
+                    if !best.aliases.contains(profile.name) {
+                        var merged = best
+                        merged.aliases = (merged.aliases + [profile.name]).sorted()
+                        mergedProfiles.append(merged)
+                        toRemove.insert(best.id)
+                    }
+                    toRemove.insert(profile.id)
+                }
+            }
+            if !toRemove.isEmpty {
+                inferred.removeAll { toRemove.contains($0.id) }
+                inferred.append(contentsOf: mergedProfiles)
             }
 
             scanProgress = 1.0
