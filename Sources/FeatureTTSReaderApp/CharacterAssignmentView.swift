@@ -258,31 +258,63 @@ struct CharacterAssignmentPanel: View {
         let startTime = Date()
         let text = book.text
         let defaultSensitivity = store.defaultSensitivity
+        let analyzer = CharacterAnalyzer()
 
         Task { @MainActor in
-            var inferred = [CharacterProfile]()
-
-            scanPhase = "NER 实体识别中..."
+            // Phase 1: fast regex on full text
+            scanPhase = "正则匹配中..."
             scanProgress = 0.0
+            let regNames = await Task.detached(priority: .userInitiated) {
+                analyzer.extractDialogueNames(from: text)
+            }.value
+            var allNames = Set(regNames)
 
-            let names: [String]
+            let elapsed1 = Date().timeIntervalSince(startTime)
+            elapsedText = formatDuration(elapsed1)
+
+            // Phase 2: NER on a sample of the text (first 300K chars)
+            // to catch names that regex patterns miss (e.g. indirect speech)
             if let engine = try? NEREngine() {
-                names = engine.extractPersonNames(from: text)
+                scanPhase = "NER 智能识别中..."
+                let sampleSize = min(300_000, text.count)
+                let sampleText = String(text.prefix(sampleSize))
+                let nerNames = await Task.detached(priority: .userInitiated) { [engine] in
+                    engine.extractPersonNames(from: sampleText) { chunk, total in
+                        DispatchQueue.main.async {
+                            let p = Double(chunk) / Double(total)
+                            self.scanProgress = p * 0.35
+                            let elapsed = Date().timeIntervalSince(startTime)
+                            self.elapsedText = self.formatDuration(elapsed)
+                            if chunk >= 5 {
+                                let perChunk = elapsed / Double(chunk)
+                                let remaining = perChunk * Double(total - chunk)
+                                self.etaText = "剩余 \(self.formatDuration(remaining))"
+                            }
+                        }
+                    }
+                }.value
+                allNames.formUnion(nerNames)
             } else {
-                // Fallback: simple regex extraction
-                let a = CharacterAnalyzer()
-                names = a.extractDialogueNames(from: text)
+                // No NER engine — Phase 2 fallback: regex on sample for extra recall
+                let sampleSize = min(300_000, text.count)
+                let sampleText = String(text.prefix(sampleSize))
+                let more = await Task.detached(priority: .userInitiated) {
+                    analyzer.extractDialogueNames(from: sampleText)
+                }.value
+                allNames.formUnion(more)
             }
 
-            scanProgress = 0.6
-            let uniqueNames = Set(names)
+            let elapsed2 = Date().timeIntervalSince(startTime)
+            elapsedText = formatDuration(elapsed2)
+            let uniqueNames = allNames.sorted()
 
+            // Phase 3: attribute analysis
+            scanPhase = "属性分析中..."
+            var inferred = [CharacterProfile]()
             let contextLimit = min(500_000, text.count)
             let contextText = text.prefix(contextLimit)
-            let analyzer = CharacterAnalyzer()
 
-            scanPhase = "属性分析中..."
-            for (idx, name) in uniqueNames.sorted().enumerated() {
+            for (idx, name) in uniqueNames.enumerated() {
                 if Task.isCancelled { isScanning = false; return }
                 var gender = "未知"
                 var age = "未知"
@@ -305,7 +337,13 @@ struct CharacterAssignmentPanel: View {
                     voice: "", rate: rate, pitch: pitch, style: style,
                     sensitivity: defaultSensitivity, frequency: 0
                 ))
-                scanProgress = 0.6 + Double(idx + 1) / Double(uniqueNames.count) * 0.38
+                let elapsed = Date().timeIntervalSince(startTime)
+                scanProgress = 0.35 + Double(idx + 1) / Double(uniqueNames.count) * 0.63
+                elapsedText = formatDuration(elapsed)
+                if idx >= 3 {
+                    let perItem = elapsed / Double(idx + 1)
+                    etaText = "剩余 \(formatDuration(perItem * Double(uniqueNames.count - idx - 1)))"
+                }
                 await Task.yield()
             }
 
@@ -324,14 +362,13 @@ struct CharacterAssignmentPanel: View {
 
             scanProgress = 1.0
             scanPhase = "完成"
+            elapsedText = ""
+            etaText = ""
             store.characters = inferred
             store.lastScannedBookText = text
             store.updateRecommendations(from: text)
             store.saveState()
             isScanning = false
-            scanPhase = ""
-            elapsedText = ""
-            etaText = ""
             store.statusMessage = "扫描完成，识别 \(store.characters.count) 个角色，耗时 \(formatDuration(Date().timeIntervalSince(startTime)))"
         }
     }

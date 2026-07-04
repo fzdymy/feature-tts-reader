@@ -70,14 +70,23 @@ final class NEREngine {
         return dict
     }
 
-    func extractPersonNames(from text: String) -> [String] {
+    /// Run NER on at most `maxInputChars` of text (default = all).
+    /// `progress` is called with (completedChunks, totalChunks) after each chunk.
+    func extractPersonNames(from text: String, maxInputChars: Int? = nil, progress: ((Int, Int) -> Void)? = nil) -> [String] {
         let chars = Array(text)
+        let limit = min(maxInputChars ?? chars.count, chars.count)
         var names = Set<String>()
         var start = 0
+        let effectiveStride = maxLen - overlap
+        let totalChunks = max(1, (limit + effectiveStride - 1) / effectiveStride)
+        var chunkIndex = 0
 
-        while start < chars.count {
-            let end = min(start + maxLen, chars.count)
+        while start < limit {
+            let end = min(start + maxLen, limit)
             let chunk = String(chars[start..<end])
+            chunkIndex += 1
+            progress?(chunkIndex, totalChunks)
+
             guard let tokenIds = tokenize(chunk) else { start = end; continue }
 
             let seqLen = tokenIds.count
@@ -136,7 +145,7 @@ final class NEREngine {
             }
 
             start = end - overlap
-            if start + maxLen >= chars.count { break }
+            if start + maxLen >= limit { break }
         }
 
         return names.sorted { $0.count > $1.count }
