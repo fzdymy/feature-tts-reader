@@ -174,8 +174,9 @@ struct SettingsView: View {
                 // MARK: - 交互设置
                 Section(header: Text("交互设置")) {
                     Toggle("启用触觉反馈", isOn: $enableHaptics)
-                        .onChange(of: enableHaptics) { _ in
-                            if enableHaptics { HapticManager.impact(.light) }
+                        .onChange(of: enableHaptics) { _, newValue in
+                            if newValue { HapticManager.impact(.light) }
+                            UserDefaults.standard.set(newValue, forKey: "enableHaptics")
                         }
                     Toggle("双击朗读", isOn: Binding(
                         get: { store.enableDoubleTapToSpeak },
@@ -194,6 +195,9 @@ struct SettingsView: View {
                         Text("自动保存间隔（秒）")
                         Slider(value: $autoSaveInterval, in: 10...300, step: 10)
                         Text("\(Int(autoSaveInterval))")
+                    }
+                    .onChange(of: autoSaveInterval) { _, newValue in
+                        UserDefaults.standard.set(newValue, forKey: "autoSaveInterval")
                     }
                 }
 
@@ -228,6 +232,9 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .onChange(of: selectedBookshelfLayout) { _, newValue in
+                        UserDefaults.standard.set(newValue.rawValue, forKey: "bookshelfLayout")
+                    }
 
                     Picker("默认排序", selection: Binding(
                         get: { store.defaultSortOption },
@@ -300,14 +307,18 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: selectedAppTheme) { newValue in
+                    .onChange(of: selectedAppTheme) { _, newValue in
                         applyAppTheme(newValue)
+                        UserDefaults.standard.set(newValue.rawValue, forKey: "appTheme")
                     }
 
                     HStack {
                         Text("最大缓存（MB）")
                         Slider(value: $maxCacheSize, in: 50...2000, step: 50)
                         Text("\(Int(maxCacheSize))")
+                    }
+                    .onChange(of: maxCacheSize) { _, newValue in
+                        UserDefaults.standard.set(newValue, forKey: "maxCacheSize")
                     }
                 }
 
@@ -324,18 +335,6 @@ struct SettingsView: View {
                     Button("检查更新") {
                         // Check for updates
                     }
-                }
-
-                // MARK: - 保存
-                Section {
-                    Button("保存所有设置") {
-                        store.saveSettings()
-                        store.saveState()
-                        saveAppSettings()
-                        store.restartAutoSaveTimer()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .foregroundColor(.blue)
                 }
             }
             .navigationTitle("设置")
@@ -392,13 +391,18 @@ struct SettingsView: View {
     }
 
     private func applyAppTheme(_ theme: AppTheme) {
-        switch theme {
-        case .system:
-            UIApplication.shared.windows.forEach { $0.overrideUserInterfaceStyle = .unspecified }
-        case .light:
-            UIApplication.shared.windows.forEach { $0.overrideUserInterfaceStyle = .light }
-        case .dark:
-            UIApplication.shared.windows.forEach { $0.overrideUserInterfaceStyle = .dark }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                switch theme {
+                case .system:
+                    window.overrideUserInterfaceStyle = .unspecified
+                case .light:
+                    window.overrideUserInterfaceStyle = .light
+                case .dark:
+                    window.overrideUserInterfaceStyle = .dark
+                }
+            }
         }
     }
 

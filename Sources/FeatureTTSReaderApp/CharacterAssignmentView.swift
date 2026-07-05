@@ -136,6 +136,11 @@ struct CharacterAssignmentPanel: View {
                 if !scanPhase.isEmpty {
                     Text(scanPhase).font(.caption2).foregroundColor(.accentColor)
                 }
+                Button("取消") {
+                    isScanning = false
+                }
+                .font(.caption2)
+                .foregroundColor(.red)
             }
         }
         .padding(.vertical, 4)
@@ -294,7 +299,6 @@ struct CharacterAssignmentPanel: View {
             scanProgress = 0.50
             elapsedText = formatDuration(Date().timeIntervalSince(startTime))
             if allNames.isEmpty && !candidateDict.isEmpty {
-                // If frequency filter wiped everything, fall back to top 20% by freq
                 let ranked = freqResult.sorted { $0.value > $1.value }
                 let keepCount = max(5, ranked.count / 5)
                 allNames = Set(ranked.prefix(keepCount).map(\.key))
@@ -328,30 +332,25 @@ struct CharacterAssignmentPanel: View {
 
             for (idx, name) in uniqueNames.enumerated() {
                 if Task.isCancelled { isScanning = false; return }
-                var gender = "未知"
-                var age = "未知"
-                var tone = "平稳"
-                var style = "neutral"
-                var rate = 0
-                var pitch = 0
                 guard let range = contextText.range(of: name) else {
                     scanProgress = 0.50 + Double(idx + 1) / Double(uniqueNames.count) * 0.50
                     await Task.yield()
                     continue
                 }
-                let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
-                let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
-                let ctx = String(contextText[ctxStart..<ctxEnd])
-                let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
-                gender = attrs.gender; age = attrs.age
-                // Tone inference from a single window is unreliable; default to neutral
-                tone = "平稳"; style = "neutral"; rate = 0; pitch = 0
+                let attrs = await Task.detached(priority: .userInitiated) { [analyzer] in
+                    let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
+                    let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
+                    let ctx = String(contextText[ctxStart..<ctxEnd])
+                    return analyzer.analyzeAttributes(for: name, context: ctx)
+                }.value
+                var gender = attrs.gender
+                let age = attrs.age
                 if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
                 let acFreq = freqMap[name] ?? 0
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: [],
-                    gender: gender, age: age, tone: tone,
-                    voice: "", rate: rate, pitch: pitch, style: style,
+                    gender: gender, age: age, tone: "平稳",
+                    voice: "", rate: 0, pitch: 0, style: "neutral",
                     sensitivity: defaultSensitivity, frequency: acFreq,
                     bookID: book.id
                 ))
@@ -502,6 +501,7 @@ struct CharacterAssignmentPanel: View {
         default: return style
         }
     }
+
 }
 
 // MARK: - JSON Document for file export

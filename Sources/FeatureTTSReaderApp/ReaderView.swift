@@ -306,6 +306,10 @@ struct ReaderView: View {
                 }
             }
         }
+        .sheet(isPresented: $showCharacterPanel) {
+            characterPanelSheet
+                .presentationDetents([.medium, .large])
+        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(true)
@@ -410,10 +414,6 @@ struct ReaderView: View {
                         }
                     }
                     .foregroundColor(showCharacterPanel ? .blue : textColor.opacity(0.7))
-                }
-                .sheet(isPresented: $showCharacterPanel) {
-                    characterPanelSheet
-                        .presentationDetents([.medium, .large])
                 }
             }
         }
@@ -732,10 +732,6 @@ struct ReaderView: View {
             .foregroundColor(textColor)
         }
         .background(.ultraThinMaterial)
-        .sheet(isPresented: $showCharacterPanel) {
-            characterPanelSheet
-                .presentationDetents([.medium, .large])
-        }
     }
 
     // MARK: - Character Panel
