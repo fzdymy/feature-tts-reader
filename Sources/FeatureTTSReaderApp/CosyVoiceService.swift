@@ -46,7 +46,7 @@ actor CosyVoiceService {
     // SHA256(text + embedding) key → WAV Data, in-memory (NSCache) + disk LRU (max 100 MB)
 
     private let memoryCache = NSCache<NSString, NSData>()
-    private let cacheStats = CacheStats()
+    private var cacheStats = CacheStats()
     /// Disk cache quota in bytes (100 MB)
     private static let diskCacheQuota: Int64 = 100 * 1_024 * 1_024
 
