@@ -115,7 +115,7 @@ final class ACAutomaton {
 
 // MARK: - CharacterAnalyzer
 
-final class CharacterAnalyzer {
+final class CharacterAnalyzer: @unchecked Sendable {
     private let tokenizer: NLTokenizer = {
         let t = NLTokenizer(unit: .word)
         return t

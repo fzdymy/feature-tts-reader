@@ -1383,7 +1383,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         case timedOut
     }
 
-    private func withTimeout<T: Sendable>(seconds: Double, operation: @escaping () async throws -> T) async throws -> T {
+    private func withTimeout<T: Sendable>(seconds: Double, operation: @escaping @Sendable () async throws -> T) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask { try await operation() }
             group.addTask {
