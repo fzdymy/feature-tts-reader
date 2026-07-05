@@ -574,7 +574,6 @@ final class ReaderStore: NSObject, ObservableObject {
             return "合成测试失败：\(error.localizedDescription)"
         }
     }
-    }
 
     func addBookmark(note: String = "") {
           guard let chapterID = selectedChapterID,
