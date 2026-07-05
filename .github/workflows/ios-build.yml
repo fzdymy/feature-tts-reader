@@ -46,7 +46,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            SKIP_PLUGIN_VALIDATION=YES
+            SKIP_PLUGIN_VALIDATION=YES \
+            -skipPackagePluginValidation
 
       - name: Package app into IPA
         run: |
