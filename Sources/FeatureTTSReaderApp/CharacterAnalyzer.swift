@@ -415,7 +415,8 @@ final class CharacterAnalyzer: @unchecked Sendable {
             if commaNames.contains(name) {
                 if name.count >= 3 && !Self.firstCharIsSurname(name) && !Self.startsWithCompoundSurname(name) { return false }
             }
-            return name.count >= 3 || Self.firstCharIsSurname(name)
+            // Accept: 3+ chars, or surname-based 2-char, or common prefixes (阿/小/老/大)
+            return name.count >= 3 || Self.firstCharIsSurname(name) || Self.commonNamePrefixes.contains(String(name.prefix(1)))
         }
     }
 

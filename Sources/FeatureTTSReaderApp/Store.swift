@@ -1467,8 +1467,19 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         let scores = analyzer.countWithAC(text: raw, candidates: candidateScores)
         let sorted = scores.keys.sorted { scores[$0, default: 0] > scores[$1, default: 0] }
         for n in sorted {
-            guard CharacterAnalyzer.looksLikeRealName(n) || CharacterAnalyzer.titleSuffixes.contains(where: { n.hasSuffix($0) }) else { continue }
+            let freq = scores[n, default: 0]
+            // High-frequency names (>10) get a relaxed surname check
+            let accepted = CharacterAnalyzer.looksLikeRealName(n) ||
+                CharacterAnalyzer.titleSuffixes.contains(where: { n.hasSuffix($0) }) ||
+                (freq >= 10 && n.count >= 2 && n.count <= 4 && !analyzer.isStopWord(n))
+            guard accepted else { continue }
             names.append(n)
+        }
+
+        // Validate candidates with Apple NL tagger (filters common-word false positives)
+        let nlValidated = analyzer.validateWithNL(text: raw, candidates: Set(names))
+        if !nlValidated.isEmpty {
+            names = OrderedSet(Array(names).filter { nlValidated.contains($0) })
         }
 
         // Resolve aliases: 无忌 → 张无忌, 张公子 → 张无忌, etc.
@@ -1714,27 +1725,40 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             let beforeContext = String(chars[lookBackStart..<openIdx])
             // 当对白靠近段首时，合并前一段落末尾文本作为上下文
             let mergedContext = openIdx < 80 && !previousContextSuffix.isEmpty ? previousContextSuffix + beforeContext : beforeContext
-            if let detected = detectSpeakerInContext(mergedContext, characters: characters) {
-                speaker = detected
+
+            // BERT primary: run once and use for disambiguation
+            var bertResult: (name: String?, score: Float) = (nil, 0)
+            if let bert = Self.bertDetector, !mergedContext.isEmpty {
+                bertResult = bert.detectSpeaker(context: mergedContext, quote: quoteText, candidates: characters.map(\.name))
             }
 
+            // Regex speaker detection
+            var regexSpeaker: String? = nil
+            if let detected = detectSpeakerInContext(mergedContext, characters: characters) {
+                regexSpeaker = detected
+            }
             // If not found before, look forwards from closer for speech verb+name
-            if speaker == nil, let ci = closeIdx ?? bestOpenIdx.map({ $0 + quoteText.count + 1 }) {
+            if regexSpeaker == nil, let ci = closeIdx ?? bestOpenIdx.map({ $0 + quoteText.count + 1 }) {
                 let lookAheadEnd = min(chars.count, ci + 80)
                 if ci + 1 < chars.count && ci + 1 < lookAheadEnd {
                     let afterContext = String(chars[(ci + 1)..<lookAheadEnd])
                     if let detected = detectSpeakerAfterQuote(afterContext, characters: characters) {
-                        speaker = detected
+                        regexSpeaker = detected
                     }
                 }
             }
 
-            // BERT embedding-based detection fallback
-            if speaker == nil, let bert = Self.bertDetector, !mergedContext.isEmpty {
-                let result = bert.detectSpeaker(context: mergedContext, quote: quoteText, candidates: characters.map(\.name))
-                if result.score > 0.6 {
-                    speaker = result.name
-                }
+            // Decide: BERT primary with regex tiebreaker
+            if bertResult.score > 0.7 {
+                speaker = bertResult.name
+            } else if bertResult.score > 0.5, regexSpeaker != nil {
+                speaker = regexSpeaker
+            } else if bertResult.score > 0.5 {
+                speaker = bertResult.name
+            } else if regexSpeaker != nil {
+                speaker = regexSpeaker
+            } else if bertResult.score > 0.4 {
+                speaker = bertResult.name
             }
 
             // If still not found, look for vocative inside the quote
