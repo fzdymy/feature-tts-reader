@@ -45,7 +45,8 @@ jobs:
             BUILD_DIR=$PWD/build_output \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            SKIP_PLUGIN_VALIDATION=YES
 
       - name: Package app into IPA
         run: |
