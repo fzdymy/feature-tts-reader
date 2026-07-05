@@ -160,7 +160,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         Task { await loadStateAsync() }
 
         // Pre-warm CosyVoice model so playback doesn't trigger first-time download
-        CosyVoiceService.shared.prewarm()
+        CosyVoiceService.prewarm()
     }
 
     private func setupAudioSession() {
