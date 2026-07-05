@@ -1424,7 +1424,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return splitIntoPseudoChapters(trimmed)
     }
 
-    nonisolated func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
+    nonisolated static func splitIntoPseudoChapters(_ text: String) -> [BookChapter] {
         let pageSize = 5000
         var chapters: [BookChapter] = []
         var startIndex = text.startIndex

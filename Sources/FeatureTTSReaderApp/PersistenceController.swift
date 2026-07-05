@@ -1,7 +1,7 @@
 import Foundation
-@preconcurrency import CoreData
+import CoreData
 
-final class PersistenceController: ObservableObject {
+final class PersistenceController: ObservableObject, @unchecked Sendable {
     static let shared = PersistenceController()
 
     let container: NSPersistentContainer

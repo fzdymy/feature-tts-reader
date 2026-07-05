@@ -174,6 +174,12 @@ fileprivate final class BertInput: NSObject, MLFeatureProvider {
     let input_ids: MLMultiArray
     let attention_mask: MLMultiArray
 
+    init(input_ids: MLMultiArray, attention_mask: MLMultiArray) {
+        self.input_ids = input_ids
+        self.attention_mask = attention_mask
+        super.init()
+    }
+
     var featureNames: Set<String> { ["input_ids", "attention_mask"] }
 
     func featureValue(for featureName: String) -> MLFeatureValue? {
