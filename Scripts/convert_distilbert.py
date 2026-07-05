@@ -57,10 +57,7 @@ def try_convert(model_id: str) -> bool:
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_id)
-        model = AutoModel.from_pretrained(
-            model_id,
-            attn_implementation="eager",  # Avoid SDPA (new_ones) not supported by coremltools
-        )
+        model = AutoModel.from_pretrained(model_id)
         model.eval()
     except Exception as e:
         print(f"  FAILED to load model: {e}")
