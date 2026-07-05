@@ -406,6 +406,7 @@ struct BookListRow: View {
             await loadChapterCount(for: book, store: store, chapterCount: $chapterCount)
         }
     }
+}
 
 struct BookDetailView: View {
     @EnvironmentObject private var store: ReaderStore
