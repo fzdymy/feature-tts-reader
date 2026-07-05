@@ -1,16 +1,21 @@
 name: Convert DistilBERT to Core ML
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - Scripts/convert_distilbert.py
   workflow_dispatch:
     inputs:
       model_id:
         description: 'HuggingFace model ID'
         required: false
-        default: 'distilbert-base-chinese'
+        default: 'Geotrend/distilbert-base-zh-cased'
       commit_models:
         description: 'Commit model files to repo'
         type: boolean
-        default: false
+        default: true
 
 jobs:
   convert:
@@ -28,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: distilbert-chinese-${{ hashFiles('Scripts/convert_distilbert.py') }}
+          key: distilbert-zh-cased-${{ hashFiles('Scripts/convert_distilbert.py') }}
 
       - name: Install dependencies
         run: |
@@ -73,8 +78,8 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Commit model to repo (optional)
-        if: ${{ github.event.inputs.commit_models == 'true' }}
+      - name: Commit model to repo
+        if: ${{ github.event_name == 'push' || github.event.inputs.commit_models == 'true' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
