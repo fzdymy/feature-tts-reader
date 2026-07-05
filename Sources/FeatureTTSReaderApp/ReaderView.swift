@@ -56,6 +56,8 @@ struct ReaderView: View {
     @State private var scrollOffset: CGFloat = 0
     @State private var segmentStartOffset: CGFloat = 0
     @State private var scrolledAway = false
+    @State private var lastAutoScrollTime: Date = .distantPast
+    @State private var chapterHeights: [CGFloat] = []  // cached heights
     @StateObject private var scrollCoordinator = ScrollCoordinator()
 
     private func navigateToChapter(_ target: Int) {
@@ -112,8 +114,10 @@ struct ReaderView: View {
 
     private var chapterProgressInChapter: Double {
         guard currentChapterIndex < chaptersList.count else { return 0 }
-        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
-        let chHeight = estimatedChapterHeight(chaptersList[currentChapterIndex])
+        let cached = chapterHeights
+        guard currentChapterIndex < cached.count else { return 0 }
+        let pastHeight = cached[0..<currentChapterIndex].reduce(0, +)
+        let chHeight = cached[currentChapterIndex]
         guard chHeight > 0 else { return 0 }
         return min(1, max(0, Double(scrollOffset - pastHeight) / Double(chHeight)))
     }
@@ -152,7 +156,9 @@ struct ReaderView: View {
                             scrollOffset = -newY
                             if isAudioMode && isImmersive {
                                 let screenH = UIScreen.main.bounds.height
-                                if abs(-newY - segmentStartOffset) > screenH * 0.5 {
+                                // Don't mark scrolledAway during auto-scroll animation (within 0.4s)
+                                if Date().timeIntervalSince(lastAutoScrollTime) > 0.4,
+                                   abs(-newY - segmentStartOffset) > screenH * 0.5 {
                                     scrolledAway = true
                                 }
                             }
@@ -193,10 +199,20 @@ struct ReaderView: View {
                     if currentChapterIndex > 0 {
                         scrollPositionID = "ch_\(currentChapterIndex)"
                     }
+                    chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
                 }
             }
+            .onChange(of: chaptersList.count) { _ in
+                chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
+            }
             .onChange(of: store.ttsCurrentIndex) { _ in
-                segmentStartOffset = scrollOffset
+                if !scrolledAway, let offset = autoScrollOffset(for: currentSegmentText) {
+                    lastAutoScrollTime = Date()
+                    scrollCoordinator.scrollTo(offset: offset, animated: true)
+                    segmentStartOffset = offset
+                } else {
+                    segmentStartOffset = scrollOffset
+                }
                 scrolledAway = false
                 withAnimation { isPlaying = store.ttsIsPlaying }
             }
@@ -435,7 +451,7 @@ struct ReaderView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, paraText == paragraphs.last ? 0 : 4)
-                    .background(isReading ? Color.accentColor.opacity(0.25) : Color.clear)
+                    .background(isReading ? Color.accentColor.opacity(0.3) : Color.clear)
                     .cornerRadius(4)
                     .contextMenu {
                         let names = extractCandidateNames(from: paraText)
@@ -577,16 +593,16 @@ struct ReaderView: View {
         VStack(spacing: 0) {
             Divider()
             if scrolledAway {
-                HStack(spacing: 24) {
+                HStack(spacing: 32) {
                     Button(action: {
                         scrollCoordinator.scrollTo(offset: segmentStartOffset, animated: true)
                         scrolledAway = false
                     }) {
-                        VStack(spacing: 2) {
+                        HStack(spacing: 6) {
                             Image(systemName: "arrow.backward.circle")
-                                .font(.body)
+                                .font(.system(size: 16))
                             Text("原进度")
-                                .font(.caption2)
+                                .font(.caption)
                         }
                     }
                     Button(action: {
@@ -596,16 +612,16 @@ struct ReaderView: View {
                         segmentStartOffset = scrollOffset
                         Task { await startPlayback(fromParagraphText: paraText) }
                     }) {
-                        VStack(spacing: 2) {
+                        HStack(spacing: 6) {
                             Image(systemName: "headphones.circle")
-                                .font(.body)
+                                .font(.system(size: 16))
                             Text("从本页听")
-                                .font(.caption2)
+                                .font(.caption)
                         }
                     }
                 }
                 .foregroundColor(textColor)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
             } else {
                 Button(action: {
                     if store.ttsIsPlaying {
@@ -736,52 +752,44 @@ struct ReaderView: View {
     private var characterPanelSheet: some View {
         NavigationStack {
             List {
-                if !store.recommendations.isEmpty {
-                    Section("推荐音色") {
-                        ForEach(store.recommendations) { rec in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(rec.profile.name).font(.headline)
-                                    Text("x\(rec.count)").font(.caption).foregroundColor(.secondary)
-                                    Spacer()
+                ForEach(store.characters) { character in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(character.name).font(.subheadline)
+                                if let rec = store.recommendations.first(where: { $0.profile.id == character.id }) {
+                                    Text("x\(rec.count)").font(.caption2).foregroundColor(.secondary)
                                 }
+                            }
+                            Text(character.voice).font(.caption2).foregroundColor(.secondary)
+                            if let rec = store.recommendations.first(where: { $0.profile.id == character.id }),
+                               !rec.suggestedVoices.isEmpty {
                                 ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
+                                    HStack(spacing: 6) {
                                         ForEach(rec.suggestedVoices.prefix(4)) { voice in
                                             Button(voice.name) {
                                                 store.applyVoice(voice.id, toCharacterID: rec.id)
                                             }
-                                            .buttonStyle(.bordered).tint(.blue)
+                                            .buttonStyle(.bordered).tint(.blue).font(.caption2).controlSize(.small)
                                         }
                                     }
                                 }
                             }
                         }
+                        Spacer()
+                        Button("试听") { Task { await store.previewVoice(for: character) } }
+                            .font(.caption).buttonStyle(.borderless)
+                        Button("编辑") { editingCharacter = character }
+                            .font(.caption).buttonStyle(.borderless)
                     }
                 }
-
-                Section("角色列表 (\(store.characters.count))") {
-                    ForEach(store.characters) { character in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(character.name).font(.subheadline)
-                                Text(character.voice).font(.caption2).foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Button("试听") { Task { await store.previewVoice(for: character) } }
-                                .font(.caption).buttonStyle(.borderless)
-                            Button("编辑") { editingCharacter = character }
-                                .font(.caption).buttonStyle(.borderless)
-                        }
-                    }
-                    .onDelete { offsets in
-                        for i in offsets {
-                            store.deleteCharacter(at: store.characters[i].id)
-                        }
+                .onDelete { offsets in
+                    for i in offsets where i < store.characters.count {
+                        store.deleteCharacter(at: store.characters[i].id)
                     }
                 }
             }
-            .navigationTitle("角色音色")
+            .navigationTitle("角色音色 (\(store.characters.count))")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { showCharacterPanel = false }
@@ -1143,7 +1151,8 @@ struct ReaderView: View {
         guard currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
         let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
+        let cached = chapterHeights
+        let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
         let offsetInChapter = scrollOffset - pastHeight
         let titleHeight: CGFloat = 58
         let hPad: CGFloat = 40
@@ -1164,6 +1173,33 @@ struct ReaderView: View {
             y += paraHeight
         }
         return nil
+    }
+
+    /// Compute scroll offset to bring the paragraph containing `segmentText` into view.
+    /// Returns the target content offset, or nil if the segment text cannot be located.
+    private func autoScrollOffset(for segmentText: String?) -> CGFloat? {
+        guard let segText = segmentText, !segText.isEmpty else { return nil }
+        guard currentChapterIndex < chaptersList.count else { return nil }
+        let ch = chaptersList[currentChapterIndex]
+        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard let paraIndex = paragraphs.firstIndex(where: { $0.contains(segText) || segText.contains($0) }) else { return nil }
+        let cached = chapterHeights
+        let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
+        let titleHeight: CGFloat = 58
+        let hPad: CGFloat = 40
+        let containerWidth = UIScreen.main.bounds.width - hPad
+        let fontSize = store.readerFontSize
+        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
+        let cjkCharWidth = fontSize
+        let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
+        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
+        var y: CGFloat = titleHeight
+        for i in 0..<paraIndex {
+            let trimmed = paragraphs[i].trimmingCharacters(in: .whitespacesAndNewlines)
+            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
+            y += CGFloat(paraLineCount) * lineHeight + 8
+        }
+        return pastHeight + y - 2 * lineHeight
     }
 
     private func startPlayback(fromParagraphText: String? = nil) async {

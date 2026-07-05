@@ -267,27 +267,7 @@ final class ReaderStore: NSObject, ObservableObject {
             }
         }
 
-        // For unmatched template roles, create new characters
-        // Only check role.title against existing names/aliases (not voiceSuggestion)
-        // to prevent cross-contamination where one character's alias blocks another role.
-        for role in template.roles where !role.title.isEmpty {
-            let alreadyMatched = characters.contains { $0.name == role.title || $0.aliases.contains(role.title) }
-            if alreadyMatched { continue }
-            var roleType = CharacterRole.character
-            if role.title.contains("旁白") || role.title.contains("叙述") { roleType = .narrator }
-            let profile = CharacterProfile(
-                id: UUID(), name: role.title,
-                aliases: role.voiceSuggestion.isEmpty ? [] : [role.voiceSuggestion],
-                gender: "", age: "", tone: "",
-                voice: role.sourceVoiceID, rate: role.rateOffset,
-                pitch: role.pitchOffset, style: role.style,
-                sensitivity: 50, isNarrator: roleType == .narrator, role: roleType,
-                bookID: bookID
-            )
-            characters.append(profile)
-        }
-
-        statusMessage = "已应用模板「\(template.name)」: 匹配 \(matchCount) 个角色，新增 \(template.roles.count - matchCount) 个"
+        statusMessage = "已应用模板「\(template.name)」: 匹配 \(matchCount) / \(template.roles.count) 个角色"
     }
 
     func updateRoleTemplate(_ template: RoleTemplate) {
@@ -1814,72 +1794,262 @@ final class ReaderStore: NSObject, ObservableObject {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
+        let narratorName = characters.first(where: { $0.isNarrator })?.name ?? "叙述者"
+        let maxLength = 350
+
         for paragraph in paragraphs {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
-            let lines = trimmed.chunked(into: 350)
-            for line in lines {
-                let analyzer = CharacterAnalyzer()
-                let speaker = detectSpeaker(in: line, characters: characters) ?? lastSpeaker ?? characters.first?.name ?? "叙述者"
-                lastSpeaker = speaker
-                let matchedProfile = characters.first(where: { line.contains($0.name) })
-                let speakerProfile = matchedProfile ?? characters.first(where: { $0.name == speaker })
-                let toneResult = analyzer.analyzeSentenceTone(line)
-                var profile = speakerProfile ?? characters.first ?? CharacterProfile(id: UUID(), name: speaker, gender: "未知", age: "未知", tone: toneResult.style, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker)
 
-                // 未匹配角色：使用模板/全局容灾音色
-                if profile.voice.isEmpty && speakerProfile == nil {
-                    let isMale = guessGender(from: speaker)
-                    if isMale, !defaultMaleVoiceID.isEmpty {
-                        profile.voice = defaultMaleVoiceID
-                    } else if !isMale, !defaultFemaleVoiceID.isEmpty {
-                        profile.voice = defaultFemaleVoiceID
+            for part in dialogueParts {
+                lastSpeaker = part.speaker
+                let chunks = part.text.chunked(into: maxLength)
+                for chunk in chunks {
+                    let analyzer = CharacterAnalyzer()
+                    let speakerProfile = characters.first(where: { $0.name == part.speaker || $0.aliases.contains(part.speaker) })
+                    let toneResult = analyzer.analyzeSentenceTone(chunk)
+                    var profile = speakerProfile ?? CharacterProfile(id: UUID(), name: part.speaker, gender: "未知", age: "未知", tone: toneResult.style, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+
+                    if profile.voice.isEmpty && speakerProfile == nil {
+                        let isMale = guessGender(from: part.speaker)
+                        if isMale, !defaultMaleVoiceID.isEmpty {
+                            profile.voice = defaultMaleVoiceID
+                        } else if !isMale, !defaultFemaleVoiceID.isEmpty {
+                            profile.voice = defaultFemaleVoiceID
+                        }
+                        profile.rate = defaultFallbackRateOffset
+                        profile.pitch = defaultFallbackPitchOffset
+                        profile.style = defaultFallbackStyle
                     }
-                    profile.rate = defaultFallbackRateOffset
-                    profile.pitch = defaultFallbackPitchOffset
-                    profile.style = defaultFallbackStyle
+                    if profile.voice.isEmpty {
+                        profile.voice = defaultVoice(for: profile.gender, tone: toneResult.style, name: profile.name, voices: voices)
+                    }
+
+                    let sensitivityValue = (profile.sensitivity > 0) ? profile.sensitivity : defaultSensitivity
+                    let sensitivityFactor = Double(max(0, min(sensitivityValue, 100))) / 50.0
+                    let scaledPitchAdjustment = Int(Double(toneResult.pitchAdjust) * sensitivityFactor)
+
+                    let finalStyle: String
+                    if profile.style != "neutral" {
+                        finalStyle = profile.style
+                    } else {
+                        finalStyle = sensitivityFactor >= 0.6 ? toneResult.style : "neutral"
+                    }
+
+                    let finalPitch = profile.pitch + scaledPitchAdjustment
+                    let finalRate = profile.rate + (sensitivityValue > 50 ? toneResult.rateAdjust : 0)
+
+                    var activeVoice = profile.voice
+                    var activeRate = finalRate
+                    var activePitch = finalPitch
+                    var activeStyle = finalStyle
+                    if let tuning = voiceProfiles.first(where: { $0.alias == part.speaker || $0.alias == profile.name }) {
+                        activeVoice = tuning.sourceVoiceID
+                        activeRate += tuning.rateOffset
+                        activePitch += tuning.pitchOffset
+                        if tuning.style != "neutral" { activeStyle = tuning.style }
+                    }
+
+                    segments.append(ScriptSegment(
+                        id: UUID(),
+                        characterName: profile.name,
+                        voice: activeVoice,
+                        rate: activeRate,
+                        pitch: activePitch,
+                        style: activeStyle,
+                        text: chunk
+                    ))
                 }
-                if profile.voice.isEmpty {
-                    profile.voice = defaultVoice(for: profile.gender, tone: toneResult.style, name: profile.name, voices: voices)
-                }
-
-                let sensitivityValue = (profile.sensitivity > 0) ? profile.sensitivity : defaultSensitivity
-                let sensitivityFactor = Double(max(0, min(sensitivityValue, 100))) / 50.0
-                let scaledPitchAdjustment = Int(Double(toneResult.pitchAdjust) * sensitivityFactor)
-
-                let finalStyle: String
-                if profile.style != "neutral" {
-                    finalStyle = profile.style
-                } else {
-                    finalStyle = sensitivityFactor >= 0.6 ? toneResult.style : "neutral"
-                }
-
-                let finalPitch = profile.pitch + scaledPitchAdjustment
-                let finalRate = profile.rate + (sensitivityValue > 50 ? toneResult.rateAdjust : 0)
-
-                // Check for VoiceProfileTuning match by alias → character name
-                var activeVoice = profile.voice
-                var activeRate = finalRate
-                var activePitch = finalPitch
-                var activeStyle = finalStyle
-                if let tuning = voiceProfiles.first(where: { $0.alias == speaker || $0.alias == profile.name }) {
-                    activeVoice = tuning.sourceVoiceID
-                    activeRate += tuning.rateOffset
-                    activePitch += tuning.pitchOffset
-                    if tuning.style != "neutral" { activeStyle = tuning.style }
-                }
-
-                segments.append(ScriptSegment(
-                    id: UUID(),
-                    characterName: profile.name,
-                    voice: activeVoice,
-                    rate: activeRate,
-                    pitch: activePitch,
-                    style: activeStyle,
-                    text: line
-                ))
             }
         }
         return segments
+    }
+
+    // MARK: - Dialogue parsing
+
+    /// A segment parsed from a paragraph: either a character's dialogue or narration.
+    private struct DialoguePart {
+        let speaker: String
+        let text: String
+    }
+
+    private static let quotePairs: [(open: Character, close: Character)] = [
+        ("\u{300C}", "\u{300D}"),
+        ("\u{201C}", "\u{201D}"),
+        ("\u{2018}", "\u{2019}"),
+        ("\u{300E}", "\u{300F}"),
+    ]
+
+    /// Parse a paragraph into (speaker, text) segments by detecting dialogue quotes.
+    /// Non-quoted text → narrator. Quoted text → detected speaker (from speech verbs before/after the quote).
+    nonisolated static func parseDialogueSegments(in paragraph: String, characters: [CharacterProfile], lastSpeaker: String?) -> [DialoguePart] {
+        let narratorName = characters.first(where: { $0.isNarrator })?.name ?? "叙述者"
+        let chars = Array(paragraph)
+        var parts: [DialoguePart] = []
+        var pos = 0
+        var currentLastSpeaker = lastSpeaker
+
+        while pos < chars.count {
+            // Find the next quote opener
+            var bestOpenIdx: Int? = nil
+            var bestCloseIdx: Int? = nil
+            var bestOpenChar: Character? = nil
+            var bestCloseChar: Character? = nil
+
+            for (open, close) in quotePairs {
+                if let idx = findChar(chars, open, from: pos) {
+                    if bestOpenIdx == nil || idx < bestOpenIdx! {
+                        bestOpenIdx = idx
+                        bestOpenChar = open
+                        bestCloseChar = close
+                    }
+                }
+            }
+
+            guard let openIdx = bestOpenIdx, let closeCh = bestCloseChar else {
+                // No more quotes — remaining text is narration
+                let remaining = String(chars[pos...])
+                if !remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    parts.append(DialoguePart(speaker: narratorName, text: remaining))
+                }
+                break
+            }
+
+            // Text before the quote (narration, may contain speaker indicators)
+            if openIdx > pos {
+                let beforeText = String(chars[pos..<openIdx])
+                if !beforeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    parts.append(DialoguePart(speaker: narratorName, text: beforeText))
+                }
+            }
+
+            // Find the closing quote
+            let closeIdx = findQuoteClose(chars, openChar: bestOpenChar!, closeChar: closeCh, from: openIdx + 1)
+            let quoteText: String
+            if let ci = closeIdx {
+                quoteText = String(chars[(openIdx + 1)..<ci])
+                pos = ci + 1
+            } else {
+                // No closing quote found — treat from opener to end as quote
+                quoteText = String(chars[(openIdx + 1)...])
+                pos = chars.count
+            }
+
+            // Detect speaker from context before or after the quote
+            var speaker: String? = nil
+
+            // Look backwards from opener for name+speech verb within 100 chars
+            let lookBackStart = max(0, openIdx - 100)
+            let beforeContext = String(chars[lookBackStart..<openIdx])
+            if let detected = detectSpeakerInContext(beforeContext, characters: characters) {
+                speaker = detected
+            }
+
+            // If not found before, look forwards from closer for speech verb+name
+            if speaker == nil, let ci = closeIdx ?? bestOpenIdx.map({ $0 + quoteText.count + 1 }) {
+                let lookAheadEnd = min(chars.count, ci + 80)
+                if ci + 1 < chars.count && ci + 1 < lookAheadEnd {
+                    let afterContext = String(chars[(ci + 1)..<lookAheadEnd])
+                    if let detected = detectSpeakerAfterQuote(afterContext, characters: characters) {
+                        speaker = detected
+                    }
+                }
+            }
+
+            // If still not found, look for vocative inside the quote
+            if speaker == nil {
+                // Check if quote starts with a character name + comma/vocative
+                for ch in characters {
+                    let name = ch.name
+                    if quoteText.hasPrefix("\(name)，") || quoteText.hasPrefix("\(name),") || quoteText.hasPrefix(name) {
+                        // The addrESSEE is named — the speaker is likely the OTHER participant not matched yet
+                        // Default to last speaker for now
+                        break
+                    }
+                }
+            }
+
+            let resolvedSpeaker = speaker ?? currentLastSpeaker ?? narratorName
+            currentLastSpeaker = resolvedSpeaker
+
+            if !quoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parts.append(DialoguePart(speaker: resolvedSpeaker, text: quoteText))
+            }
+        }
+
+        return parts
+    }
+
+    /// Find the first occurrence of a character starting from a position.
+    private static func findChar(_ chars: [Character], _ ch: Character, from: Int) -> Int? {
+        for i in from..<chars.count {
+            if chars[i] == ch { return i }
+        }
+        return nil
+    }
+
+    /// Find the matching closing quote, handling nesting of the same quote type.
+    private static func findQuoteClose(_ chars: [Character], openChar: Character, closeChar: Character, from: Int) -> Int? {
+        // Simple approach: find the next closing char. In practice, Chinese web novels
+        // rarely nest quotes of the same type, so linear search is sufficient.
+        for i in from..<chars.count {
+            if chars[i] == closeChar { return i }
+        }
+        return nil
+    }
+
+    /// Detect speaker from context BEFORE a quote (e.g. "陈煜笑道：「...").
+    /// Looks for: Name + speech verb, or Name: before quote.
+    private static func detectSpeakerInContext(_ context: String, characters: [CharacterProfile]) -> String? {
+        // Priorities matching the existing detectSpeaker logic:
+        // 1. Name + speech verb at end of context
+        let speechVerbs = "说|道|笑道|说道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
+        if let groups = context.firstMatch(regex: "([\\p{Han}]{2,4})(?:\(speechVerbs))$"), groups.count > 1 {
+            let name = groups[1]
+            if characters.contains(where: { $0.name == name || $0.aliases.contains(name) }) {
+                return name
+            }
+        }
+        // 2. Name： at end
+        if let groups = context.firstMatch(regex: "([\\p{Han}]{2,4})[：:]$"), groups.count > 1 {
+            let name = groups[1]
+            if characters.contains(where: { $0.name == name || $0.aliases.contains(name) }) {
+                return name
+            }
+        }
+        // 3. Any known character name at the end of context
+        for ch in characters {
+            if context.hasSuffix(ch.name) || context.hasSuffix("\(ch.name)") {
+                return ch.name
+            }
+        }
+        return nil
+    }
+
+    /// Detect speaker from context AFTER a quote (e.g. "「...」陈煜笑道").
+    private static func detectSpeakerAfterQuote(_ context: String, characters: [CharacterProfile]) -> String? {
+        let speechVerbs = "说|道|笑道|说道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
+        // Look for speech verb + name at start
+        if let groups = context.firstMatch(regex: "^(?:\(speechVerbs))([\\p{Han}]{2,4})"), groups.count > 1 {
+            let name = groups[1]
+            if characters.contains(where: { $0.name == name || $0.aliases.contains(name) }) {
+                return name
+            }
+        }
+        // Look for name + speech verb at start
+        if let groups = context.firstMatch(regex: "^([\\p{Han}]{2,4})(?:\(speechVerbs))"), groups.count > 1 {
+            let name = groups[1]
+            if characters.contains(where: { $0.name == name || $0.aliases.contains(name) }) {
+                return name
+            }
+        }
+        // Any known character name at start
+        for ch in characters {
+            if context.hasPrefix(ch.name) || context.hasPrefix("\(ch.name)") {
+                return ch.name
+            }
+        }
+        return nil
     }
 
     func playFromParagraph(_ paragraph: String) async {
