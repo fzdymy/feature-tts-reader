@@ -6,14 +6,14 @@ let package = Package(
     platforms: [
         .iOS(.v18)
     ],
-    dependencies: [
-        .package(url: "https://github.com/soniqo/speech-swift", branch: "main"),
-    ],
     products: [
         .executable(
             name: "FeatureTTSReader",
             targets: ["FeatureTTSReaderApp"]
         )
+    ],
+    dependencies: [
+        .package(url: "https://github.com/soniqo/speech-swift", branch: "main"),
     ],
     targets: [
         .executableTarget(
