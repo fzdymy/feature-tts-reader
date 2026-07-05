@@ -1471,6 +1471,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let bookID = UUID(uuidString: currentBookID) ?? UUID()
         let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
         let totalParas = paragraphs.count
+        var lastSpeaker: String? = nil
 
         for paraIndex in startParaIndex..<paragraphs.count {
             try Task.checkCancellation()
@@ -1480,7 +1481,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
             // 2. 识别对白
             let trimmed = paragraphs[paraIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: nil)
+            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker)
 
             guard !dialogueParts.isEmpty else { continue }
 
@@ -1514,6 +1515,11 @@ final class ReaderStore: NSObject, ObservableObject {
                     let item = TTSQueueItem(segment: seg, audioURL: audioURL, chapterTitle: chapter.title, bookTitle: bookTitle, bookID: bookID.uuidString, chapterIndex: chapterIndex, segmentIndex: paraQueueItems.count, totalSegments: dialogueParts.count)
                     paraQueueItems.append(item)
                 }
+            }
+
+            // 更新跨段落 speaker 追踪
+            if let lastPart = dialogueParts.last {
+                lastSpeaker = lastPart.speaker
             }
 
             // 6. 播放当前段落

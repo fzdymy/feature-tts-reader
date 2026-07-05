@@ -479,18 +479,28 @@ struct ReaderView: View {
     }
 
     private func extractCandidateNames(from text: String) -> [String] {
-        var names = Set<String>()
+        var nameCounts: [String: Int] = [:]
         let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        let pattern = try? NSRegularExpression(pattern: "[\\p{Han}]{2,4}")
-        pattern?.enumerateMatches(in: text, range: nsRange) { match, _, _ in
+        let runPattern = try? NSRegularExpression(pattern: "[\\p{Han}]+")
+        runPattern?.enumerateMatches(in: text, range: nsRange) { match, _, _ in
             guard let m = match, let r = Range(m.range, in: text) else { return }
-            let candidate = String(text[r])
-            // Filter out stop words and names already in character list
-            if CharacterAnalyzer().isStopWord(candidate) { return }
-            if store.characters.contains(where: { $0.name == candidate || $0.aliases.contains(candidate) }) { return }
-            names.insert(candidate)
+            let run = text[r]
+            let chars = Array(run)
+            for start in 0..<chars.count {
+                for length in [2, 3, 4] where start + length <= chars.count {
+                    let candidate = String(chars[start..<start+length])
+                    if CharacterAnalyzer().isStopWord(candidate) { continue }
+                    if store.characters.contains(where: { $0.name == candidate || $0.aliases.contains(candidate) }) { continue }
+                    // 2-char candidates: must pass name filter (too noisy otherwise)
+                    if candidate.count == 2 && !CharacterAnalyzer.looksLikeRealName(candidate) { continue }
+                    nameCounts[candidate, default: 0] += 1
+                }
+            }
         }
-        return names.sorted()
+        // Sort by frequency descending, limit to top 15
+        return nameCounts.sorted { a, b in
+            a.value > b.value || (a.value == b.value && a.key < b.key)
+        }.prefix(15).map(\.key)
     }
 
     private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
