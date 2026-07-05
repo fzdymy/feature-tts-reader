@@ -7,18 +7,62 @@ import AudioCommon
 actor CosyVoiceService {
     static let shared = CosyVoiceService()
 
+    /// CosyVoice 3 4-bit model on HuggingFace (used by speech-swift)
+    static let modelRepoID = "soniqo/CosyVoice-3"
+    static var modelDownloadURL: String {
+        "https://huggingface.co/\(modelRepoID)"
+    }
+    /// CAM++ speaker embedding model
+    static let camppRepoID = "soniqo/CamPlusPlus"
+
+    enum DownloadPhase: String, Sendable {
+        case idle = "未下载"
+        case downloading = "下载中…"
+        case warming = "预热中…"
+        case ready = "就绪"
+        case failed = "下载失败"
+    }
+
     private var ttsModel: CosyVoiceTTSModel?
     private var camppSpeaker: CamPlusPlusSpeaker?
 
     var isAvailable: Bool { ttsModel != nil }
+    private(set) var downloadPhase: DownloadPhase = .idle
+    private(set) var isDownloading = false
+    private(set) var downloadError: String?
 
     // MARK: - Lifecycle
 
+    /// Pre-warm the model download (call on app launch).
+    nonisolated func prewarm() {
+        Task { try? await shared.ensureModel() }
+    }
+
     func ensureModel() async throws {
         guard ttsModel == nil else { return }
-        ttsModel = try await CosyVoiceTTSModel.fromPretrained()
-        try Task.checkCancellation()
-        ttsModel?.warmUp()
+        isDownloading = true
+        downloadError = nil
+        downloadPhase = .downloading
+        do {
+            ttsModel = try await CosyVoiceTTSModel.fromPretrained()
+            try Task.checkCancellation()
+            downloadPhase = .warming
+            ttsModel?.warmUp()
+            downloadPhase = .ready
+        } catch {
+            downloadPhase = .failed
+            downloadError = error.localizedDescription
+            isDownloading = false
+            throw error
+        }
+        isDownloading = false
+    }
+
+    func resetDownload() {
+        ttsModel = nil
+        downloadPhase = .idle
+        isDownloading = false
+        downloadError = nil
     }
 
     /// Extract 192-dim CAM++ speaker embedding from a reference audio file.

@@ -158,6 +158,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
 
         // Full state loaded async to avoid blocking UI with ~40MB JSON decode
         Task { await loadStateAsync() }
+
+        // Pre-warm CosyVoice model so playback doesn't trigger first-time download
+        CosyVoiceService.shared.prewarm()
     }
 
     private func setupAudioSession() {
