@@ -12,6 +12,7 @@ DerivedData/
 
 # Keep Models directory (model is committed via CI)
 Sources/FeatureTTSReaderApp/Models/.gitkeep
+__pycache__/
 
 # Temporary files
 *.swp
