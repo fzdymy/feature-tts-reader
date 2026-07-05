@@ -11,7 +11,7 @@ struct ChapterNavigate: Equatable {
     let chapterIndex: Int
 }
 
-final class ReaderStore: NSObject, ObservableObject {
+final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
     @Published var navigationPath: NavigationPath = NavigationPath()
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
