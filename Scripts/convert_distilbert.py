@@ -9,7 +9,7 @@ import coremltools as ct
 import numpy as np
 from transformers import AutoModel, AutoTokenizer
 
-MODEL_ID = "Geotrend/distilbert-base-zh-cased"
+MODEL_ID = "google-bert/bert-base-chinese"
 MAX_LENGTH = 128
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "Sources" / "FeatureTTSReaderApp" / "Models"
 
@@ -42,17 +42,15 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Save vocabulary for Swift tokenizer
-    saved = tokenizer.save_vocabulary(str(OUTPUT_DIR))
-    print(f"Saved vocab files: {saved}")
-    # Rename to vocab.txt for Swift BertTokenizer
     vocab_path = OUTPUT_DIR / "vocab.txt"
+    tokenizer.save_vocabulary(str(OUTPUT_DIR))
+    print(f"Vocab saved ({vocab_path.stat().st_size / 1024:.0f} KB) if present")
+    # Ensure vocab.txt exists (bert-base-chinese saves as "vocab.txt" directly)
     if not vocab_path.exists():
-        for f in saved:
-            p = Path(f)
-            if p.exists() and "vocab" in p.name:
-                import shutil
-                shutil.copy(p, vocab_path)
-                break
+        for f in Path(OUTPUT_DIR).glob("*vocab*"):
+            import shutil
+            shutil.copy(f, vocab_path)
+            break
 
     # Also save tokenizer.json for reference (not needed for Swift, but useful)
     tokenizer.save_pretrained(str(OUTPUT_DIR))

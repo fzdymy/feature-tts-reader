@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: distilbert-zh-cased-${{ hashFiles('Scripts/convert_distilbert.py') }}
+          key: bert-base-chinese-${{ hashFiles('Scripts/convert_distilbert.py') }}
 
       - name: Install dependencies
         run: |
