@@ -1794,7 +1794,6 @@ final class ReaderStore: NSObject, ObservableObject {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
-        let narratorName = characters.first(where: { $0.isNarrator })?.name ?? "叙述者"
         let maxLength = 350
 
         for paragraph in paragraphs {
@@ -1882,7 +1881,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     /// Parse a paragraph into (speaker, text) segments by detecting dialogue quotes.
     /// Non-quoted text → narrator. Quoted text → detected speaker (from speech verbs before/after the quote).
-    nonisolated static func parseDialogueSegments(in paragraph: String, characters: [CharacterProfile], lastSpeaker: String?) -> [DialoguePart] {
+    nonisolated private static func parseDialogueSegments(in paragraph: String, characters: [CharacterProfile], lastSpeaker: String?) -> [DialoguePart] {
         let narratorName = characters.first(where: { $0.isNarrator })?.name ?? "叙述者"
         let chars = Array(paragraph)
         var parts: [DialoguePart] = []
@@ -1892,7 +1891,6 @@ final class ReaderStore: NSObject, ObservableObject {
         while pos < chars.count {
             // Find the next quote opener
             var bestOpenIdx: Int? = nil
-            var bestCloseIdx: Int? = nil
             var bestOpenChar: Character? = nil
             var bestCloseChar: Character? = nil
 
