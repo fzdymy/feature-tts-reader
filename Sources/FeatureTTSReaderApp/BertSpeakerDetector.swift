@@ -9,10 +9,10 @@ final class BertSpeakerDetector {
         static let maxLength = 128
         static let embeddingDim = 768
 
-        static let clsTokenID: Int32 = 101
-        static let sepTokenID: Int32 = 102
+        static let clsTokenID: Int32 = 11
+        static let sepTokenID: Int32 = 12
         static let padTokenID: Int32 = 0
-        static let unkTokenID: Int32 = 100
+        static let unkTokenID: Int32 = 10
     }
 
     private var model: MLModel?

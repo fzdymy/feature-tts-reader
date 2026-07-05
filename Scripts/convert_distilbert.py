@@ -9,7 +9,7 @@ import coremltools as ct
 import numpy as np
 from transformers import AutoModel, AutoTokenizer
 
-MODEL_ID = "distilbert-base-chinese"
+MODEL_ID = "Geotrend/distilbert-base-zh-cased"
 MAX_LENGTH = 128
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "Sources" / "FeatureTTSReaderApp" / "Models"
 
