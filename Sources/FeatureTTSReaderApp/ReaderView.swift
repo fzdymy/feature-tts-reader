@@ -1213,12 +1213,6 @@ struct ReaderView: View {
     }
 
     private func startPlayback(fromParagraphText: String? = nil) async {
-        guard store.activeServer != nil else {
-            await MainActor.run { store.statusMessage = "请先在TTS标签页配置服务器地址。" }
-            isAudioMode = false
-            isPlaying = false
-            return
-        }
         guard currentChapterIndex < chaptersList.count else { return }
         guard !store.bookText.isEmpty else {
             await MainActor.run { store.statusMessage = "文本尚未加载，请稍后再试。" }

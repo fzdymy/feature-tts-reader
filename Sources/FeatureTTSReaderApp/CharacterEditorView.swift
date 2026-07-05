@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UniformTypeIdentifiers
 
 struct CharacterEditorView: View {
     @Environment(\.dismiss) private var dismiss
@@ -10,6 +11,11 @@ struct CharacterEditorView: View {
     @State private var isPlaying = false
     @State private var audioURL: URL?
     @State private var testFileSize: String?
+    @State private var showingAudioImporter = false
+    @State private var isRecording = false
+    @State private var audioRecorder: AVAudioRecorder?
+    @State private var recordingURL: URL?
+    @State private var sampleStatus: String = ""
     let voices: [VoiceItem]
     let onSave: (CharacterProfile) -> Void
 
@@ -65,6 +71,36 @@ struct CharacterEditorView: View {
                         }
                     }) {
                         Text("应用推荐音色")
+                    }
+                }
+                Section(header: Text("声纹样本")) {
+                    if profile.hasVoiceSample {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("已有参考音频").font(.subheadline)
+                        }
+                        if !sampleStatus.isEmpty {
+                            Text(sampleStatus).font(.caption).foregroundColor(.secondary)
+                        }
+                    } else {
+                        Text("提供 10-30 秒角色语音样本以克隆声纹")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 12) {
+                        Button(action: { showingAudioImporter = true }) {
+                            Label("导入音频", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        Button(action: toggleRecording) {
+                            Label(isRecording ? "停止录制" : "录制音频", systemImage: isRecording ? "stop.circle" : "mic.circle")
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        if profile.hasVoiceSample {
+                            Button(role: .destructive, action: clearSample) {
+                                Label("清除", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered).controlSize(.small)
+                        }
                     }
                 }
                 Section(header: Text("试听")) {
@@ -131,7 +167,96 @@ struct CharacterEditorView: View {
                     .disabled(isPlaying)
                 }
             }
+            .fileImporter(isPresented: $showingAudioImporter, allowedContentTypes: [.wav, .mp3, .mpeg4Audio, UTType(filenameExtension: "m4a") ?? .audio]) { result in
+                handleAudioImport(result)
+            }
         }
+    }
+
+    private func toggleRecording() {
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+
+    private func startRecording() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let url = docs.appendingPathComponent("voice-sample-\(UUID().uuidString).wav")
+        recordingURL = url
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 24000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false
+        ]
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .spokenAudio)
+            try AVAudioSession.sharedInstance().setActive(true)
+            audioRecorder = try AVAudioRecorder(url: url, settings: settings)
+            audioRecorder?.record()
+            isRecording = true
+        } catch {
+            sampleError = "录制启动失败: \(error.localizedDescription)"
+        }
+    }
+
+    private func stopRecording() {
+        audioRecorder?.stop()
+        audioRecorder = nil
+        isRecording = false
+        guard let url = recordingURL, FileManager.default.fileExists(atPath: url.path) else { return }
+        processSample(at: url)
+    }
+
+    private func handleAudioImport(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let copy = docs.appendingPathComponent("voice-sample-\(UUID().uuidString).wav")
+            try? FileManager.default.removeItem(at: copy)
+            do {
+                let data = try Data(contentsOf: url)
+                try data.write(to: copy)
+                processSample(at: copy)
+            } catch {
+                sampleError = "导入失败: \(error.localizedDescription)"
+            }
+        case .failure(let error):
+            sampleError = "导入失败: \(error.localizedDescription)"
+        }
+    }
+
+    private func processSample(at url: URL) {
+        Task {
+            do {
+                try await CosyVoiceService.shared.ensureModel()
+                let embedding = try await CosyVoiceService.shared.enrollSpeaker(name: profile.name, audioURL: url)
+                let embeddingData = try JSONEncoder().encode(embedding)
+                await MainActor.run {
+                    profile.voiceSampleURL = url
+                    profile.voiceSampleEmbedding = embeddingData
+                    sampleStatus = "声纹已提取 (192维嵌入)"
+                }
+            } catch {
+                await MainActor.run {
+                    sampleError = "声纹提取失败: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func clearSample() {
+        if let url = profile.voiceSampleURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        profile.voiceSampleURL = nil
+        profile.voiceSampleEmbedding = nil
+        sampleStatus = ""
     }
 
     private func playSample() {

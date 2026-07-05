@@ -328,159 +328,7 @@ struct CharacterRecommendation: Identifiable, Hashable, Codable {
     var suggestedVoices: [VoiceItem]
 }
 
-// MARK: - TTS 服务器
 
-struct TTSServer: Identifiable, Hashable, Codable {
-    let id: UUID
-    var name: String
-    var baseURL: String
-    var apiKey: String
-    var isActive: Bool
-    var maxTextLength: Int
-
-    init(id: UUID = UUID(), name: String, baseURL: String, apiKey: String = "", isActive: Bool = false, maxTextLength: Int = 1024) {
-        self.id = id
-        self.name = name
-        self.baseURL = baseURL
-        self.apiKey = apiKey
-        self.isActive = isActive
-        self.maxTextLength = maxTextLength
-    }
-}
-
-// MARK: - 音色微调档案
-
-struct VoiceProfileTuning: Identifiable, Hashable, Codable {
-    let id: UUID
-    var sourceVoiceID: String
-    var alias: String
-    var tags: [String]
-    var rateOffset: Int
-    var pitchOffset: Int
-    var style: String
-
-    init(id: UUID = UUID(), sourceVoiceID: String, alias: String, tags: [String] = [],
-         rateOffset: Int = 0, pitchOffset: Int = 0, style: String = "neutral") {
-        self.id = id
-        self.sourceVoiceID = sourceVoiceID
-        self.alias = alias
-        self.tags = tags
-        self.rateOffset = rateOffset
-        self.pitchOffset = pitchOffset
-        self.style = style
-    }
-}
-
-// MARK: - 标签预设
-
-enum TagCategory: String, Codable, CaseIterable, Identifiable {
-    case role       // 角色定位
-    case age        // 年龄段
-    case trait      // 性格
-    case roleType   // 角色类型
-
-    var id: String { rawValue }
-    var displayName: String {
-        switch self {
-        case .role: return "角色定位"
-        case .age: return "年龄段"
-        case .trait: return "性格"
-        case .roleType: return "角色类型"
-        }
-    }
-}
-
-struct TagPreset: Identifiable, Codable {
-    let id: UUID
-    var name: String
-    var category: TagCategory
-
-    init(id: UUID = UUID(), name: String, category: TagCategory) {
-        self.id = id
-        self.name = name
-        self.category = category
-    }
-}
-
-// MARK: - 导出格式
-
-struct TTSExport: Codable {
-    let version: Int
-    let exportedAt: Date
-    var profiles: [VoiceProfileTuning]
-    var tags: [TagPreset]
-}
-
-// MARK: - 推荐模板
-
-struct RoleTemplate: Identifiable, Hashable, Codable {
-    let id: UUID
-    var name: String
-    var roles: [TemplateRole]
-    // 未匹配角色的容灾
-    var fallbackMaleVoiceID: String
-    var fallbackFemaleVoiceID: String
-    var fallbackRateOffset: Int
-    var fallbackPitchOffset: Int
-    var fallbackStyle: String
-
-    init(id: UUID = UUID(), name: String, roles: [TemplateRole] = [],
-         fallbackMaleVoiceID: String = "", fallbackFemaleVoiceID: String = "",
-         fallbackRateOffset: Int = 0, fallbackPitchOffset: Int = 0, fallbackStyle: String = "neutral") {
-        self.id = id
-        self.name = name
-        self.roles = roles
-        self.fallbackMaleVoiceID = fallbackMaleVoiceID
-        self.fallbackFemaleVoiceID = fallbackFemaleVoiceID
-        self.fallbackRateOffset = fallbackRateOffset
-        self.fallbackPitchOffset = fallbackPitchOffset
-        self.fallbackStyle = fallbackStyle
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        roles = try container.decode([TemplateRole].self, forKey: .roles)
-        fallbackMaleVoiceID = try container.decodeIfPresent(String.self, forKey: .fallbackMaleVoiceID) ?? ""
-        fallbackFemaleVoiceID = try container.decodeIfPresent(String.self, forKey: .fallbackFemaleVoiceID) ?? ""
-        fallbackRateOffset = try container.decodeIfPresent(Int.self, forKey: .fallbackRateOffset) ?? 0
-        fallbackPitchOffset = try container.decodeIfPresent(Int.self, forKey: .fallbackPitchOffset) ?? 0
-        fallbackStyle = try container.decodeIfPresent(String.self, forKey: .fallbackStyle) ?? "neutral"
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, name, roles, fallbackMaleVoiceID, fallbackFemaleVoiceID, fallbackRateOffset, fallbackPitchOffset, fallbackStyle
-    }
-}
-
-struct TemplateRole: Identifiable, Hashable, Codable {
-    let id: UUID
-    var title: String
-    var sourceVoiceID: String
-    var voiceSuggestion: String
-    var rateOffset: Int
-    var pitchOffset: Int
-    var style: String
-
-    init(id: UUID = UUID(), title: String, sourceVoiceID: String = "",
-         voiceSuggestion: String = "",
-         rateOffset: Int = 0, pitchOffset: Int = 0, style: String = "neutral") {
-        self.id = id
-        self.title = title
-        self.sourceVoiceID = sourceVoiceID
-        self.voiceSuggestion = voiceSuggestion
-        self.rateOffset = rateOffset
-        self.pitchOffset = pitchOffset
-        self.style = style
-    }
-}
-
-struct TemplateExport: Codable {
-    let version: Int
-    let exportedAt: Date
-    var templates: [RoleTemplate]
-}
 
 struct ReaderState: Codable {
     var bookText: String = ""
@@ -488,8 +336,6 @@ struct ReaderState: Codable {
     var characters: [CharacterProfile]
     var scriptSegments: [ScriptSegment]
     var selectedChapterID: UUID?
-    var apiEndpoint: String
-    var apiKey: String
     var books: [Book]
     var currentBookTitle: String
     var currentBookID: String
@@ -536,7 +382,7 @@ struct ReaderState: Codable {
     var defaultFallbackStyle: String = "neutral"
 
     private enum CodingKeys: String, CodingKey {
-        case characters, scriptSegments, selectedChapterID, apiEndpoint, apiKey,
+        case characters, scriptSegments, selectedChapterID,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
              readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking, defaultMaleVoiceID, defaultFemaleVoiceID, defaultFallbackRateOffset, defaultFallbackPitchOffset, defaultFallbackStyle
     }
@@ -547,8 +393,6 @@ struct ReaderState: Codable {
         characters: [CharacterProfile] = [],
         scriptSegments: [ScriptSegment] = [],
         selectedChapterID: UUID? = nil,
-        apiEndpoint: String = "http://127.0.0.1:8080",
-        apiKey: String = "",
         books: [Book] = [],
         currentBookTitle: String = "",
         currentBookID: String = UUID().uuidString,
@@ -599,8 +443,6 @@ struct ReaderState: Codable {
         self.characters = characters
         self.scriptSegments = scriptSegments
         self.selectedChapterID = selectedChapterID
-        self.apiEndpoint = apiEndpoint
-        self.apiKey = apiKey
         self.books = books
         self.currentBookTitle = currentBookTitle
         self.currentBookID = currentBookID
@@ -649,8 +491,6 @@ struct ReaderState: Codable {
         characters = try container.decodeIfPresent([CharacterProfile].self, forKey: .characters) ?? []
         scriptSegments = try container.decodeIfPresent([ScriptSegment].self, forKey: .scriptSegments) ?? []
         selectedChapterID = try container.decodeIfPresent(UUID.self, forKey: .selectedChapterID)
-        apiEndpoint = try container.decodeIfPresent(String.self, forKey: .apiEndpoint) ?? "http://127.0.0.1:8080"
-        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
         books = try container.decodeIfPresent([Book].self, forKey: .books) ?? []
         currentBookTitle = try container.decodeIfPresent(String.self, forKey: .currentBookTitle) ?? ""
         currentBookID = try container.decodeIfPresent(String.self, forKey: .currentBookID) ?? UUID().uuidString

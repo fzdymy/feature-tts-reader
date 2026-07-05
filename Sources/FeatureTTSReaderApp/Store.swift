@@ -26,8 +26,6 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var isBusy: Bool = false
     @Published var importProgress: Double = 0.0
     @Published var currentPlayingLine: String = ""
-    @Published var apiKey: String = ""
-    @Published var apiEndpoint: String = "http://127.0.0.1:8080"
     @Published var playProgress: Double = 0.0
     @Published var books: [Book] = []
     @Published var currentBookTitle: String = ""
@@ -49,11 +47,6 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsProgressMessage: String = ""
     @Published var currentParagraphIndex: Int?
 
-    // TTS 服务器列表
-    @Published var ttsServers: [TTSServer] = []
-    @Published var voiceProfiles: [VoiceProfileTuning] = []
-    @Published var tagPresets: [TagPreset] = []
-    @Published var roleTemplates: [RoleTemplate] = []
     @Published var activeServerTestResult: String = ""
     @Published var isTestingServer: Bool = false
 
@@ -72,57 +65,6 @@ final class ReaderStore: NSObject, ObservableObject {
         return _bertDetector
     }
 
-    var activeServer: TTSServer? {
-        ttsServers.first(where: { $0.isActive })
-    }
-
-    func setActiveServer(_ id: UUID) {
-        for i in ttsServers.indices {
-            ttsServers[i].isActive = ttsServers[i].id == id
-            if ttsServers[i].isActive {
-                apiEndpoint = ttsServers[i].baseURL
-                apiKey = ttsServers[i].apiKey
-            }
-        }
-        saveTTSServers()
-    }
-
-    func addServer(_ server: TTSServer) {
-        ttsServers.append(server)
-        saveTTSServers()
-    }
-
-    func removeServer(_ id: UUID) {
-        ttsServers.removeAll { $0.id == id }
-        saveTTSServers()
-    }
-
-    func updateServer(_ server: TTSServer) {
-        guard let i = ttsServers.firstIndex(where: { $0.id == server.id }) else { return }
-        ttsServers[i] = server
-        if server.isActive {
-            apiEndpoint = server.baseURL
-            apiKey = server.apiKey
-        }
-        saveTTSServers()
-    }
-
-    func saveTTSServers() {
-        if let data = try? JSONEncoder().encode(ttsServers) {
-            UserDefaults.standard.set(data, forKey: "ttsServers")
-        }
-    }
-
-    func loadTTSServers() {
-        guard let data = UserDefaults.standard.data(forKey: "ttsServers"),
-              let servers = try? JSONDecoder().decode([TTSServer].self, from: data) else { return }
-        ttsServers = servers
-        if let active = activeServer {
-            apiEndpoint = active.baseURL
-            apiKey = active.apiKey
-        }
-    }
-
     /// 测试 CosyVoice 模型是否可用
     func testActiveServer() async {
         await MainActor.run {
@@ -136,192 +78,6 @@ final class ReaderStore: NSObject, ObservableObject {
             await MainActor.run { activeServerTestResult = "失败: \(error.localizedDescription)" }
         }
         await MainActor.run { isTestingServer = false }
-    }
-
-    func addVoiceProfile(_ vp: VoiceProfileTuning) {
-        voiceProfiles.append(vp)
-        saveVoiceProfiles()
-    }
-
-    func removeVoiceProfile(_ id: UUID) {
-        voiceProfiles.removeAll { $0.id == id }
-        saveVoiceProfiles()
-    }
-
-    func updateVoiceProfile(_ vp: VoiceProfileTuning) {
-        guard let i = voiceProfiles.firstIndex(where: { $0.id == vp.id }) else { return }
-        voiceProfiles[i] = vp
-        saveVoiceProfiles()
-    }
-
-    func saveVoiceProfiles() {
-        if let data = try? JSONEncoder().encode(voiceProfiles) {
-            UserDefaults.standard.set(data, forKey: "voiceProfiles")
-        }
-    }
-
-    func loadVoiceProfiles() {
-        guard let data = UserDefaults.standard.data(forKey: "voiceProfiles"),
-              let profiles = try? JSONDecoder().decode([VoiceProfileTuning].self, from: data) else { return }
-        voiceProfiles = profiles
-    }
-
-    func loadTagPresets() {
-        guard let data = UserDefaults.standard.data(forKey: "tagPresets"),
-              let presets = try? JSONDecoder().decode([TagPreset].self, from: data) else { return }
-        tagPresets = presets
-    }
-
-    // MARK: - 推荐模板
-
-    func loadRoleTemplates() {
-        // 如果 UserDefaults 有非空数据则使用，否则加载内置模板
-        if let data = UserDefaults.standard.data(forKey: "roleTemplates"),
-           let templates = try? JSONDecoder().decode([RoleTemplate].self, from: data),
-           !templates.isEmpty {
-            roleTemplates = templates
-        } else {
-            loadBundledTemplates()
-        }
-    }
-
-    private func loadBundledTemplates() {
-        guard let templates = DefaultTemplates.load() else { return }
-        roleTemplates = templates
-        saveRoleTemplates()
-    }
-
-    func saveRoleTemplates() {
-        if let data = try? JSONEncoder().encode(roleTemplates) {
-            UserDefaults.standard.set(data, forKey: "roleTemplates")
-        }
-    }
-
-    func addRoleTemplate(_ template: RoleTemplate) {
-        roleTemplates.append(template)
-        saveRoleTemplates()
-    }
-
-    func applyTemplate(_ template: RoleTemplate, bookID: UUID? = nil) {
-        defaultMaleVoiceID = template.fallbackMaleVoiceID
-        defaultFemaleVoiceID = template.fallbackFemaleVoiceID
-        defaultFallbackRateOffset = template.fallbackRateOffset
-        defaultFallbackPitchOffset = template.fallbackPitchOffset
-        defaultFallbackStyle = template.fallbackStyle
-        var matchCount = 0
-
-        // Build mapping: template role → best-matching character index
-        var assigned = Set<Int>()
-        for role in template.roles where !role.title.isEmpty {
-            let title = role.title
-            let suggestion = role.voiceSuggestion
-
-            // Score each unmatched character against this role
-            var bestScore = 0
-            var bestIdx: Int?
-            for ci in characters.indices where !assigned.contains(ci) {
-                let ch = characters[ci]
-                var score = 0
-
-                // Exact name match
-                if ch.name == title { score += 100 }
-                else if ch.aliases.contains(title) { score += 80 }
-
-                // Keyword matching in title
-                if title.contains("男") && ch.gender == "男性" { score += 30 }
-                if title.contains("女") && ch.gender == "女性" { score += 30 }
-                if title.contains("少") && (ch.age == "少年" || ch.age == "少女" || ch.age == "青年") { score += 20 }
-                if title.contains("老") && ch.age == "年长" { score += 20 }
-                if title.contains("师") && (ch.age == "中年" || ch.age == "年长") { score += 10 }
-                if title.contains("童") && ch.age == "少年" { score += 15 }
-                if title.contains("兽") || title.contains("灵") { score += 5 }
-                if title == "旁白" || title == "叙述者" { score += (ch.isNarrator ? 80 : 0) }
-
-                // Keyword matching in voiceSuggestion
-                if !suggestion.isEmpty {
-                    if suggestion.contains("沉稳") && ch.tone == "平稳" { score += 15 }
-                    if suggestion.contains("热血") && ch.tone == "激昂" { score += 15 }
-                    if suggestion.contains("温柔") && ch.tone == "温柔" { score += 15 }
-                    if suggestion.contains("活泼") && (ch.tone == "轻松" || ch.tone == "活泼") { score += 15 }
-                    if suggestion.contains("阳光") && ch.tone == "轻松" { score += 10 }
-                    if suggestion.contains("威严") && ch.tone == "平稳" { score += 10 }
-                    if suggestion.contains("沉稳") && ch.tone == "平稳" { score += 10 }
-                    if suggestion.contains("豪爽") && ch.tone == "激昂" { score += 10 }
-                }
-
-                if score > bestScore {
-                    bestScore = score
-                    bestIdx = ci
-                }
-            }
-
-            if let ci = bestIdx, bestScore >= 15 {
-                if !role.sourceVoiceID.isEmpty { characters[ci].voice = role.sourceVoiceID }
-                if role.rateOffset != 0 { characters[ci].rate = role.rateOffset }
-                if role.pitchOffset != 0 { characters[ci].pitch = role.pitchOffset }
-                if role.style != "neutral" { characters[ci].style = role.style }
-                if !role.voiceSuggestion.isEmpty && !characters[ci].aliases.contains(role.voiceSuggestion) {
-                    characters[ci].aliases.append(role.voiceSuggestion)
-                }
-                assigned.insert(ci)
-                matchCount += 1
-            }
-        }
-
-        statusMessage = "已应用模板「\(template.name)」: 匹配 \(matchCount) / \(template.roles.count) 个角色"
-    }
-
-    func updateRoleTemplate(_ template: RoleTemplate) {
-        guard let i = roleTemplates.firstIndex(where: { $0.id == template.id }) else { return }
-        roleTemplates[i] = template
-        saveRoleTemplates()
-    }
-
-    func deleteRoleTemplate(_ id: UUID) {
-        roleTemplates.removeAll { $0.id == id }
-        saveRoleTemplates()
-    }
-
-    func exportRoleTemplates() -> Data? {
-        let export = TemplateExport(version: 1, exportedAt: Date(), templates: roleTemplates)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return try? encoder.encode(export)
-    }
-
-    func importRoleTemplates(from data: Data) -> Bool {
-        guard !data.isEmpty else { statusMessage = "导入失败: 文件为空"; return false }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let export = try? decoder.decode(TemplateExport.self, from: data) else {
-            statusMessage = "导入失败: JSON 格式错误或字段不匹配"
-            return false
-        }
-        guard !export.templates.isEmpty else { statusMessage = "导入失败: 模板列表为空"; return false }
-        var importedCount = 0
-        var skippedCount = 0
-        for t in export.templates {
-            guard !t.name.trimmingCharacters(in: .whitespaces).isEmpty else { skippedCount += 1; continue }
-            guard !t.roles.isEmpty else { skippedCount += 1; continue }
-            let validRoles = t.roles.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
-            guard !validRoles.isEmpty else { skippedCount += 1; continue }
-            if !roleTemplates.contains(where: { $0.id == t.id }) {
-                var clean = t
-                clean.roles = validRoles
-                roleTemplates.append(clean)
-                importedCount += 1
-            } else {
-                skippedCount += 1
-            }
-        }
-        saveRoleTemplates()
-        if importedCount > 0 {
-            statusMessage = "导入成功: \(importedCount) 个模板已添加\(skippedCount > 0 ? "，\(skippedCount) 个已跳过" : "")"
-        } else {
-            statusMessage = "导入失败: 所有模板均存在或无效"
-            return false
-        }
-        return true
     }
 
     // Chapter parse cache keyed by book ID
@@ -495,14 +251,9 @@ final class ReaderStore: NSObject, ObservableObject {
     private var playbackContinuationCancellable: AnyCancellable?
 
     func loadSettings() {
-        apiEndpoint = UserDefaults.standard.string(forKey: "ReaderStore.apiEndpoint") ?? apiEndpoint
-        apiKey = UserDefaults.standard.string(forKey: "ReaderStore.apiKey") ?? apiKey
     }
 
     func saveSettings() {
-        UserDefaults.standard.set(apiEndpoint, forKey: "ReaderStore.apiEndpoint")
-        UserDefaults.standard.set(apiKey, forKey: "ReaderStore.apiKey")
-        // also persist to state file so settings survive app restarts
         saveState()
     }
 
@@ -568,8 +319,6 @@ final class ReaderStore: NSObject, ObservableObject {
             currentBookTitle = state.currentBookTitle
             currentBookID = state.currentBookID
             currentBookProgress = state.currentBookProgress
-            apiEndpoint = state.apiEndpoint
-            apiKey = state.apiKey
             defaultSensitivity = state.defaultSensitivity
             playTimeoutSeconds = state.playTimeoutSeconds
             selectedVoiceCatalog = state.selectedVoiceCatalog
@@ -627,8 +376,6 @@ final class ReaderStore: NSObject, ObservableObject {
         characters = state.characters
         scriptSegments = state.scriptSegments
         selectedChapterID = state.selectedChapterID
-        apiEndpoint = state.apiEndpoint
-        apiKey = state.apiKey
         books = state.books
         currentBookTitle = state.currentBookTitle
         currentBookID = state.currentBookID
@@ -726,8 +473,6 @@ final class ReaderStore: NSObject, ObservableObject {
             characters: characters,
             scriptSegments: scriptSegments,
             selectedChapterID: selectedChapterID,
-            apiEndpoint: apiEndpoint,
-            apiKey: apiKey,
             books: books,
             currentBookTitle: currentBookTitle,
             currentBookID: currentBookID,
@@ -1229,14 +974,13 @@ final class ReaderStore: NSObject, ObservableObject {
         let currentCharacters = characters
         let currentVoices = voices
         let currentSensitivity = defaultSensitivity
-        let currentVoiceProfiles = voiceProfiles
         let currentMaleVoice = defaultMaleVoiceID
         let currentFemaleVoice = defaultFemaleVoiceID
         let currentFallbackRate = defaultFallbackRateOffset
         let currentFallbackPitch = defaultFallbackPitchOffset
         let currentFallbackStyle = defaultFallbackStyle
-        return await Task.detached { [weak self, text, currentCharacters, currentVoices, currentSensitivity, currentVoiceProfiles, currentMaleVoice, currentFemaleVoice, currentFallbackRate, currentFallbackPitch, currentFallbackStyle] in
-            return self?.createScriptSegments(from: text, characters: currentCharacters, defaultSensitivity: currentSensitivity, voices: currentVoices, voiceProfiles: currentVoiceProfiles, defaultMaleVoiceID: currentMaleVoice, defaultFemaleVoiceID: currentFemaleVoice, defaultFallbackRateOffset: currentFallbackRate, defaultFallbackPitchOffset: currentFallbackPitch, defaultFallbackStyle: currentFallbackStyle) ?? []
+        return await Task.detached { [weak self, text, currentCharacters, currentVoices, currentSensitivity, currentMaleVoice, currentFemaleVoice, currentFallbackRate, currentFallbackPitch, currentFallbackStyle] in
+            return self?.createScriptSegments(from: text, characters: currentCharacters, defaultSensitivity: currentSensitivity, voices: currentVoices, defaultMaleVoiceID: currentMaleVoice, defaultFemaleVoiceID: currentFemaleVoice, defaultFallbackRateOffset: currentFallbackRate, defaultFallbackPitchOffset: currentFallbackPitch, defaultFallbackStyle: currentFallbackStyle) ?? []
         }.value
     }
 
@@ -1807,7 +1551,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return result
     }
 
-    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], voiceProfiles: [VoiceProfileTuning] = [], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {
+    nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {
         // Reset BERT profiles for this chapter
         Self.bertDetector?.resetProfiles()
 
@@ -1863,24 +1607,13 @@ final class ReaderStore: NSObject, ObservableObject {
                     let finalPitch = profile.pitch + scaledPitchAdjustment
                     let finalRate = profile.rate + (sensitivityValue > 50 ? toneResult.rateAdjust : 0)
 
-                    var activeVoice = profile.voice
-                    var activeRate = finalRate
-                    var activePitch = finalPitch
-                    var activeStyle = finalStyle
-                    if let tuning = voiceProfiles.first(where: { $0.alias == part.speaker || $0.alias == profile.name }) {
-                        activeVoice = tuning.sourceVoiceID
-                        activeRate += tuning.rateOffset
-                        activePitch += tuning.pitchOffset
-                        if tuning.style != "neutral" { activeStyle = tuning.style }
-                    }
-
                     segments.append(ScriptSegment(
                         id: UUID(),
                         characterName: profile.name,
-                        voice: activeVoice,
-                        rate: activeRate,
-                        pitch: activePitch,
-                        style: activeStyle,
+                        voice: profile.voice,
+                        rate: finalRate,
+                        pitch: finalPitch,
+                        style: finalStyle,
                         text: chunk,
                         emotionTag: part.emotionTag
                     ))
@@ -2409,54 +2142,6 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func voiceSourceDescription(_ source: VoiceCatalogSource) -> String {
         source.displayName
-    }
-
-    // MARK: - 音色方案导出/导入
-
-    func exportVoiceProfiles() -> Data? {
-        let export = TTSExport(version: 1, exportedAt: Date(), profiles: voiceProfiles, tags: tagPresets)
-        return try? JSONEncoder().encode(export)
-    }
-
-    func exportCharactersAsTemplate(name: String) -> Data? {
-        let roles = characters.map { ch in
-            TemplateRole(id: UUID(), title: ch.name, sourceVoiceID: ch.voice, voiceSuggestion: ch.aliases.first ?? "", rateOffset: ch.rate, pitchOffset: ch.pitch, style: ch.style)
-        }
-        let template = RoleTemplate(
-            id: UUID(), name: name, roles: roles,
-            fallbackMaleVoiceID: defaultMaleVoiceID, fallbackFemaleVoiceID: defaultFemaleVoiceID,
-            fallbackRateOffset: defaultFallbackRateOffset, fallbackPitchOffset: defaultFallbackPitchOffset,
-            fallbackStyle: defaultFallbackStyle
-        )
-        let export = TemplateExport(version: 1, exportedAt: Date(), templates: [template])
-        return try? JSONEncoder().encode(export)
-    }
-
-    func exportVoiceProfilesAsYAML() -> String? {
-        guard let data = exportVoiceProfiles() else { return nil }
-        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
-        let yamlData = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-        return yamlData.flatMap { String(data: $0, encoding: .utf8) }
-    }
-
-    func importVoiceProfiles(from data: Data) -> Bool {
-        guard let export = try? JSONDecoder().decode(TTSExport.self, from: data) else { return false }
-        voiceProfiles = export.profiles
-        tagPresets = export.tags
-        saveVoiceProfiles()
-        if let tagData = try? JSONEncoder().encode(tagPresets) {
-            UserDefaults.standard.set(tagData, forKey: "tagPresets")
-        }
-        return true
-    }
-
-    func sanitizeStyle(_ style: String, for voiceID: String) -> String {
-        guard let voice = voices.first(where: { $0.id == voiceID }), let list = voice.styleList else {
-            return "neutral"
-        }
-        if style.isEmpty || style == "neutral" { return "neutral" }
-        if list.contains(style) { return style }
-        return list.first ?? "neutral"
     }
 
     /// 从中文名字推测性别（启发式）

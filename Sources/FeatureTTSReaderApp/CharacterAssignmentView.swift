@@ -11,11 +11,9 @@ struct CharacterAssignmentPanel: View {
     @State private var scanPhase: String = ""
     @State private var elapsedText: String = ""
     @State private var etaText: String = ""
-    @State private var showTemplatePicker = false
     @State private var editingCharacter: CharacterProfile?
     @State private var showExporter = false
     @State private var showImporter = false
-    @State private var showTemplateExporter = false
     @State private var exportData = Data()
     @State private var showAllCharacters = false
 
@@ -52,9 +50,6 @@ struct CharacterAssignmentPanel: View {
                 bottomButtons
             }
         }
-        .sheet(isPresented: $showTemplatePicker) {
-            templatePickerSheet
-        }
         .sheet(item: $editingCharacter) { profile in
             CharacterEditorView(
                 character: profile,
@@ -74,21 +69,18 @@ struct CharacterAssignmentPanel: View {
             case .failure(let e): store.statusMessage = "导出失败: \(e.localizedDescription)"
             }
         }
-        .fileExporter(isPresented: $showTemplateExporter, document: JSONDocument(data: exportData),
-                      contentType: .json, defaultFilename: "template-\(book.title)") { result in
-            switch result {
-            case .success: store.statusMessage = "模板已导出"
-            case .failure(let e): store.statusMessage = "导出模板失败: \(e.localizedDescription)"
-            }
-        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
             switch result {
             case .success(let url):
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 guard let data = try? Data(contentsOf: url) else { return }
-                if store.importVoiceProfiles(from: data) {
-                    store.statusMessage = "角色配置已导入"
+                if let imported = try? JSONDecoder().decode([CharacterProfile].self, from: data) {
+                    store.characters.append(contentsOf: imported)
+                    store.saveState()
+                    store.statusMessage = "已导入 \(imported.count) 个角色"
+                } else {
+                    store.statusMessage = "导入失败: 格式错误"
                 }
             case .failure(let e):
                 store.statusMessage = "导入失败: \(e.localizedDescription)"
@@ -110,14 +102,6 @@ struct CharacterAssignmentPanel: View {
             .buttonStyle(.borderedProminent)
             .disabled(isScanning)
             HStack(spacing: 8) {
-                Button(action: { showTemplatePicker = true }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.on.square")
-                        Text("模板匹配")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
                 if !bookCharacters.isEmpty {
                     Button(role: .destructive) {
                         store.characters.removeAll { $0.bookID == nil || $0.bookID == book.id }
@@ -242,10 +226,6 @@ struct CharacterAssignmentPanel: View {
             .buttonStyle(.borderless)
             Button(action: { showImporter = true }) {
                 Label("导入", systemImage: "square.and.arrow.down")
-            }
-            .buttonStyle(.borderless)
-            Button(action: exportAsTemplate) {
-                Label("导出为模板", systemImage: "doc.badge.gearshape")
             }
             .buttonStyle(.borderless)
         }
@@ -475,70 +455,14 @@ struct CharacterAssignmentPanel: View {
     // MARK: - Export / Import
 
     private func exportCharacters() {
-        guard let data = store.exportVoiceProfiles() else {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        guard let data = try? encoder.encode(bookCharacters) else {
             store.statusMessage = "导出失败"
             return
         }
         exportData = data
         showExporter = true
-    }
-
-    private func exportAsTemplate() {
-        guard let data = store.exportCharactersAsTemplate(name: "\(book.title) 角色配置") else {
-            store.statusMessage = "导出模板失败"
-            return
-        }
-        exportData = data
-        showTemplateExporter = true
-    }
-
-    // MARK: - Template Picker
-
-    private var templatePickerSheet: some View {
-        NavigationStack {
-            List {
-                if store.roleTemplates.isEmpty {
-                    Section {
-                        VStack(spacing: 12) {
-                            Text("尚无可用模板").foregroundColor(.secondary)
-                            Text("请先在「TTS」标签页创建或导入模板。")
-                                .font(.caption).foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 20)
-                    }
-                }
-                ForEach(store.roleTemplates) { template in
-                    Section {
-                        Button(action: {
-                            showTemplatePicker = false
-                            applyTemplate(template)
-                        }) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(template.name).font(.headline)
-                                Text("\(template.roles.count) 个角色").font(.caption).foregroundColor(.secondary)
-                            }
-                        }
-                        .foregroundColor(.primary)
-                    }
-                }
-            }
-            .navigationTitle("选择模板")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { showTemplatePicker = false }
-                }
-            }
-        }
-    }
-
-    private func applyTemplate(_ template: RoleTemplate) {
-        do {
-            store.applyTemplate(template, bookID: book.id)
-            store.saveState()
-        } catch {
-            store.statusMessage = "模板匹配失败: \(error.localizedDescription)"
-        }
     }
 
     // MARK: - Helpers

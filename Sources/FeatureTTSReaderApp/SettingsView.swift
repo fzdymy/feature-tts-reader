@@ -104,6 +104,8 @@ struct SettingsView: View {
     @State private var enableHaptics = true
     @State private var autoSaveInterval: Double = 30
     @State private var maxCacheSize: Double = 500
+    @State private var cosyStatus: String = "检查中..."
+    @State private var isTestingCosy: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -193,6 +195,29 @@ struct SettingsView: View {
                         Slider(value: $autoSaveInterval, in: 10...300, step: 10)
                         Text("\(Int(autoSaveInterval))")
                     }
+                }
+
+                // MARK: - 语音引擎
+                Section(header: Label("语音引擎", systemImage: "waveform")) {
+                    HStack {
+                        Text("CosyVoice 3")
+                        Spacer()
+                        Circle()
+                            .fill(cosyStatus == "就绪" ? Color.green : Color.gray)
+                            .frame(width: 8, height: 8)
+                        Text(cosyStatus)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Button("测试语音合成") {
+                        Task {
+                            isTestingCosy = true
+                            let result = await store.testTTSSynthesize()
+                            store.statusMessage = result
+                            isTestingCosy = false
+                        }
+                    }
+                    .disabled(isTestingCosy)
                 }
 
                 // MARK: - 书架设置
@@ -341,7 +366,10 @@ struct SettingsView: View {
             }
             .onAppear {
                 loadAppSettings()
-                Task { await calculateCacheSize() }
+                Task {
+                    await calculateCacheSize()
+                    cosyStatus = await CosyVoiceService.shared.isAvailable ? "就绪" : "未就绪"
+                }
             }
         }
     }
@@ -424,8 +452,6 @@ struct SettingsView: View {
                 characters: store.characters,
                 scriptSegments: store.scriptSegments,
                 selectedChapterID: store.selectedChapterID,
-                apiEndpoint: store.apiEndpoint,
-                apiKey: store.apiKey,
                 books: store.books,
                 currentBookTitle: store.currentBookTitle,
                 currentBookID: store.currentBookID,

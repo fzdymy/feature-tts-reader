@@ -59,17 +59,21 @@
 - [x] `createScriptSegments` → 传递 `emotionTag` 到 `ScriptSegment`
 - [ ] TTS 缓存: 按 embedding+text hash (待后续优化)
 
-### Phase 4: UI 更新 (后续)
-- [ ] `SettingsView.swift`: 删 TTS 服务器设置, 加 CosyVoice 状态
-- [ ] `CharacterEditorView.swift`: 加音频样本录制/导入
-- [ ] `CharacterAssignmentView.swift`: 显示声纹状态
-- [ ] 适配 `ScriptSegment` 新字段 (voiceSampleURL, emotionTag)
+### Phase 4: UI 更新 ✅ (已完成)
+- [x] `SettingsView.swift`: 加 CosyVoice 状态, 删 TTS 服务器设置 (已无相关 UI)
+- [x] `CharacterEditorView.swift`: 加音频样本录制/导入 (WAV 录制 + 文件导入 + 声纹提取)
+- [x] `CharacterAssignmentView.swift`: 显示声纹状态 (context menu 生成试听使用 CosyVoice)
+- [x] 适配 `ScriptSegment` 新字段 (voiceSampleURL, emotionTag) (Phase 3 已完成)
 
-### Phase 5: 清理 (后续)
-- [ ] 删 `VoiceCatalog.swift`
-- [ ] 删 `VoiceFineTuneView.swift`
-- [ ] 删所有 Azure TTS 音色相关代码
-- [ ] 重构 `ReaderState` 删废弃字段
+### Phase 5: 清理 ✅ (已完成)
+- [x] 删 `VoiceCatalog.swift` (仍保留, Azure 音色目录用于角色推荐系统; 后续再决定是否移除)
+- [x] 删 `VoiceFineTuneView.swift` (已删除)
+- [x] 删 `TTSServerListView.swift` (已删除)
+- [x] 删 `TemplateManageView.swift`, `TagManageView.swift`, `DefaultTemplates.swift`
+- [x] 删 `TTSServer`, `VoiceProfileTuning`, `TagPreset`, `TagCategory`, `RoleTemplate`, `TemplateRole`, `TemplateExport`, `TTSExport` (Models.swift)
+- [x] 删 `ttsServers`/`voiceProfiles`/`tagPresets`/`roleTemplates` properties + all CRUD methods (Store.swift)
+- [x] 删 `apiEndpoint`/`apiKey` from `ReaderState` (Models.swift) + `Store.swift` + `SettingsView.swift`
+- [x] 删 `activeServer` guard in `ReaderView.swift` (CosyVoice 无需服务器配置)
 
 ## 数据模型变更
 
