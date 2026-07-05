@@ -90,58 +90,102 @@ def try_convert(model_id: str) -> bool:
     wrapper = EmbeddingWrapper(model)
     wrapper.eval()
 
-    # Trace with a real input
     input_ids, attention_mask = tokenize(tokenizer, "你好世界")
-    traced = torch.jit.trace(wrapper, (input_ids, attention_mask))
 
-    # Try conversion strategies
-    strategies = [
-        ("neuralnetwork (compat)", {"convert_to": "neuralnetwork"}),
-        ("mlprogram (default)", {}),
-    ]
+    # Strategy 1: Direct pytorch conversion (without explicit JIT trace)
+    print(f"  Converting via direct pytorch ...")
+    try:
+        mlmodel = ct.convert(
+            wrapper,
+            inputs=[
+                ct.TensorType(name="input_ids", shape=(1, MAX_LENGTH), dtype=np.int32),
+                ct.TensorType(name="attention_mask", shape=(1, MAX_LENGTH), dtype=np.int32),
+            ],
+            outputs=[
+                ct.TensorType(name="embedding"),
+            ],
+            minimum_deployment_target=ct.target.iOS17,
+            compute_precision=ct.precision.FLOAT16,
+        )
+        return _save_and_verify(mlmodel, tokenizer, model_id, "direct-pytorch")
+    except Exception as e:
+        print(f"  FAILED direct pytorch: {e}")
+        _cleanup_mlpackage()
 
-    for strategy_name, extra_kwargs in strategies:
-        print(f"  Converting with {strategy_name} ...")
-        try:
-            mlmodel = ct.convert(
-                traced,
-                inputs=[
-                    ct.TensorType(name="input_ids", shape=(1, MAX_LENGTH), dtype=np.int32),
-                    ct.TensorType(name="attention_mask", shape=(1, MAX_LENGTH), dtype=np.int32),
-                ],
-                outputs=[
-                    ct.TensorType(name="embedding"),
-                ],
-                minimum_deployment_target=ct.target.iOS17,
-                compute_precision=ct.precision.FLOAT16,
-                **extra_kwargs,
-            )
+    # Strategy 2: JIT trace then convert
+    print(f"  Converting via JIT trace ...")
+    try:
+        traced = torch.jit.trace(wrapper, (input_ids, attention_mask), strict=False)
+        mlmodel = ct.convert(
+            traced,
+            inputs=[
+                ct.TensorType(name="input_ids", shape=(1, MAX_LENGTH), dtype=np.int32),
+                ct.TensorType(name="attention_mask", shape=(1, MAX_LENGTH), dtype=np.int32),
+            ],
+            outputs=[
+                ct.TensorType(name="embedding"),
+            ],
+            minimum_deployment_target=ct.target.iOS17,
+            compute_precision=ct.precision.FLOAT16,
+        )
+        return _save_and_verify(mlmodel, tokenizer, model_id, "jit-trace")
+    except Exception as e:
+        print(f"  FAILED JIT trace: {e}")
+        _cleanup_mlpackage()
 
-            out_path = OUTPUT_DIR / "distilbert_chinese.mlpackage"
-            if out_path.exists():
-                shutil.rmtree(out_path)
-            mlmodel.save(str(out_path))
-
-            total = sum(f.stat().st_size for f in out_path.rglob("*"))
-            print(f"  SUCCESS! Saved to {out_path} ({total / 1024 / 1024:.1f} MB)")
-
-            # Sanity check
-            test_ids, test_mask = tokenize(tokenizer, "陈煜笑道")
-            pred = mlmodel.predict({"input_ids": test_ids.numpy(), "attention_mask": test_mask.numpy()})
-            embedding = pred["embedding"]
-            print(f"  Embedding shape: {embedding.shape} (should be [1, 768])")
-            print(f"  Model: {model_id} | Strategy: {strategy_name}")
-            return True
-
-        except Exception as e:
-            print(f"  FAILED with {strategy_name}: {e}")
-            # Clean up partial output
-            partial = OUTPUT_DIR / "distilbert_chinese.mlpackage"
-            if partial.exists():
-                shutil.rmtree(partial)
-            continue
+    # Strategy 3: ONNX → Core ML
+    print(f"  Converting via ONNX intermediary ...")
+    try:
+        onnx_path = OUTPUT_DIR / "bert_chinese.onnx"
+        torch.onnx.export(
+            wrapper,
+            (input_ids, attention_mask),
+            str(onnx_path),
+            input_names=["input_ids", "attention_mask"],
+            output_names=["embedding"],
+            dynamic_axes={
+                "input_ids": {0: "batch_size"},
+                "attention_mask": {0: "batch_size"},
+            },
+            opset_version=17,
+        )
+        mlmodel = ct.convert(
+            str(onnx_path),
+            source="onnx",
+            minimum_deployment_target=ct.target.iOS17,
+            compute_precision=ct.precision.FLOAT16,
+        )
+        onnx_path.unlink(missing_ok=True)
+        return _save_and_verify(mlmodel, tokenizer, model_id, "onnx")
+    except Exception as e:
+        print(f"  FAILED ONNX: {e}")
+        _cleanup_mlpackage()
 
     return False
+
+
+def _save_and_verify(mlmodel, tokenizer, model_id, strategy):
+    out_path = OUTPUT_DIR / "distilbert_chinese.mlpackage"
+    if out_path.exists():
+        shutil.rmtree(out_path)
+    mlmodel.save(str(out_path))
+
+    total = sum(f.stat().st_size for f in out_path.rglob("*"))
+    print(f"  SUCCESS! Saved to {out_path} ({total / 1024 / 1024:.1f} MB)")
+
+    # Sanity check
+    test_ids, test_mask = tokenize(tokenizer, "陈煜笑道")
+    pred = mlmodel.predict({"input_ids": test_ids.numpy(), "attention_mask": test_mask.numpy()})
+    embedding = pred["embedding"]
+    print(f"  Embedding shape: {embedding.shape} (should be [1, 768])")
+    print(f"  Model: {model_id} | Strategy: {strategy}")
+    return True
+
+
+def _cleanup_mlpackage():
+    partial = OUTPUT_DIR / "distilbert_chinese.mlpackage"
+    if partial.exists():
+        shutil.rmtree(partial)
 
 
 def main():

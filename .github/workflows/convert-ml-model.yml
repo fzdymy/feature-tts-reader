@@ -37,7 +37,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install torch transformers coremltools>=8.0 numpy sentence-transformers
+          pip install torch transformers==4.30.0 coremltools>=8.0 numpy sentence-transformers
 
       - name: Convert to Core ML
         run: |
