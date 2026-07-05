@@ -1997,12 +1997,11 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     /// Detect speaker from context BEFORE a quote (e.g. "陈煜笑道：「...").
-    /// Looks for: Name + speech verb, or Name: before quote.
+    /// 按照文章顺序：优先从最近的上文中匹配角色名。
     private static func detectSpeakerInContext(_ context: String, characters: [CharacterProfile]) -> String? {
-        // Priorities matching the existing detectSpeaker logic:
-        // 1. Name + speech verb at end of context
         let speechVerbs = "说|道|笑道|说道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
-        if let groups = context.firstMatch(regex: "([\\p{Han}]{2,4})(?:\(speechVerbs))$"), groups.count > 1 {
+        // 1. Name + speech verb (+ optional colon) at end — highest confidence
+        if let groups = context.firstMatch(regex: "([\\p{Han}]{2,4})(?:\(speechVerbs))[：:\\s]*$"), groups.count > 1 {
             let name = groups[1]
             if characters.contains(where: { $0.name == name || $0.aliases.contains(name) }) {
                 return name
@@ -2015,13 +2014,26 @@ final class ReaderStore: NSObject, ObservableObject {
                 return name
             }
         }
-        // 3. Any known character name at the end of context
+        // 3. Character name at end of context
+        let trimmed = context.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: .init(charactersIn: "：:"))
         for ch in characters {
-            if context.hasSuffix(ch.name) || context.hasSuffix("\(ch.name)") {
+            if context.hasSuffix(ch.name) || trimmed.hasSuffix(ch.name) {
                 return ch.name
             }
         }
-        return nil
+        // 4. 按照文章顺序：取上下文中**最先**出现的已知角色名
+        var firstPos = Int.max
+        var firstName: String?
+        for ch in characters {
+            if let r = context.range(of: ch.name) {
+                let pos = context.distance(from: context.startIndex, to: r.lowerBound)
+                if pos < firstPos {
+                    firstPos = pos
+                    firstName = ch.name
+                }
+            }
+        }
+        return firstName
     }
 
     /// Detect speaker from context AFTER a quote (e.g. "「...」陈煜笑道").
