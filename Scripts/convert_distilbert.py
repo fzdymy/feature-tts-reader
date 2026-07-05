@@ -19,13 +19,26 @@ OUTPUT_DIR = Path(__file__).resolve().parent.parent / "Sources" / "FeatureTTSRea
 
 
 class EmbeddingWrapper(torch.nn.Module):
-    """Wrapper that returns mean-pooled sentence embedding."""
-    def __init__(self, model):
+    """Wrapper that returns mean-pooled sentence embedding.
+    
+    Pre-computes position_ids and token_type_ids to avoid dynamic
+    slicing ops (aten::Int) that coremltools cannot convert.
+    """
+    def __init__(self, model, max_length: int = MAX_LENGTH):
         super().__init__()
         self.model = model
+        self.max_length = max_length
+        self.register_buffer("position_ids", torch.arange(max_length).unsqueeze(0))
 
     def forward(self, input_ids, attention_mask):
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+        # Use pre-computed position_ids + zero token_type_ids to
+        # bypass BERT's dynamic slicing / tensor creation ops
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=self.position_ids,
+            token_type_ids=torch.zeros_like(input_ids),
+        )
         last_hidden = outputs.last_hidden_state  # (1, seq_len, 768)
         mask = attention_mask.unsqueeze(-1).float()
         pooled = (last_hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
