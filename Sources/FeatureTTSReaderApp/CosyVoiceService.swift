@@ -25,7 +25,18 @@ actor CosyVoiceService {
     private(set) var downloadPhase: DownloadPhase = .idle
     private(set) var isDownloading = false
     private(set) var downloadError: String?
-    nonisolated static let modelDownloadURL = "https://huggingface.co/soniqo/CosyVoice-3"
+    /// Default CosyVoice 3 variant (4-bit, ~1.2 GB)
+    static let defaultVariant = "aufklarer/CosyVoice3-0.5B-MLX-4bit"
+    /// All available variants
+    static let variants: [(name: String, repo: String)] = [
+        ("4bit (默认, ~1.2 GB)", "aufklarer/CosyVoice3-0.5B-MLX-4bit"),
+        ("8bit (~1.4 GB)", "aufklarer/CosyVoice3-0.5B-MLX-8bit"),
+        ("8bit-full (~1.6 GB)", "aufklarer/CosyVoice3-0.5B-MLX-8bit-full"),
+        ("bf16 (~2.1 GB)", "aufklarer/CosyVoice3-0.5B-MLX-bf16"),
+    ]
+    nonisolated static var modelDownloadURL: String {
+        "https://huggingface.co/\(defaultVariant)"
+    }
 
     // MARK: - Lifecycle
 

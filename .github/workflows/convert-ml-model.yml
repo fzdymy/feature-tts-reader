@@ -11,7 +11,7 @@ on:
       model_id:
         description: 'HuggingFace model ID'
         required: false
-        default: 'Geotrend/distilbert-base-zh-cased'
+        default: 'google-bert/bert-base-chinese'
       commit_models:
         description: 'Commit model files to repo'
         type: boolean
@@ -37,7 +37,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install torch transformers coremltools numpy
+          pip install torch transformers coremltools>=8.0 numpy sentence-transformers
 
       - name: Convert to Core ML
         run: |
@@ -84,5 +84,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage Sources/FeatureTTSReaderApp/Models/vocab.txt
-          git commit -m "chore: update Core ML model (${{ github.event.inputs.model_id }})"
+          git commit -m "chore: update Core ML model"
           git push

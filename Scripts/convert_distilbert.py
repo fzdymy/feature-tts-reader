@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert distilbert-base-chinese to Core ML (embedding model, iOS 17)."""
+"""Convert Chinese BERT to Core ML (embedding model, iOS 17+)."""
 
 import json, sys, shutil
 from pathlib import Path
@@ -9,7 +9,11 @@ import coremltools as ct
 import numpy as np
 from transformers import AutoModel, AutoTokenizer
 
-MODEL_ID = "google-bert/bert-base-chinese"
+# Models to try in order (first successful conversion wins)
+MODEL_CANDIDATES = [
+    "google-bert/bert-base-chinese",
+    "shibing624/text2vec-base-chinese",
+]
 MAX_LENGTH = 128
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "Sources" / "FeatureTTSReaderApp" / "Models"
 
@@ -33,35 +37,38 @@ def tokenize(tokenizer, text: str) -> tuple:
     return enc["input_ids"], enc["attention_mask"]
 
 
-def main():
-    print(f"Loading {MODEL_ID} ...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModel.from_pretrained(MODEL_ID)
-    model.eval()
+def try_convert(model_id: str) -> bool:
+    print(f"\n{'='*60}")
+    print(f"Trying model: {model_id}")
+    print(f"{'='*60}")
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        model = AutoModel.from_pretrained(model_id)
+        model.eval()
+    except Exception as e:
+        print(f"  FAILED to load model: {e}")
+        return False
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Save vocabulary for Swift tokenizer
     tokenizer.save_vocabulary(str(OUTPUT_DIR))
-    # Find the saved vocab file (may be named "vocab.txt" or something else)
     vocab_path = OUTPUT_DIR / "vocab.txt"
     if not vocab_path.exists():
         txts = sorted(Path(OUTPUT_DIR).glob("*vocab*"))
         if txts:
-            import shutil
             shutil.copy(txts[0], vocab_path)
-            print(f"Using vocab file: {txts[0].name}")
+            print(f"  Using vocab file: {txts[0].name}")
         else:
-            # Fallback: write the tokenizer's vocab dict directly
             vocab = tokenizer.get_vocab()
             if vocab:
                 sorted_tokens = sorted(vocab, key=vocab.get)
                 vocab_path.write_text("\n".join(sorted_tokens))
-                print(f"Wrote vocab.txt from tokenizer ({len(sorted_tokens)} tokens)")
+                print(f"  Wrote vocab.txt from tokenizer ({len(sorted_tokens)} tokens)")
     if vocab_path.exists():
-        print(f"Vocab saved ({vocab_path.stat().st_size / 1024:.0f} KB)")
+        print(f"  Vocab saved ({vocab_path.stat().st_size / 1024:.0f} KB)")
 
-    # Also save tokenizer.json for reference (not needed for Swift, but useful)
     tokenizer.save_pretrained(str(OUTPUT_DIR))
 
     wrapper = EmbeddingWrapper(model)
@@ -71,36 +78,94 @@ def main():
     input_ids, attention_mask = tokenize(tokenizer, "你好世界")
     traced = torch.jit.trace(wrapper, (input_ids, attention_mask))
 
-    # Convert to Core ML
-    print("Converting to Core ML (iOS 17, FLOAT16) ...")
-    mlmodel = ct.convert(
-        traced,
-        inputs=[
-            ct.TensorType(name="input_ids", shape=(1, MAX_LENGTH), dtype=np.int32),
-            ct.TensorType(name="attention_mask", shape=(1, MAX_LENGTH), dtype=np.int32),
-        ],
-        outputs=[
-            ct.TensorType(name="embedding"),
-        ],
-        minimum_deployment_target=ct.target.iOS17,
-        compute_precision=ct.precision.FLOAT16,
-    )
+    # Try conversion strategies
+    strategies = [
+        ("neuralnetwork (compat)", {"convert_to": "neuralnetwork"}),
+        ("mlprogram (default)", {}),
+    ]
 
-    out_path = OUTPUT_DIR / "distilbert_chinese.mlpackage"
-    if out_path.exists():
-        shutil.rmtree(out_path)
-    mlmodel.save(str(out_path))
+    for strategy_name, extra_kwargs in strategies:
+        print(f"  Converting with {strategy_name} ...")
+        try:
+            mlmodel = ct.convert(
+                traced,
+                inputs=[
+                    ct.TensorType(name="input_ids", shape=(1, MAX_LENGTH), dtype=np.int32),
+                    ct.TensorType(name="attention_mask", shape=(1, MAX_LENGTH), dtype=np.int32),
+                ],
+                outputs=[
+                    ct.TensorType(name="embedding"),
+                ],
+                minimum_deployment_target=ct.target.iOS17,
+                compute_precision=ct.precision.FLOAT16,
+                **extra_kwargs,
+            )
 
-    # Show size
-    total = sum(f.stat().st_size for f in out_path.rglob("*"))
-    print(f"Saved to {out_path}  ({total / 1024 / 1024:.1f} MB)")
+            out_path = OUTPUT_DIR / "distilbert_chinese.mlpackage"
+            if out_path.exists():
+                shutil.rmtree(out_path)
+            mlmodel.save(str(out_path))
 
-    # Quick sanity check
-    test_ids, test_mask = tokenize(tokenizer, "陈煜笑道")
-    pred = mlmodel.predict({"input_ids": test_ids.numpy(), "attention_mask": test_mask.numpy()})
-    embedding = pred["embedding"]
-    print(f"Embedding shape: {embedding.shape}  (should be [1, 768])")
-    print("Done!")
+            total = sum(f.stat().st_size for f in out_path.rglob("*"))
+            print(f"  SUCCESS! Saved to {out_path} ({total / 1024 / 1024:.1f} MB)")
+
+            # Sanity check
+            test_ids, test_mask = tokenize(tokenizer, "陈煜笑道")
+            pred = mlmodel.predict({"input_ids": test_ids.numpy(), "attention_mask": test_mask.numpy()})
+            embedding = pred["embedding"]
+            print(f"  Embedding shape: {embedding.shape} (should be [1, 768])")
+            print(f"  Model: {model_id} | Strategy: {strategy_name}")
+            return True
+
+        except Exception as e:
+            print(f"  FAILED with {strategy_name}: {e}")
+            # Clean up partial output
+            partial = OUTPUT_DIR / "distilbert_chinese.mlpackage"
+            if partial.exists():
+                shutil.rmtree(partial)
+            continue
+
+    return False
+
+
+def main():
+    print(f"Chinese BERT → Core ML Converter")
+    print(f"Max length: {MAX_LENGTH}")
+    print(f"Output: {OUTPUT_DIR}")
+
+    # Try each model candidate
+    for model_id in MODEL_CANDIDATES:
+        if try_convert(model_id):
+            print(f"\n{'='*60}")
+            print(f"SUCCESS with {model_id}")
+            print(f"{'='*60}")
+            sys.exit(0)
+
+    # If all failed, try one more: save just vocab from shibing624
+    print(f"\n{'='*60}")
+    print("ALL models failed to convert to Core ML!")
+    print("Falling back: saving vocab only from text2vec-base-chinese")
+    print(f"{'='*60}")
+    try:
+        tokenizer = AutoTokenizer.from_pretrained("shibing624/text2vec-base-chinese")
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        tokenizer.save_vocabulary(str(OUTPUT_DIR))
+        vocab_path = OUTPUT_DIR / "vocab.txt"
+        if not vocab_path.exists():
+            txts = sorted(Path(OUTPUT_DIR).glob("*vocab*"))
+            if txts:
+                shutil.copy(txts[0], vocab_path)
+        if vocab_path.exists():
+            print(f"Vocab saved ({vocab_path.stat().st_size / 1024:.0f} KB)")
+        else:
+            print("Failed to save vocab!")
+            sys.exit(1)
+    except Exception as e:
+        print(f"Fatal: {e}")
+        sys.exit(1)
+
+    print("Vocab-only fallback succeeded. Download / commit .mlpackage manually.")
+    sys.exit(1)
 
 
 if __name__ == "__main__":
