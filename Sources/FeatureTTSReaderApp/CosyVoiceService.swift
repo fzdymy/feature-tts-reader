@@ -1,7 +1,6 @@
 import Foundation
 import CosyVoiceTTS
 import AudioCommon
-import SpeechVAD
 
 // MARK: - On-device CosyVoice 3 TTS engine
 
