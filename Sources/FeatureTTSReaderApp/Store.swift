@@ -1472,6 +1472,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
         let totalParas = paragraphs.count
         var lastSpeaker: String? = nil
+        var prevParaSuffix = ""
 
         for paraIndex in startParaIndex..<paragraphs.count {
             try Task.checkCancellation()
@@ -1479,9 +1480,9 @@ final class ReaderStore: NSObject, ObservableObject {
             // 1. 高亮当前段落
             await MainActor.run { currentParagraphIndex = paraIndex }
 
-            // 2. 识别对白
+            // 2. 识别对白（跨段落传递前一段末尾文本作为上下文）
             let trimmed = paragraphs[paraIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker)
+            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker, previousContextSuffix: prevParaSuffix)
 
             guard !dialogueParts.isEmpty else { continue }
 
@@ -1517,10 +1518,12 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
             }
 
-            // 更新跨段落 speaker 追踪
+            // 更新跨段落 speaker 追踪和前一段落上下文
             if let lastPart = dialogueParts.last {
                 lastSpeaker = lastPart.speaker
             }
+            let suffixLen = min(80, trimmed.count)
+            prevParaSuffix = String(trimmed.suffix(suffixLen))
 
             // 6. 播放当前段落
             guard !paraQueueItems.isEmpty else { continue }
@@ -1928,14 +1931,21 @@ final class ReaderStore: NSObject, ObservableObject {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
+        var prevParaSuffix = ""
         let maxLength = 350
 
         for paragraph in paragraphs {
             let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
-            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker)
+            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker, previousContextSuffix: prevParaSuffix)
+
+            // Update cross-paragraph tracking for next paragraph
+            if let lastPart = dialogueParts.last {
+                lastSpeaker = lastPart.speaker
+            }
+            let suffixLen = min(80, trimmed.count)
+            prevParaSuffix = String(trimmed.suffix(suffixLen))
 
             for part in dialogueParts {
-                lastSpeaker = part.speaker
                 let chunks = part.text.chunked(into: maxLength)
                 for chunk in chunks {
                     let analyzer = CharacterAnalyzer()
@@ -2015,7 +2025,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     /// Parse a paragraph into (speaker, text) segments by detecting dialogue quotes.
     /// Non-quoted text → narrator. Quoted text → detected speaker (from speech verbs before/after the quote).
-    nonisolated private static func parseDialogueSegments(in paragraph: String, characters: [CharacterProfile], lastSpeaker: String?) -> [DialoguePart] {
+    nonisolated private static func parseDialogueSegments(in paragraph: String, characters: [CharacterProfile], lastSpeaker: String?, previousContextSuffix: String = "") -> [DialoguePart] {
         let narratorName = characters.first(where: { $0.isNarrator })?.name ?? "叙述者"
         let chars = Array(paragraph)
         var parts: [DialoguePart] = []
@@ -2073,7 +2083,9 @@ final class ReaderStore: NSObject, ObservableObject {
             // Look backwards from opener for name+speech verb within 100 chars
             let lookBackStart = max(0, openIdx - 100)
             let beforeContext = String(chars[lookBackStart..<openIdx])
-            if let detected = detectSpeakerInContext(beforeContext, characters: characters) {
+            // 当对白靠近段首时，合并前一段落末尾文本作为上下文
+            let mergedContext = openIdx < 80 && !previousContextSuffix.isEmpty ? previousContextSuffix + beforeContext : beforeContext
+            if let detected = detectSpeakerInContext(mergedContext, characters: characters) {
                 speaker = detected
             }
 
