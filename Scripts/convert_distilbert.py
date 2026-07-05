@@ -42,15 +42,24 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Save vocabulary for Swift tokenizer
-    vocab_path = OUTPUT_DIR / "vocab.txt"
     tokenizer.save_vocabulary(str(OUTPUT_DIR))
-    print(f"Vocab saved ({vocab_path.stat().st_size / 1024:.0f} KB) if present")
-    # Ensure vocab.txt exists (bert-base-chinese saves as "vocab.txt" directly)
+    # Find the saved vocab file (may be named "vocab.txt" or something else)
+    vocab_path = OUTPUT_DIR / "vocab.txt"
     if not vocab_path.exists():
-        for f in Path(OUTPUT_DIR).glob("*vocab*"):
+        txts = sorted(Path(OUTPUT_DIR).glob("*vocab*"))
+        if txts:
             import shutil
-            shutil.copy(f, vocab_path)
-            break
+            shutil.copy(txts[0], vocab_path)
+            print(f"Using vocab file: {txts[0].name}")
+        else:
+            # Fallback: write the tokenizer's vocab dict directly
+            vocab = tokenizer.get_vocab()
+            if vocab:
+                sorted_tokens = sorted(vocab, key=vocab.get)
+                vocab_path.write_text("\n".join(sorted_tokens))
+                print(f"Wrote vocab.txt from tokenizer ({len(sorted_tokens)} tokens)")
+    if vocab_path.exists():
+        print(f"Vocab saved ({vocab_path.stat().st_size / 1024:.0f} KB)")
 
     # Also save tokenizer.json for reference (not needed for Swift, but useful)
     tokenizer.save_pretrained(str(OUTPUT_DIR))
