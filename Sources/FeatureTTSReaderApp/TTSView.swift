@@ -8,9 +8,30 @@ struct TTSView: View {
     @State private var testResult: String?
     @State private var downloadPhase: CosyVoiceService.DownloadPhase = .idle
     @State private var downloadError: String?
+    @State private var downloadStartedAt: Date?
+    @State private var downloadElapsed: TimeInterval = 0
     @State private var showCopied = false
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// Estimated download progress (0.0-1.0) based on elapsed time
+    private var estimatedProgress: Double? {
+        guard let start = downloadStartedAt, downloadPhase == .downloading else { return nil }
+        let elapsed = Date().timeIntervalSince(start)
+        // Assume ~8 MB/s download speed; estimate total time = size / speed
+        let estimatedSecs = Double(CosyVoiceService.estimatedModelSize) / (8 * 1_000_000)
+        return min(elapsed / estimatedSecs, 0.99)
+    }
+
+    private var elapsedText: String {
+        let secs = downloadElapsed
+        if secs < 60 {
+            return "\(Int(secs))秒"
+        }
+        let m = Int(secs) / 60
+        let s = Int(secs) % 60
+        return "\(m)分\(s)秒"
+    }
 
     var body: some View {
         NavigationStack {
@@ -72,7 +93,17 @@ struct TTSView: View {
                         Text("正在下载模型…")
                             .foregroundColor(.secondary)
                     }
-                    Text("约 1.7GB，请保持网络畅通")
+                    if let progress = estimatedProgress {
+                        ProgressView(value: progress)
+                            .tint(.blue)
+                        HStack {
+                            Text("已用时 \(elapsedText)")
+                            Spacer()
+                            Text("\(Int(progress * 100))%")
+                        }
+                        .font(.caption).foregroundColor(.secondary)
+                    }
+                    Text("约 1.3GB，请保持网络畅通")
                         .font(.caption).foregroundColor(.secondary)
                 }
 
@@ -192,6 +223,10 @@ struct TTSView: View {
             let svc = CosyVoiceService.shared
             downloadPhase = await svc.downloadPhase
             downloadError = await svc.downloadError
+            downloadStartedAt = await svc.downloadStartedAt
+            if let start = downloadStartedAt {
+                downloadElapsed = Date().timeIntervalSince(start)
+            }
             switch downloadPhase {
             case .idle:     modelStatus = "未下载"
             case .downloading: modelStatus = "下载中…"

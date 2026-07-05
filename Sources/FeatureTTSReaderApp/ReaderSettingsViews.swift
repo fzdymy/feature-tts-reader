@@ -172,31 +172,7 @@ struct FontPickerView: View {
     @State private var customFonts: [_CustomFont] = []
     @State private var showingFontImporter = false
 
-    private let availableCJKFonts: [String] = {
-        var fonts: [String] = []
-        let cjkFamilies = UIFont.familyNames.filter {
-            $0.localizedCaseInsensitiveContains("PingFang") ||
-            $0.localizedCaseInsensitiveContains("Heiti") ||
-            $0.localizedCaseInsensitiveContains("STHeiti") ||
-            $0.localizedCaseInsensitiveContains("Hiragino") ||
-            $0.localizedCaseInsensitiveContains("Songti") ||
-            $0.localizedCaseInsensitiveContains("Noto") ||
-            $0.localizedCaseInsensitiveContains("Source Han") ||
-            $0.localizedCaseInsensitiveContains("Kaiti") ||
-            $0.localizedCaseInsensitiveContains("Fangsong") ||
-            $0.localizedCaseInsensitiveContains("YuanTi") ||
-            $0.localizedCaseInsensitiveContains("Xingkai")
-        }
-        for family in cjkFamilies {
-            fonts.append(contentsOf: UIFont.fontNames(forFamilyName: family))
-        }
-        if fonts.isEmpty {
-            fonts = ["PingFangSC-Regular", "PingFangSC-Medium", "PingFangSC-Semibold",
-                     "STHeitiSC-Light", "STHeitiSC-Medium", "STSongti-SC-Regular",
-                     "HiraMinProN-W3", "HiraMinProN-W6", "NotoSansCJKsc-Regular"]
-        }
-        return fonts
-    }()
+    private let availableCJKFonts: [String] = FontManager.availableFonts.map(\.postScriptName)
 
     var body: some View {
         NavigationStack {

@@ -26,6 +26,9 @@ actor CosyVoiceService {
     private(set) var downloadPhase: DownloadPhase = .idle
     private(set) var isDownloading = false
     private(set) var downloadError: String?
+    private(set) var downloadStartedAt: Date?
+    /// Approximate model size for progress estimation (bytes)
+    static let estimatedModelSize: Int64 = 1_300_000_000
     /// Default CosyVoice 3 variant (4-bit, ~1.2 GB)
     static let defaultVariant = "aufklarer/CosyVoice3-0.5B-MLX-4bit"
     /// All available variants
@@ -40,15 +43,20 @@ actor CosyVoiceService {
     }
 
     // MARK: - TTS Cache
+    // SHA256(text + embedding) key → WAV Data, in-memory (NSCache) + disk LRU (max 100 MB)
 
-    /// In-memory cache: key = SHA256(text + embeddingHash) → WAV Data
-    private var memoryCache: [String: Data] = [:]
-    private let cacheQueue = DispatchQueue(label: "com.featuretts.ttscache", attributes: .concurrent)
+    private let memoryCache = NSCache<NSString, NSData>()
+    private let cacheStats = CacheStats()
+    /// Disk cache quota in bytes (100 MB)
+    private static let diskCacheQuota: Int64 = 100 * 1_024 * 1_024
 
+    private var _cacheDirectory: URL?
     private var cacheDirectory: URL {
+        if let dir = _cacheDirectory { return dir }
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent("tts-cache", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        _cacheDirectory = dir
         return dir
     }
 
@@ -60,15 +68,64 @@ actor CosyVoiceService {
     }
 
     private func cachedAudio(key: String) -> Data? {
-        if let cached = memoryCache[key] { return cached }
+        if let cached = memoryCache.object(forKey: key as NSString) {
+            cacheStats.recordHit()
+            return cached as Data
+        }
         let url = cacheDirectory.appendingPathComponent(key)
-        return try? Data(contentsOf: url)
+        if let data = try? Data(contentsOf: url) {
+            cacheStats.recordHit()
+            // Promote to memory cache
+            memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
+            // Touch file for LRU tracking
+            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+            return data
+        }
+        cacheStats.recordMiss()
+        return nil
     }
 
     private func storeCache(key: String, data: Data) {
-        memoryCache[key] = data
+        memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
+        cacheStats.recordStore(size: Int64(data.count))
         let url = cacheDirectory.appendingPathComponent(key)
-        try? data.write(to: url, options: .atomic)
+        do {
+            try data.write(to: url, options: .atomic)
+            evictDiskLRU()
+        } catch {
+            // Disk write failure is non-fatal; cache remains in memory only
+        }
+    }
+
+    /// Evict oldest files if disk cache exceeds quota.
+    private func evictDiskLRU() {
+        let dir = cacheDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+            options: .skipsHiddenFiles
+        ) else { return }
+
+        var totalSize: Int64 = 0
+        var entries: [(url: URL, size: Int64, date: Date)] = []
+        for file in files {
+            let res = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let size = Int64(res?.fileSize ?? 0)
+            let date = res?.contentModificationDate ?? Date.distantPast
+            totalSize += size
+            entries.append((url: file, size: size, date: date))
+        }
+        guard totalSize > Self.diskCacheQuota else { return }
+
+        // Evict oldest-accessed files until under quota
+        entries.sort { $0.date < $1.date }
+        var removed: Int64 = 0
+        for entry in entries {
+            guard totalSize - removed > Self.diskCacheQuota else { break }
+            try? FileManager.default.removeItem(at: entry.url)
+            removed += entry.size
+            cacheStats.recordEvict(size: entry.size)
+        }
     }
 
     nonisolated static func clearCache() {
@@ -76,10 +133,45 @@ actor CosyVoiceService {
     }
 
     private func clearCacheInternal() {
-        memoryCache.removeAll()
+        memoryCache.removeAllObjects()
+        cacheStats.reset()
         let dir = cacheDirectory
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
         for file in files { try? FileManager.default.removeItem(at: file) }
+    }
+
+    /// Observability: cache hit/miss/store stats.
+    nonisolated static func cacheStatistics() -> CacheStats.Snapshot {
+        Task { await shared.cacheStats.snapshot() }
+        // Best-effort synchronous snapshot via actor proxy
+        // Called from UI; returns stale snapshot if actor busy.
+        return CacheStats.Snapshot(hits: 0, misses: 0, stores: 0, evicted: 0)
+    }
+
+    struct CacheStats {
+        private var hits: UInt64 = 0
+        private var misses: UInt64 = 0
+        private var storeCount: UInt64 = 0
+        private var totalStoredBytes: Int64 = 0
+        private var evictedCount: UInt64 = 0
+        private var evictedBytes: Int64 = 0
+
+        struct Snapshot: Sendable {
+            let hits: UInt64
+            let misses: UInt64
+            let stores: UInt64
+            let evicted: UInt64
+            var diskBytes: Int64 = 0
+        }
+
+        mutating func recordHit() { hits &+= 1 }
+        mutating func recordMiss() { misses &+= 1 }
+        mutating func recordStore(size: Int64) { storeCount &+= 1; totalStoredBytes &+= size }
+        mutating func recordEvict(size: Int64) { evictedCount &+= 1; evictedBytes &+= size }
+        mutating func reset() { hits = 0; misses = 0; storeCount = 0; totalStoredBytes = 0; evictedCount = 0; evictedBytes = 0 }
+        func snapshot() -> Snapshot {
+            Snapshot(hits: hits, misses: misses, stores: storeCount, evicted: evictedCount, diskBytes: totalStoredBytes)
+        }
     }
 
     // MARK: - Lifecycle
@@ -94,6 +186,7 @@ actor CosyVoiceService {
         isDownloading = true
         downloadError = nil
         downloadPhase = .downloading
+        downloadStartedAt = Date()
         do {
             ttsModel = try await CosyVoiceTTSModel.fromPretrained()
             try Task.checkCancellation()
@@ -104,9 +197,11 @@ actor CosyVoiceService {
             downloadPhase = .failed
             downloadError = error.localizedDescription
             isDownloading = false
+            downloadStartedAt = nil
             throw error
         }
         isDownloading = false
+        downloadStartedAt = nil
     }
 
     func resetDownload() {
@@ -114,6 +209,7 @@ actor CosyVoiceService {
         downloadPhase = .idle
         isDownloading = false
         downloadError = nil
+        downloadStartedAt = nil
     }
 
     /// Extract 192-dim CAM++ speaker embedding from a reference audio file.

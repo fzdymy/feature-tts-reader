@@ -16,6 +16,7 @@ struct CharacterEditorView: View {
     @State private var audioRecorder: AVAudioRecorder?
     @State private var recordingURL: URL?
     @State private var sampleStatus: String = ""
+    @State private var isExtractingEmbedding = false
     let voices: [VoiceItem]
     let onSave: (CharacterProfile) -> Void
 
@@ -74,7 +75,13 @@ struct CharacterEditorView: View {
                     }
                 }
                 Section(header: Text("声纹样本")) {
-                    if profile.hasVoiceSample {
+                    if isExtractingEmbedding {
+                        HStack {
+                            ProgressView()
+                            Text("正在提取声纹…")
+                                .font(.subheadline).foregroundColor(.secondary)
+                        }
+                    } else if profile.hasVoiceSample {
                         HStack {
                             Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
                             Text("已有参考音频").font(.subheadline)
@@ -91,15 +98,18 @@ struct CharacterEditorView: View {
                             Label("导入音频", systemImage: "square.and.arrow.down")
                         }
                         .buttonStyle(.bordered).controlSize(.small)
+                        .disabled(isExtractingEmbedding)
                         Button(action: toggleRecording) {
                             Label(isRecording ? "停止录制" : "录制音频", systemImage: isRecording ? "stop.circle" : "mic.circle")
                         }
                         .buttonStyle(.bordered).controlSize(.small)
+                        .disabled(isExtractingEmbedding)
                         if profile.hasVoiceSample {
                             Button(role: .destructive, action: clearSample) {
                                 Label("清除", systemImage: "trash")
                             }
                             .buttonStyle(.bordered).controlSize(.small)
+                            .disabled(isExtractingEmbedding)
                         }
                     }
                 }
@@ -233,6 +243,7 @@ struct CharacterEditorView: View {
 
     private func processSample(at url: URL) {
         Task {
+            await MainActor.run { isExtractingEmbedding = true; sampleError = nil }
             do {
                 try await CosyVoiceService.shared.ensureModel()
                 let embedding = try await CosyVoiceService.shared.enrollSpeaker(name: profile.name, audioURL: url)
@@ -241,10 +252,12 @@ struct CharacterEditorView: View {
                     profile.voiceSampleURL = url
                     profile.voiceSampleEmbedding = embeddingData
                     sampleStatus = "声纹已提取 (192维嵌入)"
+                    isExtractingEmbedding = false
                 }
             } catch {
                 await MainActor.run {
                     sampleError = "声纹提取失败: \(error.localizedDescription)"
+                    isExtractingEmbedding = false
                 }
             }
         }

@@ -24,15 +24,38 @@ jobs:
         run: swift package resolve
 
       - name: Download Core ML model (latest release)
-        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || true)
-          if [ -n "$TAG" ]; then
-            gh release download "$TAG" --pattern "*.zip" --dir Sources/FeatureTTSReaderApp/Models --clobber
-            cd Sources/FeatureTTSReaderApp/Models
-            unzip -o distilbert_chinese.mlpackage.zip 2>/dev/null
-            rm -f distilbert_chinese.mlpackage.zip
+          set -e
+          echo "::group::Finding latest Core ML model release"
+          # Use GitHub API to find the latest release with the coreml-model tag
+          LATEST_TAG=$(gh api repos/${{ github.repository }}/releases \
+            --jq 'sort_by(.created_at) | reverse | [.[] | select(.tag_name | startswith("coreml-model"))] | .[0].tag_name // empty')
+          if [ -z "$LATEST_TAG" ]; then
+            echo "::error::No coreml-model release found. IPA will lack the Core ML model."
+            echo "::group::Listing available releases for debugging"
+            gh release list --limit 10 || true
+            echo "::endgroup::"
+            exit 1
           fi
+          echo "Latest model release: $LATEST_TAG"
+          echo "::endgroup::"
+
+          echo "::group::Downloading $LATEST_TAG"
+          DL_URL=$(gh api repos/${{ github.repository }}/releases/tags/$LATEST_TAG \
+            --jq '.assets[] | select(.name | endswith(".zip")) | .browser_download_url')
+          echo "Download URL: $DL_URL"
+          curl -fsSL -o Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage.zip "$DL_URL"
+          echo "::endgroup::"
+
+          echo "::group::Extracting mlpackage"
+          cd Sources/FeatureTTSReaderApp/Models
+          rm -rf distilbert_chinese.mlpackage/
+          unzip -o distilbert_chinese.mlpackage.zip
+          rm -f distilbert_chinese.mlpackage.zip
+          ls -la distilbert_chinese.mlpackage/ | head -5
+          echo "::endgroup::"
 
       - name: Build unsigned app product
         run: |
@@ -74,7 +97,7 @@ jobs:
           plutil -insert CFBundleShortVersionString -string "1.0" "$PLIST_PATH"
           plutil -insert CFBundleVersion -string "1" "$PLIST_PATH"
           plutil -insert LSRequiresIPhoneOS -bool YES "$PLIST_PATH"
-          plutil -insert MinimumOSVersion -string "15.0" "$PLIST_PATH"
+          plutil -insert MinimumOSVersion -string "18.0" "$PLIST_PATH"
           plutil -insert UIDeviceFamily -array "$PLIST_PATH"
           plutil -insert UIDeviceFamily.0 -integer 1 "$PLIST_PATH"
           plutil -insert UIDeviceFamily.1 -integer 2 "$PLIST_PATH"

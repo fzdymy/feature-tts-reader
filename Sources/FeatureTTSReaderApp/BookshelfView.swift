@@ -318,37 +318,37 @@ struct BookGridCard: View {
                 .fill(Color(UIColor.secondarySystemBackground))
                 .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
         )
-        .task {
-            await loadChapterCount()
+.task {
+            await loadChapterCount(for: book, store: store, chapterCount: $chapterCount)
         }
     }
+}
 
-    private func loadChapterCount() async {
-        if let cached = store.bookChaptersCache[book.id] {
-            chapterCount = cached.count
-            return
-        }
-        let text: String
-        if !book.text.isEmpty {
-            text = book.text
-        } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
-            text = store.bookText
-        } else {
-            let bookID = book.id
-            text = await Task.detached(priority: .background) {
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-                let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
-                return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            }.value
-        }
-        guard !text.isEmpty else { return }
-        let parsed = await Task.detached(priority: .background) { [text] in
-            ReaderStore.extractChapters(from: text)
+fileprivate func loadChapterCount(for book: Book, store: ReaderStore, chapterCount: Binding<Int>) async {
+    if let cached = store.bookChaptersCache[book.id] {
+        chapterCount.wrappedValue = cached.count
+        return
+    }
+    let text: String
+    if !book.text.isEmpty {
+        text = book.text
+    } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
+        text = store.bookText
+    } else {
+        let bookID = book.id
+        text = await Task.detached(priority: .background) {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
+            return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         }.value
-        await MainActor.run {
-            store.bookChaptersCache[book.id] = parsed
-            chapterCount = parsed.count
-        }
+    }
+    guard !text.isEmpty else { return }
+    let parsed = await Task.detached(priority: .background) { [text] in
+        ReaderStore.extractChapters(from: text)
+    }.value
+    await MainActor.run {
+        store.bookChaptersCache[book.id] = parsed
+        chapterCount.wrappedValue = parsed.count
     }
 }
 
@@ -403,38 +403,9 @@ struct BookListRow: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .task {
-            await loadChapterCount()
+            await loadChapterCount(for: book, store: store, chapterCount: $chapterCount)
         }
     }
-
-    private func loadChapterCount() async {
-        if let cached = store.bookChaptersCache[book.id] {
-            chapterCount = cached.count
-            return
-        }
-        let text: String
-        if !book.text.isEmpty {
-            text = book.text
-        } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
-            text = store.bookText
-        } else {
-            let bookID = book.id
-            text = await Task.detached(priority: .background) {
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-                let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
-                return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            }.value
-        }
-        guard !text.isEmpty else { return }
-        let parsed = await Task.detached(priority: .background) { [text] in
-            ReaderStore.extractChapters(from: text)
-        }.value
-        await MainActor.run {
-            store.bookChaptersCache[book.id] = parsed
-            chapterCount = parsed.count
-        }
-    }
-}
 
 struct BookDetailView: View {
     @EnvironmentObject private var store: ReaderStore
