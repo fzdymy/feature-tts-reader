@@ -10,8 +10,11 @@ DerivedData/
 .build/
 .swiftpm/
 
-# Keep Models directory (model is committed via CI)
-Sources/FeatureTTSReaderApp/Models/.gitkeep
+# Core ML model (large ~194MB, downloaded from Release during CI build)
+Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage/
+# Keep Models directory placeholder
+!Sources/FeatureTTSReaderApp/Models/
+Sources/FeatureTTSReaderApp/Models/vocab.txt
 __pycache__/
 
 # Temporary files

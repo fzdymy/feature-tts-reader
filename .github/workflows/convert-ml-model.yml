@@ -12,10 +12,6 @@ on:
         description: 'HuggingFace model ID'
         required: false
         default: 'google-bert/bert-base-chinese'
-      commit_models:
-        description: 'Commit model files to repo'
-        type: boolean
-        default: true
 
 jobs:
   convert:
@@ -46,11 +42,10 @@ jobs:
       - name: Package model
         run: |
           cd Sources/FeatureTTSReaderApp/Models
-          echo "=== Files in Models directory ==="
-          ls -lhR distilbert_chinese.mlpackage
+          echo "=== Files ==="
+          ls -lh distilbert_chinese.mlpackage/Data/com.apple.CoreML/weights/weight.bin
           echo "=== vocab.txt ==="
           wc -l vocab.txt
-          # Create zip for release
           zip -r distilbert_chinese.mlpackage.zip distilbert_chinese.mlpackage vocab.txt
           ls -lh distilbert_chinese.mlpackage.zip
 
@@ -68,7 +63,7 @@ jobs:
           tag_name: coreml-model-${{ github.run_id }}
           name: "DistilBERT Chinese Core ML Model"
           body: |
-            Core ML conversion of `distilbert-base-chinese` for on-device speaker detection.
+            Core ML conversion of `google-bert/bert-base-chinese` for on-device speaker detection.
 
             **Files:**
             - `distilbert_chinese.mlpackage` — Core ML model (embedding output, 128-dim input)
@@ -77,12 +72,3 @@ jobs:
             Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage.zip
           draft: false
           prerelease: false
-
-      - name: Commit model to repo
-        if: ${{ github.event_name == 'push' || github.event.inputs.commit_models == 'true' }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage Sources/FeatureTTSReaderApp/Models/vocab.txt
-          git commit -m "chore: update Core ML model"
-          git push
