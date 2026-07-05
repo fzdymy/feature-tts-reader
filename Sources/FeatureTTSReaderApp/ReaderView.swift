@@ -443,7 +443,7 @@ struct ReaderView: View {
 
             ForEach(paragraphs.indices, id: \.self) { pi in
                 let paraText = paragraphs[pi]
-                let isReading = isCurrentChapter && currentSegmentText.map { paraText.contains($0) || $0.contains(paraText) } ?? false
+                let isReading = isCurrentChapter && (store.currentParagraphIndex.map { $0 == pi } ?? currentSegmentText.map { paraText.contains($0) || $0.contains(paraText) } ?? false)
                 Text(indentedText(paraText))
                     .font(Font.custom(store.readerFontName, size: store.readerFontSize))
                     .foregroundColor(textColor)

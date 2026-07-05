@@ -47,6 +47,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsSegmentTitle: String = ""
 
     @Published var ttsProgressMessage: String = ""
+    @Published var currentParagraphIndex: Int?
 
     // TTS 服务器列表
     @Published var ttsServers: [TTSServer] = []
@@ -1376,9 +1377,18 @@ final class ReaderStore: NSObject, ObservableObject {
             await MainActor.run { statusMessage = "请先导入小说文本。" }
             return
         }
-        await buildScript(for: false)
+        guard let chapterID = selectedChapterID,
+              let bookID = UUID(uuidString: currentBookID),
+              let chapters = bookChaptersCache[bookID],
+              let chapter = chapters.first(where: { $0.id == chapterID }) else {
+            await MainActor.run { statusMessage = "未找到当前章节。" }
+            return
+        }
+        if characters.isEmpty || lastScannedBookText != bookText {
+            await scanCharacters()
+        }
         do {
-            try await playScriptSegments(scriptSegments)
+            try await playChapterStreaming(chapter: chapter)
         } catch {
             await MainActor.run { statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。" }
             await playLocalSpeech(bookText)
@@ -1390,12 +1400,23 @@ final class ReaderStore: NSObject, ObservableObject {
             await MainActor.run { statusMessage = "请先导入小说文本。" }
             return
         }
-        await buildScript(for: true)
-        do {
-            try await playScriptSegments(scriptSegments)
-        } catch {
-            await MainActor.run { statusMessage = "远程 TTS 服务不可用，使用系统语音播放整本小说。" }
-            await playLocalSpeech(bookText)
+        if characters.isEmpty || lastScannedBookText != bookText {
+            await scanCharacters()
+        }
+        let chapters = UUID(uuidString: currentBookID).flatMap { bookChaptersCache[$0] } ?? []
+        guard !chapters.isEmpty else {
+            await MainActor.run { statusMessage = "未找到章节。" }
+            return
+        }
+        for chapter in chapters {
+            if Task.isCancelled { break }
+            do {
+                try await playChapterStreaming(chapter: chapter)
+            } catch {
+                await MainActor.run { statusMessage = "远程 TTS 服务不可用，使用系统语音播放整本小说。" }
+                await playLocalSpeech(bookText)
+                return
+            }
         }
     }
 
@@ -1416,8 +1437,115 @@ final class ReaderStore: NSObject, ObservableObject {
             guard let self = self else { return }
             do {
                 try Task.checkCancellation()
-            } catch { return }
-            await self.playChapterWithTTS(chapter: chapter, fromParagraph: fromParagraph)
+                try await self.playChapterStreaming(chapter: chapter, fromParagraph: fromParagraph)
+            } catch {
+                if !Task.isCancelled {
+                    await MainActor.run { statusMessage = "朗读失败：\(error.localizedDescription)" }
+                }
+            }
+        }
+    }
+
+    /// 逐段落流水线：高亮段落 → 识别对白 → 匹配音色 → 发送TTS → 播放 → 下一段落
+    func playChapterStreaming(chapter: BookChapter, fromParagraph: String? = nil) async throws {
+        await MainActor.run {
+            isBusy = true
+            statusMessage = "正在朗读 \(chapter.title)..."
+        }
+
+        let paragraphs = chapter.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !paragraphs.isEmpty else {
+            await MainActor.run { statusMessage = "当前章节为空，无法朗读。" }
+            return
+        }
+
+        let startParaIndex: Int
+        if let paraText = fromParagraph, !paraText.isEmpty {
+            startParaIndex = paragraphs.firstIndex(where: { $0.contains(paraText) || paraText.contains($0) }) ?? 0
+        } else {
+            startParaIndex = 0
+        }
+
+        let ttsClient = client
+        let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
+        let bookID = UUID(uuidString: currentBookID) ?? UUID()
+        let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
+        let totalParas = paragraphs.count
+
+        for paraIndex in startParaIndex..<paragraphs.count {
+            try Task.checkCancellation()
+
+            // 1. 高亮当前段落
+            await MainActor.run { currentParagraphIndex = paraIndex }
+
+            // 2. 识别对白
+            let trimmed = paragraphs[paraIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: nil)
+
+            guard !dialogueParts.isEmpty else { continue }
+
+            // 3-5. 匹配角色音色 → 发送 TTS → 接收音频
+            var paraQueueItems: [TTSQueueItem] = []
+            for part in dialogueParts {
+                try Task.checkCancellation()
+                let chunks = part.text.chunked(into: 350)
+                guard let profile = characters.first(where: { $0.name == part.speaker || $0.aliases.contains(part.speaker) }) else {
+                    continue
+                }
+                for chunk in chunks {
+                    try Task.checkCancellation()
+                    let content = "\(profile.name)：\(chunk.replacingOccurrences(of: "\n", with: " "))"
+                    let safeStyle = sanitizeStyle(profile.style, for: profile.voice)
+                    let cacheKey = "\(profile.voice):\(profile.rate):\(profile.pitch):\(safeStyle):\(content.hashValue)"
+
+                    let audioURL: URL
+                    if let cached = ttsCache[cacheKey] {
+                        audioURL = cached
+                    } else {
+                        audioURL = try await ttsClient.synthesizeAudio(text: content, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: safeStyle)
+                        ttsCache[cacheKey] = audioURL
+                        if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first, let staleURL = ttsCache[stale] {
+                            ttsCache.removeValue(forKey: stale)
+                            DispatchQueue.global(qos: .utility).async { try? FileManager.default.removeItem(at: staleURL) }
+                        }
+                    }
+
+                    let seg = ScriptSegment(id: UUID(), characterName: profile.name, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style, text: chunk)
+                    let item = TTSQueueItem(segment: seg, audioURL: audioURL, chapterTitle: chapter.title, bookTitle: bookTitle, bookID: bookID.uuidString, chapterIndex: chapterIndex, segmentIndex: paraQueueItems.count, totalSegments: dialogueParts.count)
+                    paraQueueItems.append(item)
+                }
+            }
+
+            // 6. 播放当前段落
+            guard !paraQueueItems.isEmpty else { continue }
+            await MainActor.run {
+                ttsChapterTitle = chapter.title
+                ttsSegmentTitle = paraQueueItems.first?.segment.characterName ?? ""
+                ttsIsPlaying = true
+                isSpeaking = true
+                statusMessage = "朗读段落 \(paraIndex + 1)/\(totalParas)"
+            }
+            audioController.playQueue(paraQueueItems)
+
+            // 7. 等待段落播放完成
+            if audioController.isPlaying {
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    let c = audioController.$isPlaying
+                        .filter { !$0 }
+                        .first()
+                        .sink { _ in cont.resume() }
+                    playbackContinuationCancellable = c
+                }
+                playbackContinuationCancellable = nil
+            }
+        }
+
+        await MainActor.run {
+            isSpeaking = false
+            isBusy = false
+            ttsIsPlaying = false
+            if !Task.isCancelled { statusMessage = "已播放完毕。" }
+            ttsProgressMessage = ""
         }
     }
 
@@ -2064,19 +2192,22 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func playFromParagraph(_ paragraph: String) async {
         guard !bookText.isEmpty else {
-            statusMessage = "请先导入小说文本。"
+            await MainActor.run { statusMessage = "请先导入小说文本。" }
             return
         }
-        // ensure script built for current chapter
-        await buildScript(for: false)
+        if characters.isEmpty || lastScannedBookText != bookText {
+            await scanCharacters()
+        }
+        let chapters = UUID(uuidString: currentBookID).flatMap { bookChaptersCache[$0] } ?? []
+        guard let chapter = chapters.first(where: { $0.id == selectedChapterID }) else {
+            await MainActor.run { statusMessage = "未找到当前章节。" }
+            return
+        }
         let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let idx = scriptSegments.firstIndex(where: { $0.text.contains(trimmed) || $0.text == trimmed }) ?? 0
-        let slice = Array(scriptSegments[idx...])
         do {
-            try await playScriptSegments(slice)
+            try await playChapterStreaming(chapter: chapter, fromParagraph: trimmed.isEmpty ? nil : trimmed)
         } catch {
-            statusMessage = "朗读失败：\(error.localizedDescription)"
+            await MainActor.run { statusMessage = "朗读失败：\(error.localizedDescription)" }
         }
     }
 
