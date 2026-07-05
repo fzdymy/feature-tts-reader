@@ -59,6 +59,19 @@ final class ReaderStore: NSObject, ObservableObject {
 
     private var playbackTask: Task<Void, Never>?
 
+    // Lazy singleton for on-device BERT speaker detection
+    nonisolated private static let bertLock = NSLock()
+    nonisolated private static var _bertDetector: BertSpeakerDetector?
+    nonisolated static var bertDetector: BertSpeakerDetector? {
+        bertLock.lock()
+        defer { bertLock.unlock() }
+        if _bertDetector == nil {
+            let d = BertSpeakerDetector()
+            if d.isAvailable { _bertDetector = d }
+        }
+        return _bertDetector
+    }
+
     var activeServer: TTSServer? {
         ttsServers.first(where: { $0.isActive })
     }
@@ -110,28 +123,15 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    /// 测试当前活跃服务器的连接
+    /// 测试 CosyVoice 模型是否可用
     func testActiveServer() async {
-        guard let server = activeServer else {
-            await MainActor.run { activeServerTestResult = "无活跃服务器" }
-            return
-        }
         await MainActor.run {
             isTestingServer = true
             activeServerTestResult = "测试中..."
         }
-        let client = TTSHttpClient(
-            baseURL: URL(string: server.baseURL) ?? URL(string: "http://127.0.0.1:8080")!,
-            apiKey: server.apiKey.isEmpty ? nil : server.apiKey
-        )
-        let start = Date()
         do {
-            _ = try await client.synthesizeAudio(
-                text: "测试", voice: "zh-CN-XiaoxiaoNeural",
-                rate: 0, pitch: 0, style: "neutral"
-            )
-            let elapsed = Int(Date().timeIntervalSince(start) * 1000)
-            await MainActor.run { activeServerTestResult = "\(elapsed)ms" }
+            try await CosyVoiceService.shared.ensureModel()
+            await MainActor.run { activeServerTestResult = "CosyVoice 就绪" }
         } catch {
             await MainActor.run { activeServerTestResult = "失败: \(error.localizedDescription)" }
         }
@@ -382,17 +382,11 @@ final class ReaderStore: NSObject, ObservableObject {
     private let persistence = PersistenceController.shared
     private let speechSynthesizer = AVSpeechSynthesizer()
     private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
-    private var client: TTSHttpClient { TTSHttpClient(baseURL: URL(string: apiEndpoint) ?? URL(string: "http://127.0.0.1:8080")!, apiKey: apiKey.isEmpty ? nil : apiKey) }
     private var autoSaveTimer: Timer?
 
     override init() {
         super.init()
         speechSynthesizer.delegate = speechDelegate
-        loadSettings()
-        loadTTSServers()
-        loadVoiceProfiles()
-        loadTagPresets()
-        loadRoleTemplates()
         voices = selectedVoiceCatalog.voices
         setupAudioSession()
         setupRemoteCommands()
@@ -821,17 +815,20 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func testTTSSynthesize() async -> String {
-        guard let url = URL(string: apiEndpoint) else { return "无效的 TTS 服务地址。" }
-        let client = TTSHttpClient(baseURL: url, apiKey: apiKey.isEmpty ? nil : apiKey)
+        await CosyVoiceService.shared.ensureModel()
+        guard CosyVoiceService.shared.isAvailable else { return "CosyVoice 模型不可用" }
         let testText = "这是个多角色语音阅读器！"
-        let testVoice = voices.first?.id ?? "zh-CN-XiaoxiaoNeural"
         do {
-            let audioURL = try await client.synthesizeAudio(text: testText, voice: testVoice, rate: 0, pitch: 0, style: "neutral")
+            let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: testText)
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let audioURL = cachesDir.appendingPathComponent("cosy-test-\(UUID().uuidString).wav")
+            try audioData.write(to: audioURL, options: .atomic)
             await MainActor.run { ttsTestAudioURL = audioURL }
-            return "合成成功！文件大小：\(String(format: "%.1f", Double((try? Data(contentsOf: audioURL).count) ?? 0) / 1024)) KB"
+            return "合成成功！文件大小：\(String(format: "%.1f", Double(audioData.count) / 1024)) KB"
         } catch {
             return "合成测试失败：\(error.localizedDescription)"
         }
+    }
     }
 
     func addBookmark(note: String = "") {
@@ -1285,14 +1282,21 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func previewVoice(for profile: CharacterProfile) async {
-        guard !apiEndpoint.isEmpty else {
-            statusMessage = "请先填写 TTS 服务地址。"
+        await CosyVoiceService.shared.ensureModel()
+        guard CosyVoiceService.shared.isAvailable else {
+            statusMessage = "CosyVoice 模型不可用，请检查网络连接。"
             return
         }
         isBusy = true
         let text = "你好，我是 \(profile.name)，这是我的声音示例。"
         do {
-            let audioURL = try await client.synthesizeAudio(text: text, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style)
+            let embedding: [Float]? = profile.voiceSampleEmbedding.flatMap {
+                try? JSONDecoder().decode([Float].self, from: $0)
+            }
+            let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: text, embedding: embedding)
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let audioURL = cachesDir.appendingPathComponent("preview-\(UUID().uuidString).wav")
+            try audioData.write(to: audioURL, options: .atomic)
             await audioController.playFilesAndWait([audioURL])
             statusMessage = "正在播放 \(profile.name) 语音示例。"
         } catch {
@@ -1484,6 +1488,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     /// 逐段落流水线：高亮段落 → 识别对白 → 匹配音色 → 发送TTS → 播放 → 下一段落
+    /// 逐段落流水线：高亮段落 → 识别对白 → CosyVoice 合成 → 播放
     func playChapterStreaming(chapter: BookChapter, fromParagraph: String? = nil) async throws {
         await MainActor.run {
             isBusy = true
@@ -1503,84 +1508,79 @@ final class ReaderStore: NSObject, ObservableObject {
             startParaIndex = 0
         }
 
-        let ttsClient = client
         let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
         let bookID = UUID(uuidString: currentBookID) ?? UUID()
         let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
-        let totalParas = paragraphs.count
         var lastSpeaker: String? = nil
         let blocks = Self.buildDialogueBlocks(paragraphs)
+
+        // Build speaker samples map
+        let speakerSamples = Dictionary(
+            characters.filter { $0.voiceSampleURL != nil }.map { ($0.name, $0.voiceSampleURL!) },
+            uniquingKeysWith: { a, _ in a }
+        )
 
         for (blockIdx, block) in blocks.enumerated() {
             try Task.checkCancellation()
             guard block.globalStart >= startParaIndex else {
-                // Skip blocks before start paragraph
-                if block.globalStart + block.texts.count > startParaIndex {
-                    // Partial block - skip for now (handle via single paragraph fallback)
-                }
+                if block.globalStart + block.texts.count > startParaIndex { }
                 continue
             }
 
-            // 1. 高亮当前 block 首个段落
             await MainActor.run { currentParagraphIndex = block.globalStart }
 
-            // 2. 识别对白：合并 block 内所有段落文本以获得完整上下文
             let mergedText = block.texts.joined(separator: "\n\n")
             let dialogueParts = Self.parseDialogueSegments(in: mergedText, characters: characters, lastSpeaker: lastSpeaker)
-
             guard !dialogueParts.isEmpty else { continue }
 
-            // 3-5. 匹配角色音色 → 发送 TTS → 接收音频
-            var blockQueueItems: [TTSQueueItem] = []
-            for part in dialogueParts {
-                try Task.checkCancellation()
-                let chunks = part.text.chunked(into: 350)
-                guard let profile = characters.first(where: { $0.name == part.speaker || $0.aliases.contains(part.speaker) }) else {
-                    continue
-                }
-                for chunk in chunks {
-                    try Task.checkCancellation()
-                    let content = "\(profile.name)：\(chunk.replacingOccurrences(of: "\n", with: " "))"
-                    let safeStyle = sanitizeStyle(profile.style, for: profile.voice)
-                    let cacheKey = "\(profile.voice):\(profile.rate):\(profile.pitch):\(safeStyle):\(content.hashValue)"
-
-                    let audioURL: URL
-                    if let cached = ttsCache[cacheKey] {
-                        audioURL = cached
-                    } else {
-                        audioURL = try await ttsClient.synthesizeAudio(text: content, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: safeStyle)
-                        ttsCache[cacheKey] = audioURL
-                        if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first, let staleURL = ttsCache[stale] {
-                            ttsCache.removeValue(forKey: stale)
-                            DispatchQueue.global(qos: .utility).async { try? FileManager.default.removeItem(at: staleURL) }
-                        }
-                    }
-
-                    let seg = ScriptSegment(id: UUID(), characterName: profile.name, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style, text: chunk)
-                    let item = TTSQueueItem(segment: seg, audioURL: audioURL, chapterTitle: chapter.title, bookTitle: bookTitle, bookID: bookID.uuidString, chapterIndex: chapterIndex, segmentIndex: blockQueueItems.count, totalSegments: dialogueParts.count)
-                    blockQueueItems.append(item)
-                }
+            if let lastPart = dialogueParts.last, lastPart.speaker != "叙述者" && lastPart.speaker != "旁白" {
+                lastSpeaker = lastPart.speaker
             }
 
-            // 更新跨 block speaker 追踪
-            if let lastPart = dialogueParts.last {
-                if lastPart.speaker != "叙述者" && lastPart.speaker != "旁白" {
-                    lastSpeaker = lastPart.speaker
-                }
+            // CosyVoice 合成整个 block
+            let cosySegments: [(speaker: String, text: String, emotion: String?)] = dialogueParts.map {
+                ($0.speaker, $0.text, $0.emotionTag)
             }
 
-            // 6. 播放当前 block
-            guard !blockQueueItems.isEmpty else { continue }
+            let audioData: Data
+            do {
+                audioData = try await CosyVoiceService.shared.synthesizeDialogue(
+                    segments: cosySegments,
+                    speakerSamples: speakerSamples
+                )
+            } catch {
+                await MainActor.run { statusMessage = "CosyVoice 合成失败，切换至系统语音" }
+                await playLocalSpeech(mergedText)
+                continue
+            }
+
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let cosyDir = cachesDir.appendingPathComponent("cosy_audio", isDirectory: true)
+            try? FileManager.default.createDirectory(at: cosyDir, withIntermediateDirectories: true)
+            let audioURL = cosyDir.appendingPathComponent("block-\(blockIdx)-\(UUID().uuidString).wav")
+            try audioData.write(to: audioURL, options: .atomic)
+
+            let seg = ScriptSegment(
+                id: UUID(),
+                characterName: dialogueParts.first?.speaker ?? "叙述者",
+                voice: "", rate: 0, pitch: 0, style: "neutral",
+                text: dialogueParts.map(\.text).joined(separator: " ")
+            )
+            let item = TTSQueueItem(
+                segment: seg, audioURL: audioURL,
+                chapterTitle: chapter.title, bookTitle: bookTitle,
+                bookID: bookID.uuidString, chapterIndex: chapterIndex,
+                segmentIndex: blockIdx, totalSegments: blocks.count
+            )
+
             await MainActor.run {
                 ttsChapterTitle = chapter.title
-                ttsSegmentTitle = blockQueueItems.first?.segment.characterName ?? ""
-                ttsIsPlaying = true
-                isSpeaking = true
+                ttsSegmentTitle = dialogueParts.first?.speaker ?? ""
+                ttsIsPlaying = true; isSpeaking = true
                 statusMessage = "朗读区块 \(blockIdx + 1)/\(blocks.count)"
             }
-            audioController.playQueue(blockQueueItems)
+            audioController.playQueue([item])
 
-            // 7. 等待播放完成（更新高亮到每个段落）
             if audioController.isPlaying {
                 await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                     let c = audioController.$isPlaying
@@ -1591,12 +1591,14 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
                 playbackContinuationCancellable = nil
             }
+
+            DispatchQueue.global(qos: .utility).async {
+                try? FileManager.default.removeItem(at: audioURL)
+            }
         }
 
         await MainActor.run {
-            isSpeaking = false
-            isBusy = false
-            ttsIsPlaying = false
+            isSpeaking = false; isBusy = false; ttsIsPlaying = false
             if !Task.isCancelled { statusMessage = "已播放完毕。" }
             ttsProgressMessage = ""
         }
@@ -1604,176 +1606,10 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func playChapterWithTTS(chapter: BookChapter, fromParagraph: String? = nil) async {
         await MainActor.run { statusMessage = "正在准备朗读章节..." }
-
-        let segments = await createScriptSegmentsAsync(from: chapter.text)
-        guard !segments.isEmpty else {
-            await MainActor.run { statusMessage = "当前章节脚本为空，无法朗读。" }
-            return
-        }
-
-        let startIndex: Int
-        if let paraText = fromParagraph, !paraText.isEmpty {
-            startIndex = segments.firstIndex(where: { $0.text.contains(paraText) || paraText.contains($0.text) }) ?? 0
-        } else {
-            startIndex = 0
-        }
-
         do {
-            try await playScriptSegments(segments, startIndex: startIndex)
+            try await playChapterStreaming(chapter: chapter, fromParagraph: fromParagraph)
         } catch {
-            await MainActor.run { statusMessage = "远程 TTS 服务不可用，使用系统语音播放当前章节。" }
-            await playLocalSpeech(chapter.text)
-            await MainActor.run { isBusy = false }
-        }
-    }
-
-    private func playScriptSegments(_ segments: [ScriptSegment], startIndex: Int = 0) async throws {
-        guard !segments.isEmpty else {
-            await MainActor.run { statusMessage = "当前没有可播放的朗读段落。" }
-            return
-        }
-
-        let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
-        let currentChapters = UUID(uuidString: currentBookID).flatMap { bookChaptersCache[$0] } ?? []
-        let chapterTitle = currentChapters.first(where: { $0.id == selectedChapterID })?.title ?? "当前章节"
-        let bookID = UUID(uuidString: currentBookID) ?? UUID()
-        let chapterIndex = currentChapters.firstIndex(where: { $0.id == selectedChapterID }) ?? 0
-
-        await MainActor.run {
-            isBusy = true
-            playProgress = 0
-            ttsProgressMessage = "正在准备合成..."
-        }
-
-        // Use a single client for all requests
-        let ttsClient = client
-
-        // Synthesize all segments concurrently with a task group
-        struct SynthesizedSegment {
-            let index: Int
-            let segment: ScriptSegment
-            let audioURL: URL
-        }
-
-        // Separate cached and uncached segments, starting from startIndex
-        var synthesized: [SynthesizedSegment] = []
-        var pendingSegments: [(index: Int, content: String, segment: ScriptSegment, safeStyle: String)] = []
-        for i in startIndex..<segments.count {
-            let segment = segments[i]
-            let content = "\(segment.characterName)：\(segment.text.replacingOccurrences(of: "\n", with: " "))"
-            let safeStyle = sanitizeStyle(segment.style, for: segment.voice)
-            let cacheKey = "\(segment.voice):\(segment.rate):\(segment.pitch):\(safeStyle):\(content.hashValue)"
-            if let cachedURL = ttsCache[cacheKey] {
-                synthesized.append(SynthesizedSegment(index: i, segment: segment, audioURL: cachedURL))
-            } else {
-                pendingSegments.append((i, content, segment, safeStyle))
-            }
-        }
-
-        // Process uncached segments in batches of 3 (no semaphore to avoid deadlock)
-        let maxConcurrent = 3
-        var completed = synthesized.count // cached segments already "done"
-        let total = segments.count - startIndex
-        for batchStart in stride(from: 0, to: pendingSegments.count, by: maxConcurrent) {
-            try Task.checkCancellation()
-            let batchEnd = min(batchStart + maxConcurrent, pendingSegments.count)
-            try await withThrowingTaskGroup(of: (Int, URL).self) { group in
-                for i in batchStart..<batchEnd {
-                    let (originalIndex, content, segment, safeStyle) = pendingSegments[i]
-                    _ = group.addTaskUnlessCancelled {
-                        let url = try await ttsClient.synthesizeAudio(text: content, voice: segment.voice, rate: segment.rate, pitch: segment.pitch, style: safeStyle)
-                        return (originalIndex, url)
-                    }
-                }
-                for try await (idx, url) in group {
-                    let seg = segments[idx]
-                    let cacheKey = "\(seg.voice):\(seg.rate):\(seg.pitch):\(seg.style):\(seg.text.hashValue)"
-                    ttsCache[cacheKey] = url
-                    synthesized.append(SynthesizedSegment(index: idx, segment: seg, audioURL: url))
-                    if ttsCache.count > ttsCacheMaxSize, let stale = ttsCache.keys.first, let staleURL = ttsCache[stale] {
-                        ttsCache.removeValue(forKey: stale)
-                        DispatchQueue.global(qos: .utility).async {
-                            try? FileManager.default.removeItem(at: staleURL)
-                        }
-                    }
-                    completed += 1
-                    await MainActor.run {
-                        ttsProgressMessage = "正在合成：\(seg.characterName) (\(completed)/\(total))"
-                        playProgress = Double(completed) / Double(total)
-                    }
-                }
-            }
-        }
-
-        // Sort by original index
-        synthesized.sort { $0.index < $1.index }
-
-        guard !synthesized.isEmpty else {
-            await MainActor.run {
-                isSpeaking = false
-                isBusy = false
-                ttsIsPlaying = false
-                statusMessage = "合成结果为空，无法播放。"
-                ttsProgressMessage = ""
-            }
-            return
-        }
-
-        var queueItems: [TTSQueueItem] = []
-        for (index, syn) in synthesized.enumerated() {
-            let seg = syn.segment
-            currentPlayingLine = seg.characterName
-            let queueItem = TTSQueueItem(
-                segment: seg,
-                audioURL: syn.audioURL,
-                chapterTitle: chapterTitle,
-                bookTitle: bookTitle,
-                bookID: bookID.uuidString,
-                chapterIndex: chapterIndex,
-                segmentIndex: index,
-                totalSegments: synthesized.count
-            )
-            queueItems.append(queueItem)
-        }
-
-        await MainActor.run {
-            ttsQueue = queueItems
-            ttsCurrentIndex = 0
-            ttsChapterTitle = chapterTitle
-            ttsSegmentTitle = queueItems.first?.segment.characterName ?? ""
-            ttsIsPlaying = true
-            statusMessage = "正在朗读 \(chapterTitle)"
-            ttsProgressMessage = ""
-        }
-
-        // Play via audio controller
-        audioController.playQueue(queueItems)
-
-        await MainActor.run {
-            isSpeaking = true
-        }
-
-        // Wait for playback to complete via Combine publisher (no polling)
-        // If isPlaying is already false (playback finished immediately), skip waiting.
-        if audioController.isPlaying {
-            await withCheckedContinuation { [weak self] (cont: CheckedContinuation<Void, Never>) in
-                let c = self?.audioController.$isPlaying
-                    .filter { !$0 }
-                    .first()
-                    .sink { _ in
-                        cont.resume()
-                    }
-                self?.playbackContinuationCancellable = c
-            }
-            playbackContinuationCancellable = nil
-        }
-
-        await MainActor.run {
-            isSpeaking = false
-            isBusy = false
-            ttsIsPlaying = false
-            statusMessage = "已播放完毕。"
-            ttsProgressMessage = ""
+            await MainActor.run { statusMessage = "朗读失败: \(error.localizedDescription)" }
         }
     }
 
@@ -1972,6 +1808,9 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], voiceProfiles: [VoiceProfileTuning] = [], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {
+        // Reset BERT profiles for this chapter
+        Self.bertDetector?.resetProfiles()
+
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
@@ -2042,7 +1881,8 @@ final class ReaderStore: NSObject, ObservableObject {
                         rate: activeRate,
                         pitch: activePitch,
                         style: activeStyle,
-                        text: chunk
+                        text: chunk,
+                        emotionTag: part.emotionTag
                     ))
                 }
             }
@@ -2056,6 +1896,7 @@ final class ReaderStore: NSObject, ObservableObject {
     private struct DialoguePart {
         let speaker: String
         let text: String
+        let emotionTag: String?  // CosyVoice emotion tag, nil for narration
     }
 
     private static let quotePairs: [(open: Character, close: Character)] = [
@@ -2065,6 +1906,16 @@ final class ReaderStore: NSObject, ObservableObject {
         ("\u{300E}", "\u{300F}"),
     ]
 
+    /// Map internal tone names (from analyzeSentenceTone) to CosyVoice emotion tags.
+    nonisolated private static func mapToneToEmotionTag(_ tone: String) -> String? {
+        switch tone.lowercased() {
+        case "angry":      return "angry"
+        case "cheerful":   return "happy"
+        case "sad":        return "sad"
+        default:           return nil
+        }
+    }
+
     /// Parse a paragraph into (speaker, text) segments by detecting dialogue quotes.
     /// Non-quoted text → narrator. Quoted text → detected speaker (from speech verbs before/after the quote).
     nonisolated private static func parseDialogueSegments(in paragraph: String, characters: [CharacterProfile], lastSpeaker: String?, previousContextSuffix: String = "") -> [DialoguePart] {
@@ -2073,6 +1924,7 @@ final class ReaderStore: NSObject, ObservableObject {
         var parts: [DialoguePart] = []
         var pos = 0
         var currentLastSpeaker = lastSpeaker
+        let toneAnalyzer = CharacterAnalyzer()
 
         while pos < chars.count {
             // Find the next quote opener
@@ -2094,7 +1946,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 // No more quotes — remaining text is narration
                 let remaining = String(chars[pos...])
                 if !remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    parts.append(DialoguePart(speaker: narratorName, text: remaining))
+                    parts.append(DialoguePart(speaker: narratorName, text: remaining, emotionTag: nil))
                 }
                 break
             }
@@ -2103,7 +1955,7 @@ final class ReaderStore: NSObject, ObservableObject {
             if openIdx > pos {
                 let beforeText = String(chars[pos..<openIdx])
                 if !beforeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    parts.append(DialoguePart(speaker: narratorName, text: beforeText))
+                    parts.append(DialoguePart(speaker: narratorName, text: beforeText, emotionTag: nil))
                 }
             }
 
@@ -2142,14 +1994,20 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
             }
 
+            // BERT embedding-based detection fallback
+            if speaker == nil, let bert = Self.bertDetector, !mergedContext.isEmpty {
+                let result = bert.detectSpeaker(context: mergedContext, quote: quoteText, candidates: characters.map(\.name))
+                if result.score > 0.6 {
+                    speaker = result.name
+                }
+            }
+
             // If still not found, look for vocative inside the quote
             if speaker == nil {
                 // Check if quote starts with a character name + comma/vocative
                 for ch in characters {
                     let name = ch.name
                     if quoteText.hasPrefix("\(name)，") || quoteText.hasPrefix("\(name),") || quoteText.hasPrefix(name) {
-                        // The addrESSEE is named — the speaker is likely the OTHER participant not matched yet
-                        // Default to last speaker for now
                         break
                     }
                 }
@@ -2158,8 +2016,16 @@ final class ReaderStore: NSObject, ObservableObject {
             let resolvedSpeaker = speaker ?? currentLastSpeaker ?? narratorName
             currentLastSpeaker = resolvedSpeaker
 
+            // Update BERT profile for high-confidence detections
+            if speaker != nil, let bert = Self.bertDetector, !mergedContext.isEmpty, resolvedSpeaker != narratorName {
+                let profileText = mergedContext + " [SEP] " + quoteText
+                bert.updateProfile(for: resolvedSpeaker, from: profileText)
+            }
+
             if !quoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                parts.append(DialoguePart(speaker: resolvedSpeaker, text: quoteText))
+                let tone = toneAnalyzer.analyzeSentenceTone(quoteText)
+                let emotionTag = Self.mapToneToEmotionTag(tone.style)
+                parts.append(DialoguePart(speaker: resolvedSpeaker, text: quoteText, emotionTag: emotionTag))
             }
         }
 
@@ -2289,8 +2155,10 @@ final class ReaderStore: NSObject, ObservableObject {
         await buildScript(for: false)
         guard let first = scriptSegments.first else { return "脚本为空，无法测试。" }
         do {
-            let url = try await client.synthesizeAudio(text: "\(first.characterName)：\(first.text)", voice: first.voice, rate: first.rate, pitch: first.pitch, style: first.style)
-            // play briefly to validate
+            let embedding: [Float]? = nil
+            let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: first.text, embedding: embedding)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("e2e-test-\(UUID().uuidString).wav")
+            try audioData.write(to: url, options: .atomic)
             await audioController.playFilesAndWait([url])
             return "合成并播放成功：\(url.lastPathComponent)"
         } catch {

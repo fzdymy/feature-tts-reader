@@ -101,12 +101,17 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
     var role: CharacterRole = .character
     var frequency: Int = 0
     var bookID: UUID?
+    // CosyVoice 声纹克隆
+    var voiceSampleURL: URL?  // 参考音频路径
+    var voiceSampleEmbedding: Data?  // 缓存的 CAM++ 192-dim 嵌入
 
     var info: String {
         [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, frequency: Int = 0, bookID: UUID? = nil) {
+    var hasVoiceSample: Bool { voiceSampleURL != nil }
+
+    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, frequency: Int = 0, bookID: UUID? = nil, voiceSampleURL: URL? = nil, voiceSampleEmbedding: Data? = nil) {
         self.id = id
         self.name = name
         self.aliases = aliases
@@ -122,10 +127,12 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         self.role = role
         self.frequency = frequency
         self.bookID = bookID
+        self.voiceSampleURL = voiceSampleURL
+        self.voiceSampleEmbedding = voiceSampleEmbedding
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role, frequency, bookID
+        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role, frequency, bookID, voiceSampleURL, voiceSampleEmbedding
     }
 
     init(from decoder: Decoder) throws {
@@ -145,6 +152,8 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         role = try c.decodeIfPresent(CharacterRole.self, forKey: .role) ?? .character
         frequency = try c.decodeIfPresent(Int.self, forKey: .frequency) ?? 0
         bookID = try c.decodeIfPresent(UUID.self, forKey: .bookID)
+        voiceSampleURL = try c.decodeIfPresent(URL.self, forKey: .voiceSampleURL)
+        voiceSampleEmbedding = try c.decodeIfPresent(Data.self, forKey: .voiceSampleEmbedding)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -164,6 +173,8 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         try c.encode(role, forKey: .role)
         try c.encode(frequency, forKey: .frequency)
         try c.encodeIfPresent(bookID, forKey: .bookID)
+        try c.encodeIfPresent(voiceSampleURL, forKey: .voiceSampleURL)
+        try c.encodeIfPresent(voiceSampleEmbedding, forKey: .voiceSampleEmbedding)
     }
 }
 
@@ -296,6 +307,18 @@ struct ScriptSegment: Identifiable, Hashable, Codable {
     let pitch: Int
     let style: String
     let text: String
+    let emotionTag: String?  // CosyVoice 情绪标签: "angry"/"sad"/"happy"/nil
+
+    init(id: UUID, characterName: String, voice: String, rate: Int, pitch: Int, style: String, text: String, emotionTag: String? = nil) {
+        self.id = id
+        self.characterName = characterName
+        self.voice = voice
+        self.rate = rate
+        self.pitch = pitch
+        self.style = style
+        self.text = text
+        self.emotionTag = emotionTag
+    }
 }
 
 struct CharacterRecommendation: Identifiable, Hashable, Codable {

@@ -454,25 +454,16 @@ struct CharacterAssignmentPanel: View {
     // MARK: - Generate Sample
 
     private func generateSample(_ profile: CharacterProfile) {
-        guard let server = store.activeServer else {
-            store.statusMessage = "请先配置 TTS 服务器"
-            return
-        }
         Task {
             store.statusMessage = "正在生成试听..."
             let sampleText = "你好，我是\(profile.name)。"
-            let voiceID = profile.voice.isEmpty ? "zh-CN-XiaoxiaoNeural" : profile.voice
-            guard let baseURL = URL(string: server.baseURL) else {
-                store.statusMessage = "服务器地址无效"
-                return
-            }
             do {
-                let url = try await TTSHttpClient(
-                    baseURL: baseURL,
-                    apiKey: server.apiKey
-                ).synthesizeAudio(text: sampleText, voice: voiceID,
-                                  rate: profile.rate, pitch: profile.pitch,
-                                  style: profile.style.isEmpty ? "neutral" : profile.style)
+                let embedding: [Float]? = profile.voiceSampleEmbedding.flatMap {
+                    try? JSONDecoder().decode([Float].self, from: $0)
+                }
+                let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: sampleText, embedding: embedding)
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("sample-\(UUID().uuidString).wav")
+                try audioData.write(to: url, options: .atomic)
                 await store.audioController.playFilesAndWait([url])
                 store.statusMessage = "试听已开始播放"
             } catch {

@@ -23,6 +23,17 @@ jobs:
       - name: Install dependencies
         run: swift package resolve
 
+      - name: Download Core ML model (latest release)
+        continue-on-error: true
+        run: |
+          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || true)
+          if [ -n "$TAG" ]; then
+            gh release download "$TAG" --pattern "*.zip" --dir Sources/FeatureTTSReaderApp/Models --clobber
+            cd Sources/FeatureTTSReaderApp/Models
+            unzip -o distilbert_chinese.mlpackage.zip 2>/dev/null
+            rm -f distilbert_chinese.mlpackage.zip
+          fi
+
       - name: Build unsigned app product
         run: |
           xcodebuild build \

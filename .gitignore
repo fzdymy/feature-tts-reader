@@ -10,6 +10,10 @@ DerivedData/
 .build/
 .swiftpm/
 
+# Core ML model (large ~70MB, downloaded from releases, not committed)
+Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage/
+!Sources/FeatureTTSReaderApp/Models/.gitkeep
+
 # Temporary files
 *.swp
 *.tmp
