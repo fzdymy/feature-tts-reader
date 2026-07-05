@@ -76,6 +76,14 @@ struct OrderedSet<Element: Hashable>: Collection, Equatable, Hashable {
         set = []
     }
 
+    init(_ elements: some Sequence<Element>) {
+        array = []
+        set = []
+        for element in elements {
+            append(element)
+        }
+    }
+
     var startIndex: Int { array.startIndex }
     var endIndex: Int { array.endIndex }
 
