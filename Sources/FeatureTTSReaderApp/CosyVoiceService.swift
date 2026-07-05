@@ -1,6 +1,7 @@
 import Foundation
 import CosyVoiceTTS
 import AudioCommon
+import CryptoKit
 
 // MARK: - On-device CosyVoice 3 TTS engine
 
@@ -36,6 +37,49 @@ actor CosyVoiceService {
     ]
     nonisolated static var modelDownloadURL: String {
         "https://huggingface.co/\(defaultVariant)"
+    }
+
+    // MARK: - TTS Cache
+
+    /// In-memory cache: key = SHA256(text + embeddingHash) → WAV Data
+    private var memoryCache: [String: Data] = [:]
+    private let cacheQueue = DispatchQueue(label: "com.featuretts.ttscache", attributes: .concurrent)
+
+    private var cacheDirectory: URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("tts-cache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func cacheKey(text: String, embedding: [Float]?) -> String {
+        let embedData = embedding.map { Data(bytes: $0, count: $0.count * MemoryLayout<Float>.size) } ?? Data()
+        let combined = text.data(using: .utf8)! + embedData
+        let digest = SHA256.hash(data: combined)
+        return Data(digest).base64EncodedString()
+    }
+
+    private func cachedAudio(key: String) -> Data? {
+        if let cached = memoryCache[key] { return cached }
+        let url = cacheDirectory.appendingPathComponent(key)
+        return try? Data(contentsOf: url)
+    }
+
+    private func storeCache(key: String, data: Data) {
+        memoryCache[key] = data
+        let url = cacheDirectory.appendingPathComponent(key)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    nonisolated static func clearCache() {
+        Task { await shared.clearCacheInternal() }
+    }
+
+    private func clearCacheInternal() {
+        memoryCache.removeAll()
+        let dir = cacheDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for file in files { try? FileManager.default.removeItem(at: file) }
     }
 
     // MARK: - Lifecycle
@@ -95,7 +139,13 @@ actor CosyVoiceService {
         try await ensureModel()
         guard let model = ttsModel else { throw TTSError.modelNotAvailable }
 
-        // 1. Enroll speakers (CAM++ embeddings)
+        // 1. Compute cache key from combined segment text + speaker keys
+        let segmentText = segments.map { "\($0.speaker)|\($0.emotion ?? "")|\($0.text)" }.joined(separator: "\n")
+        let embedKeys = speakerSamples.keys.sorted().joined(separator: ",")
+        let key = cacheKey(text: "dialogue:\(segmentText)|samples:\(embedKeys)", embedding: nil)
+        if let cached = cachedAudio(key: key) { return cached }
+
+        // 2. Enroll speakers (CAM++ embeddings)
         var embeddings: [String: [Float]] = [:]
         for (name, url) in speakerSamples {
             if let emb = try? await enrollSpeaker(name: name, audioURL: url) {
@@ -103,14 +153,14 @@ actor CosyVoiceService {
             }
         }
 
-        // 2. Build dialogue text with inline tags for DialogueParser
+        // 3. Build dialogue text with inline tags for DialogueParser
         let dialogueText = segments.map { spk, text, emotion in
             let emoTag = emotion.flatMap { Self.cosyEmotionTag($0) }.map { "(\($0))" } ?? ""
             return "[\(spk)] \(emoTag)\(text)"
         }.joined(separator: " ")
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
-        // 3. Synthesize
+        // 4. Synthesize
         let samples = try DialogueSynthesizer.synthesize(
             segments: dialogueSegments,
             speakerEmbeddings: embeddings,
@@ -119,8 +169,10 @@ actor CosyVoiceService {
             config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
         )
 
-        // 4. Convert [Float] samples to WAV data
-        return AudioConverter.floatToWAV(samples, sampleRate: 24_000)
+        // 5. Convert [Float] samples to WAV data and cache
+        let wavData = AudioConverter.floatToWAV(samples, sampleRate: 24_000)
+        storeCache(key: key, data: wavData)
+        return wavData
     }
 
     /// Synthesize a single speaker's text (for previews).
@@ -128,13 +180,18 @@ actor CosyVoiceService {
         try await ensureModel()
         guard let model = ttsModel else { throw TTSError.modelNotAvailable }
 
+        let key = cacheKey(text: "single:\(text)", embedding: embedding)
+        if let cached = cachedAudio(key: key) { return cached }
+
         let samples: [Float]
         if let emb = embedding {
             samples = model.synthesize(text: text, language: "chinese", speakerEmbedding: emb)
         } else {
             samples = model.synthesize(text: text, language: "chinese")
         }
-        return AudioConverter.floatToWAV(samples, sampleRate: 24_000)
+        let wavData = AudioConverter.floatToWAV(samples, sampleRate: 24_000)
+        storeCache(key: key, data: wavData)
+        return wavData
     }
 
     // MARK: - Emotion tag mapping
