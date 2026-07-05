@@ -215,8 +215,7 @@ def main():
     print(f"{'='*60}")
     try:
         tokenizer = AutoTokenizer.from_pretrained("shibing624/text2vec-base-chinese")
-    # Trigger convert workflow (gitignore fixed)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         tokenizer.save_vocabulary(str(OUTPUT_DIR))
         vocab_path = OUTPUT_DIR / "vocab.txt"
         if not vocab_path.exists():
