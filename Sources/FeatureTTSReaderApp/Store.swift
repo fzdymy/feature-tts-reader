@@ -1446,6 +1446,43 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
+    /// Group paragraphs into dialogue blocks: merge consecutive paragraphs containing quotes,
+    /// splitting only after 2 consecutive non-quote paragraphs.
+    private static func buildDialogueBlocks(_ paragraphs: [String]) -> [(texts: [String], globalStart: Int)] {
+        var blocks: [(texts: [String], globalStart: Int)] = []
+        var i = 0
+        while i < paragraphs.count {
+            // Skip leading non-quote paragraphs
+            if !paragraphs[i].contains("\u{201C}") && !paragraphs[i].contains("\u{300C}") {
+                blocks.append(([paragraphs[i]], i))
+                i += 1
+                continue
+            }
+            // Start a dialogue block
+            var blockParas: [String] = [paragraphs[i]]
+            let blockStart = i
+            i += 1
+            var consecutiveEmpty = 0
+            while i < paragraphs.count && consecutiveEmpty < 2 {
+                let hasQuote = paragraphs[i].contains("\u{201C}") || paragraphs[i].contains("\u{300C}")
+                if !hasQuote {
+                    consecutiveEmpty += 1
+                } else {
+                    consecutiveEmpty = 0
+                }
+                blockParas.append(paragraphs[i])
+                i += 1
+            }
+            // If we stopped because of consecutive empty, remove trailing empties from the block
+            if consecutiveEmpty >= 2 {
+                blockParas.removeLast(consecutiveEmpty)
+                i -= consecutiveEmpty
+            }
+            blocks.append((blockParas, blockStart))
+        }
+        return blocks
+    }
+
     /// 逐段落流水线：高亮段落 → 识别对白 → 匹配音色 → 发送TTS → 播放 → 下一段落
     func playChapterStreaming(chapter: BookChapter, fromParagraph: String? = nil) async throws {
         await MainActor.run {
@@ -1472,22 +1509,29 @@ final class ReaderStore: NSObject, ObservableObject {
         let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
         let totalParas = paragraphs.count
         var lastSpeaker: String? = nil
-        var prevParaSuffix = ""
+        let blocks = Self.buildDialogueBlocks(paragraphs)
 
-        for paraIndex in startParaIndex..<paragraphs.count {
+        for (blockIdx, block) in blocks.enumerated() {
             try Task.checkCancellation()
+            guard block.globalStart >= startParaIndex else {
+                // Skip blocks before start paragraph
+                if block.globalStart + block.texts.count > startParaIndex {
+                    // Partial block - skip for now (handle via single paragraph fallback)
+                }
+                continue
+            }
 
-            // 1. 高亮当前段落
-            await MainActor.run { currentParagraphIndex = paraIndex }
+            // 1. 高亮当前 block 首个段落
+            await MainActor.run { currentParagraphIndex = block.globalStart }
 
-            // 2. 识别对白（跨段落传递前一段末尾文本作为上下文）
-            let trimmed = paragraphs[paraIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker, previousContextSuffix: prevParaSuffix)
+            // 2. 识别对白：合并 block 内所有段落文本以获得完整上下文
+            let mergedText = block.texts.joined(separator: "\n\n")
+            let dialogueParts = Self.parseDialogueSegments(in: mergedText, characters: characters, lastSpeaker: lastSpeaker)
 
             guard !dialogueParts.isEmpty else { continue }
 
             // 3-5. 匹配角色音色 → 发送 TTS → 接收音频
-            var paraQueueItems: [TTSQueueItem] = []
+            var blockQueueItems: [TTSQueueItem] = []
             for part in dialogueParts {
                 try Task.checkCancellation()
                 let chunks = part.text.chunked(into: 350)
@@ -1513,30 +1557,30 @@ final class ReaderStore: NSObject, ObservableObject {
                     }
 
                     let seg = ScriptSegment(id: UUID(), characterName: profile.name, voice: profile.voice, rate: profile.rate, pitch: profile.pitch, style: profile.style, text: chunk)
-                    let item = TTSQueueItem(segment: seg, audioURL: audioURL, chapterTitle: chapter.title, bookTitle: bookTitle, bookID: bookID.uuidString, chapterIndex: chapterIndex, segmentIndex: paraQueueItems.count, totalSegments: dialogueParts.count)
-                    paraQueueItems.append(item)
+                    let item = TTSQueueItem(segment: seg, audioURL: audioURL, chapterTitle: chapter.title, bookTitle: bookTitle, bookID: bookID.uuidString, chapterIndex: chapterIndex, segmentIndex: blockQueueItems.count, totalSegments: dialogueParts.count)
+                    blockQueueItems.append(item)
                 }
             }
 
-            // 更新跨段落 speaker 追踪和前一段落上下文
+            // 更新跨 block speaker 追踪
             if let lastPart = dialogueParts.last {
-                lastSpeaker = lastPart.speaker
+                if lastPart.speaker != "叙述者" && lastPart.speaker != "旁白" {
+                    lastSpeaker = lastPart.speaker
+                }
             }
-            let suffixLen = min(80, trimmed.count)
-            prevParaSuffix = String(trimmed.suffix(suffixLen))
 
-            // 6. 播放当前段落
-            guard !paraQueueItems.isEmpty else { continue }
+            // 6. 播放当前 block
+            guard !blockQueueItems.isEmpty else { continue }
             await MainActor.run {
                 ttsChapterTitle = chapter.title
-                ttsSegmentTitle = paraQueueItems.first?.segment.characterName ?? ""
+                ttsSegmentTitle = blockQueueItems.first?.segment.characterName ?? ""
                 ttsIsPlaying = true
                 isSpeaking = true
-                statusMessage = "朗读段落 \(paraIndex + 1)/\(totalParas)"
+                statusMessage = "朗读区块 \(blockIdx + 1)/\(blocks.count)"
             }
-            audioController.playQueue(paraQueueItems)
+            audioController.playQueue(blockQueueItems)
 
-            // 7. 等待段落播放完成
+            // 7. 等待播放完成（更新高亮到每个段落）
             if audioController.isPlaying {
                 await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
                     let c = audioController.$isPlaying
@@ -1931,19 +1975,17 @@ final class ReaderStore: NSObject, ObservableObject {
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
-        var prevParaSuffix = ""
         let maxLength = 350
+        let blocks = Self.buildDialogueBlocks(paragraphs)
 
-        for paragraph in paragraphs {
-            let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
-            let dialogueParts = Self.parseDialogueSegments(in: trimmed, characters: characters, lastSpeaker: lastSpeaker, previousContextSuffix: prevParaSuffix)
+        for (_, block) in blocks.enumerated() {
+            let mergedText = block.texts.joined(separator: "\n\n")
+            let dialogueParts = Self.parseDialogueSegments(in: mergedText, characters: characters, lastSpeaker: lastSpeaker)
 
-            // Update cross-paragraph tracking for next paragraph
-            if let lastPart = dialogueParts.last {
+            // Update cross-block speaker tracking (skip narrator)
+            if let lastPart = dialogueParts.last, lastPart.speaker != "叙述者" && lastPart.speaker != "旁白" {
                 lastSpeaker = lastPart.speaker
             }
-            let suffixLen = min(80, trimmed.count)
-            prevParaSuffix = String(trimmed.suffix(suffixLen))
 
             for part in dialogueParts {
                 let chunks = part.text.chunked(into: maxLength)
@@ -2185,27 +2227,39 @@ final class ReaderStore: NSObject, ObservableObject {
     /// Detect speaker from context AFTER a quote (e.g. "「...」陈煜笑道").
     private static func detectSpeakerAfterQuote(_ context: String, characters: [CharacterProfile]) -> String? {
         let speechVerbs = "说|道|笑道|说道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
-        // Look for speech verb + name at start
+        // 1. Speech verb + name at start
         if let groups = context.firstMatch(regex: "^(?:\(speechVerbs))([\\p{Han}]{2,4})"), groups.count > 1 {
             let name = groups[1]
             if characters.contains(where: { $0.name == name || $0.aliases.contains(name) }) {
                 return name
             }
         }
-        // Look for name + speech verb at start
+        // 2. Name + speech verb at start
         if let groups = context.firstMatch(regex: "^([\\p{Han}]{2,4})(?:\(speechVerbs))"), groups.count > 1 {
             let name = groups[1]
             if characters.contains(where: { $0.name == name || $0.aliases.contains(name) }) {
                 return name
             }
         }
-        // Any known character name at start
+        // 3. Known character name at start
         for ch in characters {
             if context.hasPrefix(ch.name) || context.hasPrefix("\(ch.name)") {
                 return ch.name
             }
         }
-        return nil
+        // 4. 全文搜索：取上下文中**最先**出现的已知角色名
+        var firstPos = Int.max
+        var firstName: String?
+        for ch in characters {
+            if let r = context.range(of: ch.name) {
+                let pos = context.distance(from: context.startIndex, to: r.lowerBound)
+                if pos < firstPos {
+                    firstPos = pos
+                    firstName = ch.name
+                }
+            }
+        }
+        return firstName
     }
 
     func playFromParagraph(_ paragraph: String) async {
