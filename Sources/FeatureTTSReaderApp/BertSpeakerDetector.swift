@@ -81,7 +81,7 @@ final class BertSpeakerDetector {
     // MARK: - Private
 
     private func loadModel() {
-        guard let url = Bundle.module.url(forResource: "distilbert_chinese", withExtension: "mlpackage") else {
+        guard let url = Bundle.module.url(forResource: "distilbert_chinese", withExtension: "mlpackage", subdirectory: "Models") else {
             print("[BertSpeakerDetector] Model not found in bundle")
             return
         }
@@ -153,7 +153,7 @@ final class BertTokenizer {
     }
 
     private func loadVocab() {
-        guard let url = Bundle.module.url(forResource: "vocab", withExtension: "txt") else {
+        guard let url = Bundle.module.url(forResource: "vocab", withExtension: "txt", subdirectory: "Models") else {
             print("[BertTokenizer] vocab.txt not found")
             return
         }
