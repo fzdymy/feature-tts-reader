@@ -1,5 +1,5 @@
 import Foundation
-import CoreData
+@preconcurrency import CoreData
 
 final class PersistenceController: ObservableObject {
     static let shared = PersistenceController()

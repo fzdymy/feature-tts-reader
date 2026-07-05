@@ -170,7 +170,7 @@ final class BertTokenizer {
 
 // MARK: - Core ML input/output helper
 
-fileprivate struct BertInput: MLFeatureProvider {
+fileprivate final class BertInput: NSObject, MLFeatureProvider {
     let input_ids: MLMultiArray
     let attention_mask: MLMultiArray
 

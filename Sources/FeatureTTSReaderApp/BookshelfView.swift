@@ -426,8 +426,8 @@ struct BookListRow: View {
             }.value
         }
         guard !text.isEmpty else { return }
-        let parsed = await Task.detached(priority: .background) {
-            store.extractChapters(from: text)
+        let parsed = await Task.detached(priority: .background) { [text] in
+            ReaderStore.extractChapters(from: text)
         }.value
         await MainActor.run {
             store.bookChaptersCache[book.id] = parsed
@@ -554,8 +554,8 @@ struct BookDetailView: View {
             isLoadingChapters = false
             return
         }
-        let parsed = await Task.detached(priority: .userInitiated) {
-            store.extractChapters(from: text)
+        let parsed = await Task.detached(priority: .userInitiated) { [text] in
+            ReaderStore.extractChapters(from: text)
         }.value
         await MainActor.run {
             store.bookChaptersCache[book.id] = parsed

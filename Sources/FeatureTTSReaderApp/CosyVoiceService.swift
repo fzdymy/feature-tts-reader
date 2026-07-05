@@ -1,6 +1,7 @@
 import Foundation
 import CosyVoiceTTS
 import AudioCommon
+import SpeechVAD
 
 // MARK: - On-device CosyVoice 3 TTS engine
 
@@ -52,11 +53,12 @@ actor CosyVoiceService {
             }
         }
 
-        // 2. Build DialogueSegment array with emotion tags
-        let dialogueSegments: [DialogueSegment] = segments.map { spk, text, emotion in
-            let emo = emotion.flatMap { Self.cosyEmotionTag($0) }
-            return DialogueSegment(speaker: spk, emotion: emo, text: text)
-        }
+        // 2. Build dialogue text with inline tags for DialogueParser
+        let dialogueText = segments.map { spk, text, emotion in
+            let emoTag = emotion.flatMap { Self.cosyEmotionTag($0) }.map { "(\($0))" } ?? ""
+            return "[\(spk)] \(emoTag)\(text)"
+        }.joined(separator: " ")
+        let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 3. Synthesize
         let samples = try DialogueSynthesizer.synthesize(

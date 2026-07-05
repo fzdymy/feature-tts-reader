@@ -410,7 +410,7 @@ struct SettingsView: View {
         var totalSize: Int64 = 0
         for url in urls {
             if let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) {
-                for case let fileURL as URL in enumerator {
+                while let fileURL = enumerator.nextObject() as? URL {
                     if let attrs = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
                        let size = attrs.fileSize {
                         totalSize += Int64(size)

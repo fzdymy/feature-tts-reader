@@ -32,7 +32,7 @@ struct RelationshipEdge: Hashable {
 
 // MARK: - Regex Cache
 
-private final class RegexCache {
+private final class RegexCache: @unchecked Sendable {
     static let shared = RegexCache()
     private var cache: [String: NSRegularExpression] = [:]
     private let lock = NSLock()

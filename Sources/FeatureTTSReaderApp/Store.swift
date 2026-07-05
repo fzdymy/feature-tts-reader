@@ -54,7 +54,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     // Lazy singleton for on-device BERT speaker detection
     nonisolated private static let bertLock = NSLock()
-    nonisolated private static var _bertDetector: BertSpeakerDetector?
+    nonisolated(unsafe) private static var _bertDetector: BertSpeakerDetector?
     nonisolated static var bertDetector: BertSpeakerDetector? {
         bertLock.lock()
         defer { bertLock.unlock() }
@@ -86,7 +86,7 @@ final class ReaderStore: NSObject, ObservableObject {
     func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
         if let cached = bookChaptersCache[bookID] { return cached }
         guard !text.isEmpty else { return [] }
-        let parsed = extractChapters(from: text)
+        let parsed = Self.extractChapters(from: text)
         if !parsed.isEmpty {
             bookChaptersCache[bookID] = parsed
         }
@@ -560,8 +560,8 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func testTTSSynthesize() async -> String {
-        await CosyVoiceService.shared.ensureModel()
-        guard CosyVoiceService.shared.isAvailable else { return "CosyVoice 模型不可用" }
+        try? await CosyVoiceService.shared.ensureModel()
+        guard await CosyVoiceService.shared.isAvailable else { return "CosyVoice 模型不可用" }
         let testText = "这是个多角色语音阅读器！"
         do {
             let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: testText)
@@ -715,8 +715,8 @@ final class ReaderStore: NSObject, ObservableObject {
             recommendations = []
             lastScannedBookText = ""
         }
-        let extracted = await Task.detached { [weak self, text] in
-            self?.extractChapters(from: text) ?? []
+        let extracted = await Task.detached { [text] in
+            ReaderStore.extractChapters(from: text)
         }.value
         await MainActor.run {
             chapters = extracted
@@ -864,8 +864,8 @@ final class ReaderStore: NSObject, ObservableObject {
         }
 
         // perform chapter extraction off-main-thread
-        let extracted = await Task.detached { [weak self, trimmedText] in
-            return self?.extractChapters(from: trimmedText) ?? []
+        let extracted = await Task.detached { [trimmedText] in
+            ReaderStore.extractChapters(from: trimmedText)
         }.value
 
         await MainActor.run {
@@ -909,9 +909,9 @@ final class ReaderStore: NSObject, ObservableObject {
     func parseChaptersAsync() async {
         let text = bookText
         await MainActor.run { isBusy = true; importProgress = 0.0; statusMessage = "正在扫描章节..." }
-        let extracted = await Task.detached { [weak self, text] in
+        let extracted = await Task.detached { [text] in
             // reuse existing extraction logic
-            return self?.extractChapters(from: text) ?? []
+            ReaderStore.extractChapters(from: text)
         }.value
         await MainActor.run {
             chapters = extracted
@@ -1025,8 +1025,8 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func previewVoice(for profile: CharacterProfile) async {
-        await CosyVoiceService.shared.ensureModel()
-        guard CosyVoiceService.shared.isAvailable else {
+        try? await CosyVoiceService.shared.ensureModel()
+        guard await CosyVoiceService.shared.isAvailable else {
             statusMessage = "CosyVoice 模型不可用，请检查网络连接。"
             return
         }
@@ -1383,7 +1383,7 @@ final class ReaderStore: NSObject, ObservableObject {
         case timedOut
     }
 
-    private func withTimeout<T>(seconds: Double, operation: @escaping () async throws -> T) async throws -> T {
+    private func withTimeout<T: Sendable>(seconds: Double, operation: @escaping () async throws -> T) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask { try await operation() }
             group.addTask {
@@ -1416,7 +1416,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return false
     }
 
-    nonisolated func extractChapters(from text: String) -> [BookChapter] {
+    nonisolated static func extractChapters(from text: String) -> [BookChapter] {
         let result = parseChapters(text: text)
         if !result.isEmpty { return result }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2157,7 +2157,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
 }
     
-private class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate {
+private final class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate {
     weak var owner: ReaderStore?
 
     init(owner: ReaderStore) {
