@@ -1479,7 +1479,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         // Validate candidates with Apple NL tagger (filters common-word false positives)
         let nlValidated = analyzer.validateWithNL(text: raw, candidates: Set(names))
         if !nlValidated.isEmpty {
-            names = OrderedSet(Array(names).filter { nlValidated.contains($0) })
+            names = OrderedSet(names.filter { nlValidated.contains($0) })
         }
 
         // Resolve aliases: 无忌 → 张无忌, 张公子 → 张无忌, etc.
