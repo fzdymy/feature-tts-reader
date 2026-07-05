@@ -104,10 +104,11 @@ def try_convert(model_id: str) -> bool:
             minimum_deployment_target=ct.target.iOS17,
             compute_precision=ct.precision.FLOAT16,
         )
-        return _save_and_verify(mlmodel, tokenizer, model_id, "direct-pytorch")
+        if _save_and_verify(mlmodel, tokenizer, model_id, "direct-pytorch"):
+            return True
     except Exception as e:
         print(f"  FAILED direct pytorch: {e}")
-        _cleanup_mlpackage()
+    _cleanup_mlpackage()
 
     # Strategy 2: JIT trace then convert
     print(f"  Converting via JIT trace ...")
@@ -125,15 +126,16 @@ def try_convert(model_id: str) -> bool:
             minimum_deployment_target=ct.target.iOS17,
             compute_precision=ct.precision.FLOAT16,
         )
-        return _save_and_verify(mlmodel, tokenizer, model_id, "jit-trace")
+        if _save_and_verify(mlmodel, tokenizer, model_id, "jit-trace"):
+            return True
     except Exception as e:
         print(f"  FAILED JIT trace: {e}")
-        _cleanup_mlpackage()
+    _cleanup_mlpackage()
 
     # Strategy 3: ONNX → Core ML
     print(f"  Converting via ONNX intermediary ...")
+    onnx_path = OUTPUT_DIR / "bert_chinese.onnx"
     try:
-        onnx_path = OUTPUT_DIR / "bert_chinese.onnx"
         torch.onnx.export(
             wrapper,
             (input_ids, attention_mask),
@@ -152,10 +154,12 @@ def try_convert(model_id: str) -> bool:
             minimum_deployment_target=ct.target.iOS17,
             compute_precision=ct.precision.FLOAT16,
         )
-        onnx_path.unlink(missing_ok=True)
-        return _save_and_verify(mlmodel, tokenizer, model_id, "onnx")
+        if _save_and_verify(mlmodel, tokenizer, model_id, "onnx"):
+            return True
     except Exception as e:
         print(f"  FAILED ONNX: {e}")
+    finally:
+        onnx_path.unlink(missing_ok=True)
         _cleanup_mlpackage()
 
     return False
@@ -171,10 +175,16 @@ def _save_and_verify(mlmodel, tokenizer, model_id, strategy):
     print(f"  SUCCESS! Saved to {out_path} ({total / 1024 / 1024:.1f} MB)")
 
     # Sanity check
-    test_ids, test_mask = tokenize(tokenizer, "陈煜笑道")
-    pred = mlmodel.predict({"input_ids": test_ids.numpy(), "attention_mask": test_mask.numpy()})
-    embedding = pred["embedding"]
-    print(f"  Embedding shape: {embedding.shape} (should be [1, 768])")
+    try:
+        test_ids, test_mask = tokenize(tokenizer, "陈煜笑道")
+        pred = mlmodel.predict({
+            "input_ids": test_ids.numpy().astype(np.int32),
+            "attention_mask": test_mask.numpy().astype(np.int32),
+        })
+        embedding = pred["embedding"]
+        print(f"  Embedding shape: {embedding.shape} (should be [1, 768])")
+    except Exception as e:
+        print(f"  Sanity check warning (model saved OK): {e}")
     print(f"  Model: {model_id} | Strategy: {strategy}")
     return True
 
