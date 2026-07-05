@@ -23,7 +23,7 @@ let package = Package(
                 .product(name: "AudioCommon", package: "speech-swift"),
             ],
             path: "Sources/FeatureTTSReaderApp",
-            resources: [.copy("Models")]
+            resources: [.process("Models")]
         )
     ]
 )
