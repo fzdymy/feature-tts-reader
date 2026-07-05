@@ -7,6 +7,7 @@ struct TTSView: View {
     @State private var isTesting = false
     @State private var testResult: String?
     @State private var downloadPhase: CosyVoiceService.DownloadPhase = .idle
+    @State private var downloadError: String?
     @State private var showCopied = false
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -100,7 +101,7 @@ struct TTSView: View {
                         Text("下载失败")
                             .foregroundColor(.red)
                     }
-                    if let err = CosyVoiceService.shared.downloadError {
+                    if let err = downloadError {
                         Text(err).font(.caption).foregroundColor(.secondary)
                     }
                     Button("重试下载", systemImage: "arrow.clockwise") {
@@ -190,7 +191,7 @@ struct TTSView: View {
         Task {
             let svc = CosyVoiceService.shared
             downloadPhase = await svc.downloadPhase
-            let isAvail = await svc.isAvailable
+            downloadError = await svc.downloadError
             switch downloadPhase {
             case .idle:     modelStatus = "未下载"
             case .downloading: modelStatus = "下载中…"

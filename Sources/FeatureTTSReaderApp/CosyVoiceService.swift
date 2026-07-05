@@ -7,11 +7,6 @@ import AudioCommon
 actor CosyVoiceService {
     static let shared = CosyVoiceService()
 
-    /// CosyVoice 3 4-bit model on HuggingFace (used by speech-swift)
-    static let modelRepoID = "soniqo/CosyVoice-3"
-    static var modelDownloadURL: String {
-        "https://huggingface.co/\(modelRepoID)"
-    }
     /// CAM++ speaker embedding model
     static let camppRepoID = "soniqo/CamPlusPlus"
 
@@ -30,11 +25,12 @@ actor CosyVoiceService {
     private(set) var downloadPhase: DownloadPhase = .idle
     private(set) var isDownloading = false
     private(set) var downloadError: String?
+    nonisolated static let modelDownloadURL = "https://huggingface.co/soniqo/CosyVoice-3"
 
     // MARK: - Lifecycle
 
     /// Pre-warm the model download (call on app launch).
-    nonisolated func prewarm() {
+    nonisolated static func prewarm() {
         Task { try? await shared.ensureModel() }
     }
 
