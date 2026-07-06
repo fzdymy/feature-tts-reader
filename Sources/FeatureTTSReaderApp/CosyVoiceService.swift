@@ -343,12 +343,13 @@ actor CosyVoiceService {
 
     /// Directory where model files should live (inside caches).
     private func modelCacheDirectory() throws -> URL {
-        try HuggingFaceDownloader.getCacheDirectory(for: Self.defaultVariant)
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        return caches.appendingPathComponent("com.cosyvoice/models/\(Self.defaultVariant)")
     }
 
     /// Check whether all expected model files exist.
     private func isModelCached(at dir: URL) -> Bool {
-        let required = ["config.json", "llm.safetensors", "flow.safetensors", "hifigan.safetensors"]
+        let required = ["config.json", "llm.safetensors", "flow.safetensors", "hifigan.safetensors", "speech_tokenizer.safetensors"]
         return required.allSatisfy { fn in
             FileManager.default.fileExists(atPath: dir.appendingPathComponent(fn).path)
         }
@@ -461,25 +462,57 @@ actor CosyVoiceService {
     private func extractZip(archive: URL, to dstDir: URL) throws {
         let data = try Data(contentsOf: archive)
         var offset = 0
+
+        // First pass: detect a common top-level directory prefix
+        var commonPrefix: String? = nil
+        var tempOff = 0
+        while tempOff + 30 <= data.count {
+            let sig = readLEU32(data, tempOff)
+            guard sig == 0x04034b50 else { tempOff += 1; continue }
+            let nameLen = Int(readLEU16(data, tempOff + 26))
+            let extraLen = Int(readLEU16(data, tempOff + 28))
+            let compSize = Int(readLEU32(data, tempOff + 18))
+            let hdrSize = 30 + nameLen + extraLen
+            guard tempOff + hdrSize + compSize <= data.count else { break }
+            if nameLen > 0, let name = String(data: data[tempOff+30..<tempOff+30+nameLen], encoding: .utf8), !name.isEmpty {
+                if let slash = name.firstIndex(of: "/") {
+                    let top = String(name[name.startIndex...slash])
+                    if commonPrefix == nil { commonPrefix = top }
+                    else if commonPrefix != top || top == "" { commonPrefix = nil; break }
+                } else {
+                    commonPrefix = nil
+                    break
+                }
+            }
+            tempOff += hdrSize + compSize
+        }
+
+        // Second pass: extract files, stripping the common prefix
+        offset = 0
         while offset + 30 <= data.count {
-            let sig = UInt32(data[offset]) | (UInt32(data[offset+1]) << 8) | (UInt32(data[offset+2]) << 16) | (UInt32(data[offset+3]) << 24)
+            let sig = readLEU32(data, offset)
             guard sig == 0x04034b50 else { offset += 1; continue }
 
-            let compression = Int(data[offset+8]) | (Int(data[offset+9]) << 8)
-            let compressedSize = Int(data[offset+18]) | (Int(data[offset+19]) << 8) | (Int(data[offset+20]) << 16) | (Int(data[offset+21]) << 24)
-            let uncompressedSize = Int(data[offset+22]) | (Int(data[offset+23]) << 8) | (Int(data[offset+24]) << 16) | (Int(data[offset+25]) << 24)
-            let nameLength = Int(data[offset+26]) | (Int(data[offset+27]) << 8)
-            let extraLength = Int(data[offset+28]) | (Int(data[offset+29]) << 8)
+            let compression = Int(readLEU16(data, offset + 8))
+            let compressedSize = Int(readLEU32(data, offset + 18))
+            let uncompressedSize = Int(readLEU32(data, offset + 22))
+            let nameLength = Int(readLEU16(data, offset + 26))
+            let extraLength = Int(readLEU16(data, offset + 28))
 
             let headerSize = 30 + nameLength + extraLength
             guard offset + headerSize + compressedSize <= data.count else { break }
             guard nameLength > 0 else { offset += headerSize + compressedSize; continue }
 
-            let name = String(data: data[offset+30..<offset+30+nameLength], encoding: .utf8) ?? ""
+            let rawName = String(data: data[offset+30..<offset+30+nameLength], encoding: .utf8) ?? ""
             let fileData = data[offset+headerSize..<offset+headerSize+compressedSize]
             offset += headerSize + compressedSize
 
-            let cleanName = name.hasPrefix("./") ? String(name.dropFirst(2)) : name
+            var cleanName = rawName.hasPrefix("./") ? String(rawName.dropFirst(2)) : rawName
+            // Strip common prefix dir if detected
+            if let prefix = commonPrefix, cleanName.hasPrefix(prefix) {
+                cleanName = String(cleanName.dropFirst(prefix.count))
+            }
+
             guard !cleanName.isEmpty, !cleanName.contains("..") else { continue }
 
             let dest = dstDir.appendingPathComponent(cleanName)
@@ -503,6 +536,16 @@ actor CosyVoiceService {
         }
     }
 
+    /// Read a little-endian UInt16 from Data at offset.
+    private func readLEU16(_ data: Data, _ off: Int) -> UInt16 {
+        UInt16(data[off]) | (UInt16(data[off+1]) << 8)
+    }
+
+    /// Read a little-endian UInt32 from Data at offset.
+    private func readLEU32(_ data: Data, _ off: Int) -> UInt32 {
+        UInt32(data[off]) | (UInt32(data[off+1]) << 8) | (UInt32(data[off+2]) << 16) | (UInt32(data[off+3]) << 24)
+    }
+
     func resetDownload() {
         activeDownloadTask?.cancel()
         activeDownloadTask = nil
@@ -521,10 +564,10 @@ actor CosyVoiceService {
     }
 
     /// Import a pre-downloaded model from a local folder or .tar.gz archive selected by the user.
-    /// Copies model files into the HF cache directory and loads the model.
+    /// Copies model files into the cache directory and loads the model.
     func importModel(from sourceURL: URL) async throws {
         guard ttsModel == nil else { return }
-        let cacheDir = try HuggingFaceDownloader.getCacheDirectory(for: Self.defaultVariant)
+        let cacheDir = try modelCacheDirectory()
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
         var sourceDir = sourceURL

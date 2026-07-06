@@ -49,7 +49,10 @@ struct TTSView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("语音")
-            .onAppear { refreshStatus() }
+            .onAppear {
+                customProxyURL = DownloadProxy.customPrefix
+                refreshStatus()
+            }
             .onReceive(timer) { _ in refreshStatus() }
         }
     }
@@ -98,7 +101,11 @@ struct TTSView: View {
                 }
                 .onChange(of: selectedProxy) { _, newValue in
                     DownloadProxy.active = newValue
-                    if newValue != .custom { customProxyURL = "" }
+                    if newValue == .custom {
+                        customProxyURL = DownloadProxy.customPrefix
+                    } else {
+                        customProxyURL = ""
+                    }
                 }
 
                 if selectedProxy == .custom {
@@ -323,7 +330,6 @@ struct TTSView: View {
     private func refreshStatus() {
         // Sync proxy selector with current setting
         selectedProxy = DownloadProxy.active
-        if selectedProxy == .custom { customProxyURL = DownloadProxy.customPrefix }
         Task {
             let svc = CosyVoiceService.shared
             let actorPhase = await svc.downloadPhase
