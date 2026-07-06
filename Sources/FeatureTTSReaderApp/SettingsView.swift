@@ -39,17 +39,17 @@ enum BookshelfLayout: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
-    @EnvironmentObject private var store: ReaderStore
+    @EnvironmentObject var store: ReaderStore
     @State private var showingFontPicker = false
     @State private var showingBackupOptions = false
     @State private var showingCacheSize = false
     @State private var showingFileImporter = false
-    @State private var cacheSize: String = "计算中..."
-    @State private var selectedAppTheme: AppTheme = .system
-    @State private var selectedBookshelfLayout: BookshelfLayout = .grid
-    @State private var enableHaptics = true
-    @State private var autoSaveInterval: Double = 30
-    @State private var maxCacheSize: Double = 500
+    @State var cacheSize: String = "计算中..."
+    @State var selectedAppTheme: AppTheme = .system
+    @State var selectedBookshelfLayout: BookshelfLayout = .grid
+    @State var enableHaptics = true
+    @State var autoSaveInterval: Double = 30
+    @State var maxCacheSize: Double = 500
     @State private var cosyStatus: String = "检查中..."
     @State private var isTestingCosy: Bool = false
 
