@@ -237,7 +237,7 @@ actor CosyVoiceService {
     /// Copies model files into the HF cache directory and loads the model.
     func importModel(from sourceDir: URL) async throws {
         guard ttsModel == nil else { return }
-        let cacheDir = HuggingFaceDownloader.getCacheDirectory(for: Self.defaultVariant)
+        let cacheDir = try HuggingFaceDownloader.getCacheDirectory(for: Self.defaultVariant)
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
         let items = try FileManager.default.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil)
         for item in items {
