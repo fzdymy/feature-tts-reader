@@ -167,11 +167,16 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         Self.writeCrashMarker("init_userdefaults_done")
 
         // Full state loaded async to avoid blocking UI with ~40MB JSON decode
-        Task { await loadStateAsync() }
+        Task {
+            Self.writeCrashMarker("task_loadState_start")
+            await loadStateAsync()
+            Self.writeCrashMarker("task_loadState_done")
+        }
 
         // Pre-warm CosyVoice model so playback doesn't trigger first-time download
+        Self.writeCrashMarker("init_before_prewarm")
         CosyVoiceService.prewarm()
-        Self.writeCrashMarker("init_prewarm_done")
+        Self.writeCrashMarker("init_after_prewarm")
     }
 
     /// Write a crash marker to a file in Documents directory + UserDefaults.

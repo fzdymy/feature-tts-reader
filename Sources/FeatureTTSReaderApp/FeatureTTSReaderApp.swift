@@ -12,6 +12,7 @@ struct FeatureTTSReaderApp: App {
             TabView {
                 BookshelfView()
                     .environmentObject(store)
+                    .onAppear { ReaderStore.writeCrashMarker("bookshelf_onAppear") }
                     .tabItem { Label("书架", systemImage: "books.vertical") }
 
                 TTSView()
