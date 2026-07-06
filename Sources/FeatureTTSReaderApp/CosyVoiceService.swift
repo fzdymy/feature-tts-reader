@@ -424,7 +424,7 @@ actor CosyVoiceService {
 
             switch typeFlag {
             case 53: // directory
-                try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
             case 48, 0: // regular file
                 try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
                 try fileData.prefix(fileSize).write(to: dest, options: .atomic)

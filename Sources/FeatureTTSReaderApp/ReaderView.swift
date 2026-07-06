@@ -446,44 +446,8 @@ struct ReaderView: View {
                 .padding(.top, 24)
                 .padding(.bottom, 12)
 
-            ForEach(paragraphs.indices, id: \.self) { pi in
-                let paraText = paragraphs[pi]
-                let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
-                    ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
-                       ?? store.ttsQueue[store.ttsCurrentIndex].segment.paragraphIndex)
-                    : nil
-                let isReading: Bool
-                if let paraIdx, isCurrentChapter {
-                    isReading = paraIdx == pi
-                } else if isCurrentChapter {
-                    isReading = store.currentParagraphIndex.map { $0 == pi } ?? false
-                } else {
-                    isReading = false
-                }
-                Text(indentedText(paraText))
-                    .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-                    .foregroundColor(textColor)
-                    .lineSpacing(store.readerLineSpacing + 2)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, paraText == paragraphs.last ? 0 : 4)
-                    .background(isReading ? Color.accentColor.opacity(0.3) : Color.clear)
-                    .cornerRadius(4)
-                    .contextMenu {
-                        let names = extractCandidateNames(from: paraText)
-                        if !names.isEmpty {
-                            Text("添加为角色").font(.caption).foregroundColor(.secondary)
-                            ForEach(names, id: \.self) { name in
-                                Button(name) {
-                                    selectedTextForCharacter = name
-                                    showCharacterFromText = true
-                                }
-                            }
-                        }
-                        Button("复制段落") {
-                            UIPasteboard.general.string = paraText
-                        }
-                    }
+            ForEach(Array(0..<paragraphs.count), id: \.self) { pi in
+                paragraphView(pi: pi, paraText: paragraphs[pi], isCurrentChapter: isCurrentChapter)
             }
 
             Divider()
@@ -1259,6 +1223,46 @@ struct ReaderView: View {
         case .sepia: return "circle.lefthalf.filled"
         case .dark: return "moon.fill"
         }
+    }
+
+    @ViewBuilder
+    private func paragraphView(pi: Int, paraText: String, isCurrentChapter: Bool) -> some View {
+        let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
+            ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
+               ?? store.ttsQueue[store.ttsCurrentIndex].segment.paragraphIndex)
+            : nil
+        let isReading: Bool
+        if let paraIdx, isCurrentChapter {
+            isReading = paraIdx == pi
+        } else if isCurrentChapter {
+            isReading = store.currentParagraphIndex.map { $0 == pi } ?? false
+        } else {
+            isReading = false
+        }
+        Text(indentedText(paraText))
+            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+            .foregroundColor(textColor)
+            .lineSpacing(store.readerLineSpacing + 2)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+            .background(isReading ? Color.accentColor.opacity(0.3) : Color.clear)
+            .cornerRadius(4)
+            .contextMenu {
+                let names = extractCandidateNames(from: paraText)
+                if !names.isEmpty {
+                    Text("添加为角色").font(.caption).foregroundColor(.secondary)
+                    ForEach(names, id: \.self) { name in
+                        Button(name) {
+                            selectedTextForCharacter = name
+                            showCharacterFromText = true
+                        }
+                    }
+                }
+                Button("复制段落") {
+                    UIPasteboard.general.string = paraText
+                }
+            }
     }
 }
 
