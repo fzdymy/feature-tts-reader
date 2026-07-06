@@ -218,7 +218,17 @@ struct CharacterEditorView: View {
         audioRecorder = nil
         isRecording = false
         guard let url = recordingURL, FileManager.default.fileExists(atPath: url.path) else { return }
+        guard audioDuration(at: url) ?? 0 >= 3.0 else {
+            sampleError = "录音时长不足3秒，请重新录制"
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
         processSample(at: url)
+    }
+
+    private func audioDuration(at url: URL) -> TimeInterval? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        return TimeInterval(file.length) / file.fileFormat.sampleRate
     }
 
     private func handleAudioImport(_ result: Result<URL, Error>) {
@@ -232,6 +242,11 @@ struct CharacterEditorView: View {
             do {
                 let data = try Data(contentsOf: url)
                 try data.write(to: copy)
+                guard audioDuration(at: copy) ?? 0 >= 3.0 else {
+                    sampleError = "音频时长不足3秒，请选择更长的样本"
+                    try? FileManager.default.removeItem(at: copy)
+                    return
+                }
                 processSample(at: copy)
             } catch {
                 sampleError = "导入失败: \(error.localizedDescription)"

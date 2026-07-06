@@ -251,7 +251,7 @@ struct CharacterAssignmentPanel: View {
 
         Task { @MainActor in
             // Phase 1: chunked regex on full text
-            scanPhase = "正则匹配中..."
+            scanPhase = "正在扫描角色..."
             scanProgress = 0.0
             var allNames = Set<String>()
             let nsText = text as NSString
@@ -286,7 +286,7 @@ struct CharacterAssignmentPanel: View {
             // Phase 2: AC自动机频率统计 (Aho-Corasick 多模匹配)
             // 用字典树对前 500K 字做 O(n) 扫描，频次低于阈值的丢弃
             // 阈值按全文长度自适应：短文本从严，长文本从宽
-            scanPhase = "频率统计中..."
+            scanPhase = "正在统计分析..."
             etaText = ""
             let freqLimit = min(500_000, text.count)
             let freqText = String(text.prefix(freqLimit))
@@ -323,7 +323,7 @@ struct CharacterAssignmentPanel: View {
             allNames = Set(sortedByFreq.prefix(100))
 
             // Phase 3: attribute analysis (progress 0.50 → 1.0)
-            scanPhase = "属性分析中..."
+            scanPhase = "正在提取属性..."
             etaText = ""
             var inferred = [CharacterProfile]()
             let contextLimit = min(500_000, text.count)
@@ -417,7 +417,7 @@ struct CharacterAssignmentPanel: View {
             }
 
             scanProgress = 1.0
-            scanPhase = "完成"
+            scanPhase = "扫描完成"
             elapsedText = ""
             etaText = ""
             store.characters.removeAll { $0.bookID == nil || $0.bookID == book.id }

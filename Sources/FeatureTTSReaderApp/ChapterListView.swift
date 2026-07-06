@@ -6,6 +6,12 @@ struct ChapterListView: View {
     var currentChapterID: UUID?
     var chapters: [BookChapter] = []
     var onSelect: ((BookChapter, Int) -> Void)?
+    @State private var searchText = ""
+
+    private var filteredChapters: [BookChapter] {
+        guard !searchText.isEmpty else { return chapters }
+        return chapters.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,11 +23,12 @@ struct ChapterListView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(chapters.enumerated()), id: \.element.id) { chapterIndex, chapter in
+                        ForEach(Array(filteredChapters.enumerated()), id: \.element.id) { chapterIndex, chapter in
+                            let originalIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? chapterIndex
                             let isCurrent = chapter.id == currentChapterID
                             let bg = isCurrent ? Color.accentColor.opacity(0.15) : Color.clear
                             Button(action: {
-                                onSelect?(chapter, chapterIndex)
+                                onSelect?(chapter, originalIndex)
                                 dismiss()
                             }) {
                                 HStack {
@@ -40,7 +47,7 @@ struct ChapterListView: View {
                                 .background(bg)
                             }
                             .buttonStyle(.plain)
-                            if chapterIndex < chapters.count - 1 {
+                            if chapterIndex < filteredChapters.count - 1 {
                                 Divider().padding(.leading, 16)
                             }
                         }
@@ -48,6 +55,7 @@ struct ChapterListView: View {
                 }
             }
         }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索章节")
         .navigationTitle("章节目录")
     }
 }
