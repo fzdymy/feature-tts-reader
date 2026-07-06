@@ -502,7 +502,7 @@ actor CosyVoiceService {
 
         // 1. Compute cache key
         let segmentText = segments.map { "\($0.speaker)|\($0.emotion ?? "")|\($0.text)" }.joined(separator: "\n")
-        let embedKeys = (speakerEmbeddings.keys + speakerSamples.keys).sorted().joined(separator: ",")
+        let embedKeys = Array(speakerEmbeddings.keys).sorted().joined(separator: ",") + "|" + Array(speakerSamples.keys).sorted().joined(separator: ",")
         let key = cacheKey(text: "dialogue:\(segmentText)|samples:\(embedKeys)", embedding: nil)
         if let cached = cachedAudio(key: key) { return cached }
 
