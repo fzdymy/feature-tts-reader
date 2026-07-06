@@ -32,14 +32,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure hf CLI (pre-installed on macos-15)
+      - name: Install huggingface_hub
         run: |
-          if ! command -v hf &>/dev/null; then
-            python3 -m venv /tmp/hf-venv
-            source /tmp/hf-venv/bin/activate
-            pip install huggingface-hub
-            echo "/tmp/hf-venv/bin" >> $GITHUB_PATH
-          fi
+          python3 -m venv /tmp/hf-venv
+          source /tmp/hf-venv/bin/activate
+          pip install -q huggingface_hub
+          echo "/tmp/hf-venv/bin" >> $GITHUB_PATH
 
       - name: Resolve variant
         id: resolve
@@ -54,34 +52,33 @@ jobs:
           TAG="${TAG//\//-}"
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Download model from HuggingFace (China mirror)
+      - name: Download model from HuggingFace
         env:
-          HF_ENDPOINT: https://hf-mirror.com
           HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
+          MODEL_ID: ${{ steps.resolve.outputs.MODEL }}
         run: |
-          MODEL="${{ steps.resolve.outputs.MODEL }}"
+          source /tmp/hf-venv/bin/activate
           TAG="${{ steps.resolve.outputs.TAG }}"
-          echo "Downloading $MODEL via $HF_ENDPOINT ..."
+          echo "Downloading $MODEL_ID ..."
 
           mkdir -p /tmp/cosyvoice-model
 
-          # Login if token is available (public repos work without it)
-          if [ -n "$HF_TOKEN" ]; then
-            if command -v hf &>/dev/null; then
-              hf auth login --token "$HF_TOKEN"
-            else
-              huggingface-cli login --token "$HF_TOKEN"
-            fi
-          fi
+          python3 -c "
+import os
+os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
+from huggingface_hub import snapshot_download, login
 
-          if command -v hf &>/dev/null; then
-            hf download "$MODEL" --local-dir /tmp/cosyvoice-model
-          else
-            huggingface-cli download "$MODEL" \
-              --local-dir /tmp/cosyvoice-model \
-              --local-dir-use-symlinks False \
-              --resume-download
-          fi
+token = os.environ.get('HF_TOKEN', '')
+if token:
+    login(token=token)
+
+snapshot_download(
+    repo_id=os.environ['MODEL_ID'],
+    local_dir='/tmp/cosyvoice-model',
+    local_dir_use_symlinks=False,
+    resume_download=True,
+)
+"
 
           # Create tarball
           cd /tmp
