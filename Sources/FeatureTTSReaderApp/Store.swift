@@ -173,10 +173,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             Self.writeCrashMarker("task_loadState_done")
         }
 
-        // Pre-warm CosyVoice model so playback doesn't trigger first-time download
-        Self.writeCrashMarker("init_before_prewarm")
-        CosyVoiceService.prewarm()
-        Self.writeCrashMarker("init_after_prewarm")
+        // CosyVoice model will be downloaded on first use (not at launch)
+        // to avoid crashes from CosyVoiceTTSModel.fromPretrained() internal fatalError.
+        Self.writeCrashMarker("init_skip_prewarm")
     }
 
     /// Write a crash marker to a file in Documents directory + UserDefaults.
