@@ -11,16 +11,22 @@ struct TTSView: View {
     @State private var downloadStartedAt: Date?
     @State private var downloadElapsed: TimeInterval = 0
     @State private var showCopied = false
+    @State private var showManualImport = false
+    @State private var importModelURL: URL?
+    @State private var selectedVariant = 0
+    @State private var importError: String?
+    @State private var downloadProgress: Double = 0
+    @State private var showManualImport = false
+    @State private var importModelURL: URL?
+    @State private var selectedVariant = 0  // index into CosyVoiceService.variants
+    @State private var importError: String?
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    /// Estimated download progress (0.0-1.0) based on elapsed time
-    private var estimatedProgress: Double? {
-        guard let start = downloadStartedAt, downloadPhase == .downloading else { return nil }
-        let elapsed = Date().timeIntervalSince(start)
-        // Assume ~8 MB/s download speed; estimate total time = size / speed
-        let estimatedSecs = Double(CosyVoiceService.estimatedModelSize) / (8 * 1_000_000)
-        return min(elapsed / estimatedSecs, 0.99)
+    private var realProgress: Double? {
+        guard downloadPhase == .downloading else { return nil }
+        let p = downloadProgress
+        return p > 0 ? p : nil
     }
 
     private var elapsedText: String {
@@ -39,6 +45,7 @@ struct TTSView: View {
                 engineSection
                 downloadSection
                 testSection
+                samplesSection
                 infoSection
             }
             .listStyle(.insetGrouped)
@@ -73,10 +80,20 @@ struct TTSView: View {
     @ViewBuilder
     private var downloadSection: some View {
         Section {
+            // Variant picker (only when idle)
+            if downloadPhase == .idle {
+                Picker("模型版本", selection: $selectedVariant) {
+                    ForEach(Array(CosyVoiceService.variants.enumerated()), id: \.offset) { i, v in
+                        Text(v.name).tag(i)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
             switch downloadPhase {
             case .idle:
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("模型未下载 (~1.7GB)")
+                    Text("模型未下载 (~1.2GB)")
                         .foregroundColor(.secondary)
                     Text("需要网络连接，仅首次需下载")
                         .font(.caption).foregroundColor(.secondary)
@@ -93,7 +110,7 @@ struct TTSView: View {
                         Text("正在下载模型…")
                             .foregroundColor(.secondary)
                     }
-                    if let progress = estimatedProgress {
+                    if let progress = realProgress {
                         ProgressView(value: progress)
                             .tint(.blue)
                         HStack {
@@ -142,25 +159,41 @@ struct TTSView: View {
                 }
             }
 
-            if downloadPhase != .ready {
-                Divider()
-                HStack {
-                    Text("CDN 下载地址（可复制到浏览器）")
-                        .font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Button {
-                        UIPasteboard.general.string = CosyVoiceService.modelDownloadURL
-                        showCopied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }
-                    } label: {
-                        Label(showCopied ? "已复制" : "复制", systemImage: showCopied ? "checkmark" : "doc.on.doc")
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
+            Divider()
+            HStack {
+                Text("手动下载（复制链接到浏览器）")
+                    .font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Button {
+                    let repo = CosyVoiceService.variants[selectedVariant].repo
+                    UIPasteboard.general.string = "https://huggingface.co/\(repo)"
+                    showCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }
+                } label: {
+                    Label(showCopied ? "已复制" : "复制链接", systemImage: showCopied ? "checkmark" : "doc.on.doc")
                 }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            }
+
+            HStack {
+                Text("从本地文件导入模型")
+                    .font(.caption).foregroundColor(.secondary)
+                Spacer()
+                Button("导入模型文件夹") {
+                    showManualImport = true
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+            }
+            if let err = importError {
+                Text(err).font(.caption).foregroundColor(.red)
             }
         } header: {
             Label("模型下载", systemImage: "arrow.down.circle")
+        }
+        .fileImporter(isPresented: $showManualImport, allowedContentTypes: [.folder]) { result in
+            handleModelImport(result)
         }
     }
 
@@ -224,6 +257,7 @@ struct TTSView: View {
             downloadPhase = await svc.downloadPhase
             downloadError = await svc.downloadError
             downloadStartedAt = await svc.downloadStartedAt
+            downloadProgress = await svc.downloadProgress
             if let start = downloadStartedAt {
                 downloadElapsed = Date().timeIntervalSince(start)
             }
@@ -241,7 +275,71 @@ struct TTSView: View {
         Task {
             do {
                 try await CosyVoiceService.shared.ensureModel()
-            } catch {}
+            } catch {
+                downloadError = error.localizedDescription
+            }
+        }
+    }
+
+    private func handleModelImport(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            Task {
+                do {
+                    try await CosyVoiceService.shared.importModel(from: url)
+                } catch {
+                    importError = error.localizedDescription
+                }
+            }
+        case .failure(let error):
+            importError = error.localizedDescription
+        }
+    }
+
+    private var voiceSamples: [URL] {
+        guard let bundleURL = Bundle.module.url(forResource: "default_samples", withExtension: nil) else { return [] }
+        let urls = (try? FileManager.default.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)) ?? []
+        return urls.filter { $0.pathExtension.lowercased() == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    @ViewBuilder
+    private var samplesSection: some View {
+        Section {
+            if voiceSamples.isEmpty {
+                Text("暂无内置音色样本").foregroundColor(.secondary)
+            } else {
+                Text("APP内置 \(voiceSamples.count) 个音色样本 (16kHz 单声道 WAV)")
+                    .font(.caption).foregroundColor(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(voiceSamples, id: \.path) { url in
+                            VStack(spacing: 4) {
+                                Image(systemName: "waveform.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.blue)
+                                Text(url.deletingPathExtension().lastPathComponent)
+                                    .font(.caption2)
+                                    .lineLimit(2)
+                                    .frame(width: 60)
+                                    .multilineTextAlignment(.center)
+                                Button("播放") {
+                                    Task { await store.audioController.playFilesAndWait([url]) }
+                                }
+                                .font(.caption2)
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.mini)
+                            }
+                            .padding(6)
+                            .background(Color(.secondarySystemBackground))
+                            .cornerRadius(8)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(height: 120)
+            }
+        } header: {
+            Label("音色样本库", systemImage: "waveform.circle")
         }
     }
 }

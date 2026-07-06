@@ -1,0 +1,58 @@
+name: Release CosyVoice Model
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Model variant'
+        required: true
+        default: 'aufklarer/CosyVoice3-0.5B-MLX-4bit'
+        type: choice
+        options:
+          - aufklarer/CosyVoice3-0.5B-MLX-4bit
+          - aufklarer/CosyVoice3-0.5B-MLX-8bit
+          - aufklarer/CosyVoice3-0.5B-MLX-8bit-full
+          - aufklarer/CosyVoice3-0.5B-MLX-bf16
+  schedule:
+    - cron: '0 0 1 * *'  # Monthly check
+
+jobs:
+  upload-model:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install huggingface_hub
+        run: pip3 install huggingface_hub
+
+      - name: Download model from HuggingFace
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          MODEL_ID="${{ github.event.inputs.variant || 'aufklarer/CosyVoice3-0.5B-MLX-4bit' }}"
+          TAG="${MODEL_ID#*/}"
+          TAG="${TAG//\//-}"
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+          mkdir -p /tmp/cosyvoice-model
+          huggingface-cli download \
+            "$MODEL_ID" \
+            --local-dir /tmp/cosyvoice-model \
+            --local-dir-use-symlinks False \
+            --resume-download
+
+          # Create tarball
+          cd /tmp
+          tar czf cosyvoice-model.tar.gz cosyvoice-model/
+          ls -lh cosyvoice-model.tar.gz
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "cosyvoice-${{ env.TAG }}" \
+            /tmp/cosyvoice-model.tar.gz \
+            --title "CosyVoice Model ${{ env.TAG }}" \
+            --notes "CosyVoice model variant: ${{ github.event.inputs.variant || 'aufklarer/CosyVoice3-0.5B-MLX-4bit' }}" \
+            --prerelease

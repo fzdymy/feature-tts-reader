@@ -27,6 +27,8 @@ actor CosyVoiceService {
     private(set) var isDownloading = false
     private(set) var downloadError: String?
     private(set) var downloadStartedAt: Date?
+    /// Real download progress (0.0–1.0) reported by HuggingFaceDownloader
+    private(set) var downloadProgress: Double = 0
     /// Approximate model size for progress estimation (bytes)
     static let estimatedModelSize: Int64 = 1_300_000_000
     /// Default CosyVoice 3 variant (4-bit, ~1.2 GB)
@@ -38,8 +40,9 @@ actor CosyVoiceService {
         ("8bit-full (~1.6 GB)", "aufklarer/CosyVoice3-0.5B-MLX-8bit-full"),
         ("bf16 (~2.1 GB)", "aufklarer/CosyVoice3-0.5B-MLX-bf16"),
     ]
+    /// Direct download: HF uses ?download=1 param to force download.
     nonisolated static var modelDownloadURL: String {
-        "https://huggingface.co/\(defaultVariant)"
+        "https://huggingface.co/\(defaultVariant)/resolve/main/config.json?download=1"
     }
 
     // MARK: - TTS Cache
@@ -192,9 +195,16 @@ actor CosyVoiceService {
         isDownloading = true
         downloadError = nil
         downloadPhase = .downloading
+        downloadProgress = 0
         downloadStartedAt = Date()
         do {
-            ttsModel = try await CosyVoiceTTSModel.fromPretrained()
+            ttsModel = try await CosyVoiceTTSModel.fromPretrained(
+                modelId: Self.defaultVariant,
+                offlineMode: false,
+                progressHandler: { [weak self] progress, stage in
+                    Task { await self?.updateDownloadProgress(progress, stage: stage) }
+                }
+            )
             try Task.checkCancellation()
             downloadPhase = .warming
             ttsModel?.warmUp()
@@ -210,12 +220,47 @@ actor CosyVoiceService {
         downloadStartedAt = nil
     }
 
+    private func updateDownloadProgress(_ progress: Double, stage: String) {
+        downloadProgress = progress
+    }
+
     func resetDownload() {
         ttsModel = nil
         downloadPhase = .idle
         isDownloading = false
         downloadError = nil
         downloadStartedAt = nil
+        downloadProgress = 0
+    }
+
+    /// Import a pre-downloaded model from a local folder selected by the user.
+    /// Copies model files into the HF cache directory and loads the model.
+    func importModel(from sourceDir: URL) async throws {
+        guard ttsModel == nil else { return }
+        let cacheDir = HuggingFaceDownloader.getCacheDirectory(for: Self.defaultVariant)
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let items = try FileManager.default.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil)
+        for item in items {
+            let dest = cacheDir.appendingPathComponent(item.lastPathComponent)
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: item, to: dest)
+        }
+        downloadPhase = .warming
+        do {
+            ttsModel = try await CosyVoiceTTSModel.fromPretrained(
+                modelId: Self.defaultVariant,
+                cacheDir: cacheDir,
+                offlineMode: true
+            )
+            ttsModel?.warmUp()
+            downloadPhase = .ready
+        } catch {
+            downloadPhase = .failed
+            downloadError = error.localizedDescription
+            throw error
+        }
     }
 
     /// Extract 192-dim CAM++ speaker embedding from a reference audio file.
@@ -386,11 +431,13 @@ private extension Int16 {
 enum TTSError: LocalizedError {
     case modelNotAvailable
     case synthesisFailed(String)
+    case importFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .modelNotAvailable: return "CosyVoice 模型未加载，请检查网络连接后重试"
         case .synthesisFailed(let msg): return "语音合成失败: \(msg)"
+        case .importFailed(let msg): return "模型导入失败: \(msg)"
         }
     }
 }
