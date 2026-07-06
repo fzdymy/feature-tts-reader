@@ -1,220 +1,156 @@
-# FeatureTTSReader — On-Device Multi-Role TTS 集成计划
+# FeatureTTSReader — On-Device Multi-Role TTS
 
 ## 现状 (2026-07)
 
-- iOS 18+ / Swift 5.9 / SwiftUI
+- iOS 18+ / Swift 5.9 / SwiftUI / Xcode 26.3+
 - 角色检测: BERT embedding + 余弦相似度 (77% 准确率)
-- TTS: HTTP 客户端 → 本地服务器 (Edge-TTS/GPT-SoVITS)
-- 角色 → 音色: Azure TTS 音色 ID, rate/pitch/style 参数
+- TTS: CosyVoice 3 DialogueSynthesizer (on-device MLX)
+- 角色 → 音色: CAM++ 声纹 (10秒音频样本 → 192维嵌入)
+- 下载: GitHub Releases + 代理加速 (gh-proxy / ghfast / 自定义)
 
-## 目标架构
+## 架构数据流
 
 ```
 小说文本
-  → BERT 角色检测 (已有, 确定每句对白的角色)
-  → analyzeSentenceTone (已有, 确定每句情绪)
-  → 拼接: "[陈煜] (angry) 你这个小偷！"
-  → CosyVoice 3 DialogueSynthesizer (on-device MLX)
-    → 每个角色: CAM++ 声纹 (10秒音频样本 → 192维嵌入)
-  → 24kHz 音频 → AVPlayer 播放
+  → extractChapters → [BookChapter]
+    → buildDialogueBlocks(按引号分组段落) → [SpeechBlock]
+      → parseDialogueSegments(角色识别+情绪分析) → [DialoguePart]
+        → alias→canonical 名称映射 → cosySegments
+          → CosyVoiceService.synthesizeDialogueWithEmbeddings
+            → [角色名: CAM++192维嵌入]
+            → DialogueSynthesizer → [Float] → WAV
+              → AVPlayer 播放 + paragraphIndex 高亮同步
 ```
 
-## 阶段
+## 已修复的关键 Bug (2026-07-07 全面审计)
 
-### Phase 0: 基础设施 ✅ (已完成)
-- [x] `Scripts/convert_distilbert.py` — BERT 转 Core ML
-- [x] `.github/workflows/convert-ml-model.yml` — CI 转换流水线
-- [x] `BertSpeakerDetector.swift` — 角色检测嵌入模型
-- [x] `Package.swift` — BERT 模型资源
+### P0 — 编译错误 ✅ 全部已修复
 
-### Phase 1: 代码清理 ✅ (已完成)
-- [x] 更新 `Package.swift` 加 speech-swift 依赖 (删 VoiceCatalog 待 Phase 5)
-- [x] 更新 `Models.swift`:
-  - `CharacterProfile` 加 `voiceSampleURL` / `voiceSampleEmbedding`
-  - 删除错误重复的 TTSServer/VoiceProfileTuning/TagPreset/RoleTemplate 定义
-- [x] 删 `Services.swift` 中的 `TTSHttpClient` (保留 AudioPlaybackController/AsyncSemaphore)
-- [x] 删 `TTSServerListView.swift`, `VoiceFineTuneView.swift`
-- [x] `TTSView.swift` → 重写为 CosyVoice 状态页 (移除旧 UI)
-
-### Phase 2: CosyVoice 引擎 ✅ (已完成)
-- [x] 创建 `CosyVoiceService.swift`:
-  - 封装 `CosyVoiceTTSModel.fromPretrained()` + 懒加载
-  - CAM++ 声纹提取 (`CamPlusPlusSpeaker`)
-  - `synthesizeDialogue(segments:speakerSamples:)` → `Data` (WAV)
-  - `synthesizeSingle(text:embedding:)` 单句预览
-  - 内建 `AudioConverter.floatToWAV()` 将 [Float] → WAV
-- [x] 更新 `Store.swift`:
-  - `playChapterStreaming` 用 `CosyVoiceService.shared.synthesizeDialogue` 替换 HTTP TTS
-  - `previewVoice` 用 `CosyVoiceService.shared.synthesizeSingle` 替换 HTTP
-  - `testActiveServer` / `testTTSSynthesize` → 切换至 CosyVoice 检测
-  - 删 `client` 属性 (TTSHttpClient), 删 `loadTTSServers`/`loadVoiceProfiles` 等加载逻辑
-  - `playChapterWithTTS` → 简化为重定向到 `playChapterStreaming`
-  - 删 `playScriptSegments` (旧批量 HTTP 合成逻辑)
-  - `CharacterEditorView`/`CharacterAssignmentView` TTS sample → CosyVoice
-
-### Phase 3: 管道对接 ✅ (已完成)
-- [x] `DialoguePart` 新增 `emotionTag: String?` 字段
-- [x] `parseDialogueSegments` → 对话部分调用 `analyzeSentenceTone` → 映射到 CosyVoice 情绪标签 (angry/happy/sad/nil)
-- [x] 情绪标签映射: `mapToneToEmotionTag()` 在 `Store.swift`
-- [x] `createScriptSegments` → 传递 `emotionTag` 到 `ScriptSegment`
-- [ ] TTS 缓存: 按 embedding+text hash (待后续优化)
-
-### Phase 4: UI 更新 ✅ (已完成)
-- [x] `SettingsView.swift`: 加 CosyVoice 状态, 删 TTS 服务器设置 (已无相关 UI)
-- [x] `CharacterEditorView.swift`: 加音频样本录制/导入 (WAV 录制 + 文件导入 + 声纹提取)
-- [x] `CharacterAssignmentView.swift`: 显示声纹状态 (context menu 生成试听使用 CosyVoice)
-- [x] 适配 `ScriptSegment` 新字段 (voiceSampleURL, emotionTag) (Phase 3 已完成)
-
-### Phase 5: 清理 ✅ (已完成)
-- [x] 删 `VoiceCatalog.swift` (仍保留, Azure 音色目录用于角色推荐系统; 后续再决定是否移除)
-- [x] 删 `VoiceFineTuneView.swift` (已删除)
-- [x] 删 `TTSServerListView.swift` (已删除)
-- [x] 删 `TemplateManageView.swift`, `TagManageView.swift`, `DefaultTemplates.swift`
-- [x] 删 `TTSServer`, `VoiceProfileTuning`, `TagPreset`, `TagCategory`, `RoleTemplate`, `TemplateRole`, `TemplateExport`, `TTSExport` (Models.swift)
-- [x] 删 `ttsServers`/`voiceProfiles`/`tagPresets`/`roleTemplates` properties + all CRUD methods (Store.swift)
-- [x] 删 `apiEndpoint`/`apiKey` from `ReaderState` (Models.swift) + `Store.swift` + `SettingsView.swift`
-- [x] 删 `activeServer` guard in `ReaderView.swift` (CosyVoice 无需服务器配置)
-
-## 数据模型变更
-
-### CharacterProfile (Models.swift)
-```swift
-var voiceSampleURL: URL?  // 新增: 用于 CosyVoice voice cloning 的参考音频
-var voiceSampleEmbedding: Data?  // 新增: 缓存的 CAM++ 192-dim 嵌入
-```
-
-### ScriptSegment (Models.swift)
-```swift
-var emotionTag: String?  // 新增: CosyVoice 情绪标签, 如 "angry"/"sad"/"happy"
-var paragraphIndex: Int?  // 新增: 段落索引, 用于朗读高亮同步
-```
-
-### TTSQueueItem (Models.swift)
-```swift
-var paragraphIndex: Int?  // 新增: 段落索引, 用于精确高亮
-```
-
-### 删除的模型
-- `TTSServer` — 不再需要 HTTP TTS 服务器
-- `VoiceProfileTuning` — 不再需要 Azure 音色微调
-- `TagPreset` — 不再需要
-- `RoleTemplate` — 不再需要
-- `VoiceItem` / `VoiceCatalog` — 不再需要 Azure 音色目录
-
-## CosyVoice TTS API 设计
-
-```swift
-// CosyVoiceService.swift
-actor CosyVoiceService {
-    static let shared = CosyVoiceService()
-    
-    /// 确保模型已下载并初始化
-    func ensureModel() async throws
-    
-    /// 合成多角色对话 (URL-based speaker enrollment)
-    func synthesizeDialogue(
-        segments: [(speaker: String, text: String, emotion: String?)],
-        speakerSamples: [String: URL]
-    ) async throws -> Data
-    
-    /// 合成多角色对话 (pre-computed embeddings + URL fallback)
-    func synthesizeDialogueWithEmbeddings(
-        segments: [(speaker: String, text: String, emotion: String?)],
-        speakerEmbeddings: [String: [Float]],  // cached CAM++ 192-dim
-        speakerSamples: [String: URL]          // fallback URLs
-    ) async throws -> Data
-    
-    /// 给角色设定声纹 (CAM++ 提取)
-    func enrollSpeaker(name: String, audioURL: URL) async throws -> [Float]
-    
-    /// 取消正在进行的下载
-    func cancelDownload()
-    
-    /// 从本地导入模型 (文件夹 or .tar.gz)
-    func importModel(from sourceURL: URL) async throws
-    
-    /// 重置下载状态并删除缓存模型
-    func resetDownload()
-}
-```
-
-## 已知问题 & 待优化清单 (2026-07-06 审计)
-
-### P0 — 编译 & 崩溃 (全部已修复 ✅)
-
-| # | 问题 | 状态 |
+| # | 问题 | 修复 |
 |---|------|------|
-| #30 | CosyVoiceService 多线程下载编译失败 | ✅ 已修复 (改用 withThrowingTaskGroup) |
-| #31 | URLSession.AsyncBytes 返回 UInt8 非 Data | ✅ 已修复 (改用 download(for:) streaming) |
-| #32 | Data.gunzipped() 在 Xcode 26.3 不可用 | ✅ 已修复 (gunzippedFallback) |
-| #33 | tar 提取 size 作用域逃逸 | ✅ 已修复 |
-| #BTN | Button("", role:, systemImage:) 参数顺序错误 (Xcode 26.6) | ✅ 已修复 (systemImage 必须在 role 前) |
+| #B1 | `ForEach(paragraphs.indices)` 在 Swift 6 中被推断为闭包类型 | `Array(0..<count)` + extract paragraphView method |
+| #B2 | `onChange(of:perform:)` deprecated in iOS 17+ | 迁移到双参数 closure `{ _, newValue in }` |
+| #B3 | `Button("", systemImage:, role:)` 参数顺序 (Xcode 26.6) | systemImage 必须在 role 前 |
+| #B4 | `@MainActor` missing on HapticManager methods | 添加 `@MainActor` |
+| #B5 | 未使用变量 `fontsDir` | 删除 |
+| #B6 | `handleExternalNavigate` missing label `nav:` | 改为 `handleExternalNavigate(nav: newValue)` |
+| #B7 | `@ViewBuilder` 中 `if-let` 返回 `Void` 不能 conform View | 提取为独立 helper function |
+| #B8 | `Task<Void, Never>` 不能存储 throwing closure | 改为 `Task<Void, Error>` |
 
-### P1 — 功能修复 (2026-07-06)
+### P0 — 运行时崩溃/静默错误 ✅ 全部已修复
 
-| # | 问题 | 位置 | 状态 |
+| # | 问题 | 严重性 | 修复 |
+|---|------|--------|------|
+| #C1 | Embedding 存储为 JSON(CharacterEditorView) 但读取为 raw binary(Store.playChapterStreaming) | **CRITICAL**: 声纹克隆朗读时完全无效 | Store.swift:1309 改用 `JSONDecoder().decode([Float].self, from:)` |
+| #C2 | Vocative 检测循环永不赋值 `speaker` 变量 | **CRITICAL**: "陈煜，你站住!" 无法识别说话者 | `speaker = name; break` 代替 `break` |
+| #C3 | `cancelDownload()` 从不 cancel 实际网络请求 (activeDownloadTask 从未赋值) | **CRITICAL**: 取消按钮不可用 | 使用 `activeDownloadTask = Task { ... }` 包装下载 |
+| #C4 | `stop()` 不 resume `playbackContinuation` → 调用者永久挂起 | **CRITICAL**: 切换章节/停止朗读可能死锁 | `stop()` 末尾添加 `playbackContinuation?.resume()` |
+| #C5 | `nonisolated(unsafe)` static var 数据竞争 | **HIGH**: 未定义行为 | 改为 `OSAllocatedUnfairLock` 保护全局变量 |
+
+### P1 — 功能缺陷 ✅ 全部已修复
+
+| # | 问题 | 严重性 | 修复 |
+|---|------|--------|------|
+| #D1 | Block-skip 逻辑: 空 if 分支不处理跨块起始段 | **HIGH** | `guard block.globalStart + block.texts.count > startParaIndex` |
+| #D2 | TOCTOU 竞态: `isPlaying` 订阅前播放结束导致管道永远等待 | **HIGH** | 先订阅 `.dropFirst()` 再 `playQueue` |
+| #D3 | 别名 vs 规范名不匹配: CosyVoice 查找 embedding 用规范名但 segments 可能用别名 | **HIGH** | `cosySegments` 构建时解析别名 → 规范名 |
+| #D4 | `CharacterScanner.scan` 不设置 `bookID` → 跨书角色污染 | **HIGH** | 添加 `bookID` 参数并传递到 `CharacterProfile.init` |
+| #D5 | `！`+`？` 组合 (如"你怎么敢？！") 错误返回 "neutral" | **HIGH** | 重写逻辑: 先检查 `！`, 再检查 `？`, `！+？=angry` |
+
+### P2 — 逻辑缺陷 ✅ 已修复
+
+| # | 问题 | 修复 |
+|---|------|------|
+| #E1 | `hasVoiceSample` 只检查 `voiceSampleURL` 忽略 embedding | 改为 `voiceSampleURL != nil \|\| voiceSampleEmbedding != nil` |
+| #E2 | Tar 目录提取创建 parent 而非目录本身 | 改为 `createDirectory(at: dest)` |
+| #E3 | `cacheStatistics()` 永远返回 0 | 改为 async (当前未调用, 死代码) |
+| #E4 | `inferCharacters` 完全未使用 | 死代码, 保留但标注 |
+| #E5 | `activeServerTestResult` / `isTestingServer` 命名陈旧 | 保留 (功能正确但命名需后续清理) |
+| #E6 | `defaultVoice` / `defaultMaleVoiceID` / `defaultFemaleVoiceID` 使用 Azure ID | 对 CosyVoice 无效, 需后续替换 |
+| #E7 | `VoiceCatalog` / `VoiceItem` / `VoiceCatalogSource` 仍被引用但 Azure 音色无意义 | 需后续清理 |
+
+## 已知待优化问题 (按优先级)
+
+### P1 — 功能缺失
+
+| # | 问题 | 位置 | 说明 |
 |---|------|------|------|
-| #34 | 模型已下载后无删除按钮 | `TTSView.swift:203` | ✅ 已修复 |
-| #35 | 朗读高亮与播放不同步 | `Store.swift:1318` `ReaderView.swift:449` | ✅ 已修复 (使用 paragraphIndex 精确索引) |
-| #36 | ScriptSegment/TTSQueueItem 缺少段落索引 | `Models.swift` | ✅ 已修复 (新增 paragraphIndex) |
-| #37 | 不能从指定段落开始朗读 | `Store.swift:1291-1296` | ⚠️ fromParagraph 仍用文本匹配 (可通过 paragraphIndex 改进) |
-| #38 | 每个 block 合成一个 WAV | `Store.swift:1349-1370` | ⚠️ 仍需优化: 逐句合成可支持逐句跳过 |
-| #39 | 播放队列只有 1 个 item | `Store.swift:1370` | ⚠️ 仍需优化: 多 block 连续队列 |
-| #40 | 连续合成效率低 | `Store.swift:1373-1381` | ⚠️ 仍需优化: 用 checkedContinuation 等播完再合成 |
-| #41 | 格式化文本未替换原文件 | `Store.swift:740-748` | ⚠️ 实际已替换但 UI 不明显 |
-| #EMB | playChapterStreaming 未使用缓存的 voiceSampleEmbedding | `Store.swift:1305-1309` | ✅ 已修复 (新增 synthesizeDialogueWithEmbeddings) |
+| F1 | 无法从指定段落开始朗读 (fromParagraph) | `Store.swift:1326` | 仍需 `paragraphIndex` 精确跳转, 当前 block 级跳过不够精准 |
+| F2 | 每个 block 合成一个 WAV, 无法逐句跳过 | `Store.swift:1339-1375` | 需拆分 block 为单句合成, 支持逐句跳过 |
+| F3 | 播放队列仅 1 个 item | `Store.swift:1395` | 需支持多 block 连续队列预加载 |
+| F4 | 下载进度仅显示 0.5→1.0(无中间态) | `CosyVoiceService.swift:341-364` | 需 `URLSessionDownloadDelegate` 流式进度 |
+| F5 | 文件导入器 .tar.gz 选取可能无效(iOS) | `TTSView.swift:253-257` | 需用户测试; 备选 `.data` + 手动检测 |
+| F6 | 连续合成效率低 (串行等待) | `Store.swift:1373-1381` | 需并行合成 + 队列缓冲 |
+| F7 | importModel 路径与 HF cache 不一致 | `CosyVoiceService.swift:~475` | 需统一 cache 目录 |
 
-### P1 — 下载 & 导入
+### P2 — 逻辑优化
 
-| # | 问题 | 位置 | 状态 |
+| # | 问题 | 位置 | 说明 |
 |---|------|------|------|
-| #DL1 | 下载使用 Data(count:) 预分配 1GB 内存 | `CosyVoiceService.swift:335` | ✅ 已修复 (改用 download(for:) streaming) |
-| #DL2 | 多线程 Range 下载通过代理可能失败 | `CosyVoiceService.swift` | ✅ 已修复 (简化为单线程 download(for:)) |
-| #DL3 | 文件导入器不能选取 .tar.gz 文件 | `TTSView.swift:272` | ✅ 已修复 (使用 UTType(filenameExtension:"tar.gz")) |
-| #DL4 | 导入 .tar.gz 后的安全访问权限跨异步边界 | `TTSView.swift` | ✅ 已修复 (bookmark + startAccessingSecurityScopedResource) |
-| #DL5 | importModel 路径硬编码 HF cache | `CosyVoiceService.swift:475` | ⚠️ HuggingFaceDownloader.getCacheDirectory 与新下载目录不一致 |
-| #DL6 | downloadProgress 的 refreshStatus 竞态 | `TTSView.swift:358-364` | ✅ 已修复 (refreshStatus 不覆盖用户触发的 .downloading) |
-| #DL7 | 下载无取消/继续按钮 | `TTSView.swift` | ✅ 已修复 (新增 cancelDownload + 取消按钮) |
-| #DL8 | 下载进度只显示 0.5→1.0，无百分比/速度 | `CosyVoiceService.swift:322` | ⚠️ download(for:) 不提供中间进度, 仅显示 spinning + 取消按钮 |
+| G1 | VoiceCatalog / VoiceItem 清理 | `Models.swift` `VoiceCatalog.swift` `CharacterEditorView.swift` | 移除 Azure 音色选择器, 替换为 Voice cloning 状态显示 |
+| G2 | CharacterEditorView 中 Azure 语速/音调/风格控制已无效 | `CharacterEditorView.swift:55-61` | CosyVoice 用 emotionTag, 而非 rate/pitch/style |
+| G3 | 播放队列文件积累无清理 | `CosyVoiceService.swift:memoryCache` | evictDiskLRU 需测试 |
+| G4 | BERT speaker detection 无错误处理 | `BertSpeakerDetector.swift` | 需 try-catch 包装 |
+| G5 | Logger 日志文件不轮转 | `Logger.swift` | 需按时间/大小轮转 |
+| G6 | dispatchWorkItem 取消防抖竞态 | `ReaderView.swift` | 需检查 workItem 标识 |
+| G7 | 语音测试播放过期缓存 | `TTSView.swift:testSection` | 校验文件存在性 |
+| G8 | Block builder 仅检测 `\u{201C}` 和 `\u{300C}` | `Store.swift:1250,1261` | 应支持 `\u{300E}`, `\u{2018}` 等 |
+| G9 | 双情绪分析粒度不一致 (chunk vs full quote) | `Store.swift:1565,1605` | 统一使用全句或者分块的分析结果 |
+| G10 | `applyVoice` 设置 Azure ID | `Store.swift:1098-1104` | 对 CosyVoice 无意义 |
+| G11 | `defaultRate` / `defaultPitch` / `defaultStyle` 存储但未使用 | `Store.swift:127-135` | 旧 HTTP TTS 残留 |
 
-### P2 — 逻辑缺陷
+### P3 — 架构改进
 
-| # | 问题 | 位置 | 状态 |
-|---|------|------|------|
-| #42 | 同本书扫描角色多次重复累积 | `CharacterAssignmentView.swift` `Store.swift` | ✅ 已修复 (scanCharacters 先 removeAll 当前书) |
-| #43 | 缓存音频无清理机制 | `CosyVoiceService.swift:58-66` | ⚠️ evictDiskLRU 已实现但未充分测试 |
-| #44 | BERT speaker detection 未做错误处理 | `BertSpeakerDetector.swift` | ⚠️ 仍待修复 |
-| #45 | ReaderView 滚动到朗读段不可靠 | `ReaderView.swift:1194` | ✅ 间接修复 (paragraphIndex 改善匹配准确度) |
-| #46 | 语音测试可能播放过期缓存 | `TTSView.swift:testSection` | ⚠️ 仍待修复 |
-| #47 | dispatchWorkItem 取消防抖竞态 | `ReaderView.swift` | ⚠️ 仍待修复 |
-| #48 | Logger 日志文件不轮转 | `Logger.swift` | ⚠️ 仍待修复 |
-| #49 | createScriptSegments 每次创建新 CharacterAnalyzer | `Store.swift:1562` | ✅ 已修复 (复用单例) |
+| # | 问题 | 说明 |
+|---|------|------|
+| H1 | `@unchecked Sendable` on `ReaderStore` / `AudioPlaybackController` | 需 `@MainActor` 标注或 actor 隔离 |
+| H2 | `playFilesAndWait` 在 MainActor 上阻塞 | 需 detached task 或 async stream |
+| H3 | synthesizer cache 键不含实际 embedding 值 | 只含 speaker 名不含 embedding hash → stale cache |
+| H4 | 角色扫描 dedup 在两处实现不一致 | Store vs CharacterAssignmentView, 需统一 |
+| H5 | `Book.text` 空时从文件读取但不更新字段 | 每次重新读取, 缓存失效 |
 
-### P2 — 新增审计发现 (2026-07-06)
-
-| # | 问题 | 位置 | 描述 |
-|---|------|------|------|
-| #50 | **VoiceCatalog/VoiceItem 混淆** | `Models.swift` `Store.swift` | CosyVoice 使用 CAM++ 嵌入而非 Azure 音色 ID; VoiceCatalog 音色推荐机制对 CosyVoice 无效, 但 UI 仍然显示 Azure 音色选择器 |
-| #51 | **createScriptSegments 创建大量 non-bookID 角色** | `Store.swift:1565` | `speakerProfile == nil` 时创建临时 CharacterProfile, 设置 voice 为 Azure ID (对 CosyVoice 无意义) |
-| #52 | **playChapterStreaming 每个 block 只高亮第一段** | `Store.swift:1318` | `currentParagraphIndex = block.globalStart` 仅指向 block 起始段, block 内 3-5 个段落播放期间高亮不更新 (待 #38 分句合成后修复) |
-| #53 | **synthesizeDialogue 缓存键不含段落文本** | `CosyVoiceService.swift:503` | cacheKey 只含 dialogue segments, 不含段落索引 — 同一对话在同章出现多次时返回错误缓存 |
-| #54 | **downloadAndExtract 无进度中间态** | `CosyVoiceService.swift:322` | `reportProgress(0.5)` 设 50%, download(for:) 完成后设 100%。用户看不到实际下载进度。 |
-| #55 | **DedupByName 在两个位置实现不一致** | `Store.swift` vs `CharacterAssignmentView.swift` | Store.scanCharacters 使用 CharacterScanner.scan 内置 dedup; CharacterAssignmentView.startScan 手工实现 4 阶段 dedup。行为可能不一致。 |
-| #56 | **Book.text 空但文件存在时需重新读取** | `ReaderView.swift:1113-1137` | `ensureChaptersLoaded` 在 `book.text.isEmpty` 时从文件系统读取, 但读取后不更新 `book.text` 字段, 下次仍需重读。 |
-
-## 修复记录 (2026-07-06)
+## 修复记录 (2026-07-07)
 
 | 提交 | 描述 |
 |------|------|
-| `c92a0d8` | fix: Button parameter order for Xcode 26.6 |
-| `456b080` | fix: singleDownload byte-by-byte + memory + picker + timer race |
-| `1c82e7c` | fix: Data(count:) OOM + file picker .gzip->.data + timer race |
-| `725368e` | fix: simplify download + cancel support + file picker .tar.gz |
+| `725368e` | fix: simplify download + cancel + file picker .tar.gz |
 | `db2228c` | fix: highlight sync + embeddings + dedup + perf |
+| `8606994` | docs: AGENTS.md audit #30-#56 |
+| `9161fb7` | fix: build errors - keys merge + paraText scope |
+| `804c09a` | fix: build errors - indices array, paragraphIndex, speakerProfile |
+| `875559f` | fix: ForEach 0..<count + @MainActor haptics + onChange migration + unused var |
+| `cd85e68` | **fix: critical bugs** - embedding format, vocative detection, cancelDownload, stop/resume, bookID, emotion analysis, data race |
+| `c9d08da` | fix: ForEach enumerated approach + handleExternalNavigate label + hasVoiceSample |
+| `c937683` | fix: Task\<Void,Error\> type, CharacterProfile param order, global nonisolated(unsafe), revert to paragraphs.indices |
+| `21d9333` | fix: extract paragraphView + explicit Array(0..<count) for ForEach |
 
-## 下一步 (优先级排序)
+## 下一步行动 (优先级排序)
 
-1. **P0: 文件导入器仍然不能选取 .tar.gz** — 需要用户再次测试, 确认 `UTType(filenameExtension:"tar.gz")` 在 iOS 18 上是否有效; 若无效则使用 `.data` 兜底
-2. **P1: 下载进度显示** — download(for:) 不提供中间进度, 需要 URLSessionDataDelegate 实现流式进度
-3. **P1: 逐句合成 + 连续队列** — 拆分 block 为单句合成, 队列支持多 block 连续播放
-4. **P2: VoiceCatalog 清理** — 移除 Azure 音色目录/推荐, 替换为 CosyVoice 角色→嵌入→音色映射
+### 🚨 立即 (用户测试后)
+
+1. **F5: 文件导入 .tar.gz** — 需要用户真机测试 `UTType(filenameExtension:"tar.gz")` 是否工作
+2. **F4: 下载进度中间态** — 实现 `URLSessionDownloadDelegate` 流式进度
+3. **G1: VoiceCatalog 清理** — 移除 Azure 音色目录/推荐, 替换为 CosyVoice 嵌入状态显示
+
+### 📋 本周 (按顺序)
+
+4. **F2: 逐句合成** — 拆分 `SpeechBlock` 为单句, 合成单个 WAV 入队列
+5. **F3: 多 block 连续队列** — 支持预加载+缓冲
+6. **F1: fromParagraph 精确跳转** — 使用 `paragraphIndex` 而非文本匹配
+7. **H2: 主线程阻塞** — `playFilesAndWait` 改 detached task
+
+### 🔧 后续
+
+8. **G2: CharacterEditorView UI 清理** — 移除 Azure 控件, 显示声纹状态
+9. **G8: 引号类型扩展** — 支持更多 CJK 引号字符
+10. **H1: Concurrency 安全** — `@MainActor` 标注所有 UI 相关类
+11. **G3: 缓存清理机制** — 测试并启用 evictDiskLRU
+12. **H4: 角色扫描统一** — 合并 Store 和 CharacterAssignmentView 的实现
+
+## iOS 18+ / Xcode 26.3+ 注意事项
+
+- `Button("", systemImage: "xmark", role: .cancel)` — systemImage 必须在 role 前
+- `onChange(of:)` — iOS 17+ 弃用单参数版本, 需使用 `{ oldValue, newValue in }`
+- `ForEach` inside `@ViewBuilder` — 无法推断 `indices` 类型, 需用 `Array(0..<count)`
+- `@ViewBuilder` 中复杂控制流 — 提取到独立 `func` 返回 `some View`
+- `OSAllocatedUnfairLock` — iOS 16+, 本项目可用; `import os` 后使用
