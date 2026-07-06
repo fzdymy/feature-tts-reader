@@ -135,7 +135,42 @@ actor CosyVoiceService {
 - 修复: 移除 `prewarm()` 调用, 模型在首次用户操作时惰性加载
 - 确认: Commit `610d1d9` 经过验证可正常工作
 
-## 注意事项
+## 已知问题 & 待优化清单 (2026-07-06 审计)
+
+### P0 — 编译 & 崩溃
+
+| # | 问题 | 位置 | 描述 |
+|---|------|------|------|
+| #30 | CosyVoiceService 多线程下载编译失败 | `CosyVoiceService.swift:359` | `DispatchGroup.wait()` 在 actor 上下文中不可用，改用 `withThrowingTaskGroup` |
+| #31 | URLSession.AsyncBytes 返回 UInt8 非 Data | `CosyVoiceService.swift:382` | `for try await data in stream` 中 `data` 是 `UInt8`，需收集到 buffer |
+| #32 | Data.gunzipped() 在 Xcode 26.3 不可用 | `CosyVoiceService.swift:408` | iOS 18 Foundation 不包含该方法，统一用 `gunzippedFallback()` |
+| #33 | tar 提取 `size` 作用域逃逸 | `CosyVoiceService.swift:434` | else 分支引用了 if-let 内的 `size`，修复为 `fileSize` |
+
+### P1 — 功能缺失
+
+| # | 问题 | 位置 | 描述 |
+|---|------|------|------|
+| #34 | **模型已下载后无删除按钮** | `TTSView.swift:196` | .ready 状态只显示"已就绪"，无删除选项。已修复 ✅ |
+| #35 | **朗读高亮与播放不同步** | `Store.swift:1318` `ReaderView.swift:449` | `currentParagraphIndex` 只在 block 级别更新（每个 block 仅设一次），整个 block 播放期间高亮不随句子变化；高亮依赖文本匹配（`paraText.contains(...)`），同一文本出现两处会错误高亮 |
+| #36 | **ScriptSegment 缺少段落索引** | `Models.swift`, `Store.swift` | TTSQueueItem/ScriptSegment 没有记录 `paragraphIndex` 或 `globalStart`，ReaderView 无法精确高亮当前朗读段落 |
+| #37 | **不能从指定段落开始朗读** | `Store.swift:1291-1296` | `fromParagraph` 参数通过文本匹配查找起始段，没有精确的段落索引支持 |
+| #38 | **每个 block 合成一个 WAV** | `Store.swift:1349-1370` | 整个 block 合并成一个音频，用户无法逐句跳过/暂停，进度只能精确到 block |
+| #39 | **播放队列只有 1 个 item** | `Store.swift:1370` | `audioController.playQueue([item])` 每次只放 1 个，不能连续播放多个 block |
+| #40 | **连续合成效率低** | `Store.swift:1372-1381` | 用 `withCheckedContinuation` 等一个 block 播完再合成下一个，阻塞了合成管线 |
+| #41 | **格式化文本未替换原文件？** | `Store.swift:740-748` | 实际已替换（saveBookTextToFile 保存 normalized 文本），但 `reformatBookText` 没有被 UI 明显暴露 — **用户不知道可以重新格式化** |
+
+### P2 — 逻辑缺陷
+
+| # | 问题 | 位置 | 描述 |
+|---|------|------|------|
+| #42 | **同本书扫描角色多次会重复累积** | `CharacterAssignmentView.swift` / `Store.swift` | 多次点「扫描角色」会向 `characters` 追加，而不是重置后再扫描 |
+| #43 | **缓存音频无清理机制** | `CosyVoiceService.swift:58-66` | `diskCacheQuota = 100MB` 没有实际执行 LRU 驱逐，只计数不删除 |
+| #44 | **BERT speaker detection 未做错误处理** | `BertSpeakerDetector.swift` | 如果 Core ML 模型不存在，返回空 embedding 导致余弦相似度计算崩溃 |
+| #45 | **importModel 路径硬编码 HF cache** | `CosyVoiceService.swift` | `importModel` 用的 cache 目录是 `HuggingFaceDownloader.getCacheDirectory()`，而现在的下载逻辑不用 HF 了，可能导致不一致 |
+| #46 | **ReaderView 滚动到朗读段不可靠** | `ReaderView.swift:212` | `autoScrollOffset(for: currentSegmentText)` 通过文本匹配查找位置，无精确偏移 |
+| #47 | **语音测试可能播放过期缓存** | `TTSView.swift:testSection` | `store.ttsTestAudioURL` 可能指向已删除的文件 |
+| #48 | **dispatchWorkItem 取消防抖竞态** | `ReaderView.swift` | `segmentStartOffset` 防抖中使用 `dispatchWorkItem?.cancel()`，但 dispatch 到 main 后有延迟，可能仍会执行 |
+| #49 | **Logger 日志文件不轮转** | `Logger.swift` | 1MB 限制只检查一次，日志文件持续增长 |
 
 1. CosyVoice 3 需要 iOS 18+ (MLState API) ✅ 已满足
 2. 首次运行需要从 HuggingFace 下载 ~1.5GB 模型 (4-bit)

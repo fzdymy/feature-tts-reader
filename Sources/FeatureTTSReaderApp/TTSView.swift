@@ -200,7 +200,7 @@ struct TTSView: View {
                     Text("模型已就绪")
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button("删除模型", role: .destructive, systemImage: "trash") {
+                    Button("删除模型", systemImage: "trash", role: .destructive) {
                         Task { await CosyVoiceService.shared.resetDownload() }
                     }
                     .font(.caption)
