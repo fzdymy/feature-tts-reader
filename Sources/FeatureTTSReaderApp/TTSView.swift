@@ -100,9 +100,9 @@ struct TTSView: View {
                     }
                 }
                 .onChange(of: useMirror) { _, newValue in
-                    CosyVoiceService.activeEndpoint = newValue
-                        ? CosyVoiceService.mirrorBaseURL
-                        : CosyVoiceService.hfBaseURL
+                    ModelEndpoint.active = newValue
+                        ? ModelEndpoint.mirrorBaseURL
+                        : ModelEndpoint.hfBaseURL
                 }
             }
 
@@ -215,7 +215,7 @@ struct TTSView: View {
                     Spacer()
                     Button {
                         let repo = CosyVoiceService.variants[selectedVariant].repo
-                        let base = useMirror ? CosyVoiceService.mirrorBaseURL : CosyVoiceService.hfBaseURL
+                        let base = useMirror ? ModelEndpoint.mirrorBaseURL : ModelEndpoint.hfBaseURL
                         UIPasteboard.general.string = "\(base)/\(repo)"
                         showCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }
@@ -310,6 +310,8 @@ struct TTSView: View {
     // MARK: - Helpers
 
     private func refreshStatus() {
+        // Sync mirror toggle with current endpoint
+        useMirror = ModelEndpoint.active == ModelEndpoint.mirrorBaseURL
         Task {
             let svc = CosyVoiceService.shared
             downloadPhase = await svc.downloadPhase
