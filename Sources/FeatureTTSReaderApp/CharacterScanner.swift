@@ -80,12 +80,12 @@ struct CharacterScanner {
             let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
             let isNarrator = isNarratorPattern(name: name, context: ctx, indicators: narratorIndicators)
             profiles.append(CharacterProfile(
-                id: UUID(), name: name, aliases: aliases, bookID: bookID,
+                id: UUID(), name: name, aliases: aliases,
                 gender: attrs.gender, age: attrs.age, tone: attrs.baseTone,
                 voice: isNarrator ? "" : defaultVoice(for: attrs.gender, voices: voices),
                 rate: attrs.baseRate, pitch: attrs.basePitch, style: attrs.baseStyle,
                 sensitivity: defaultSensitivity, isNarrator: isNarrator,
-                role: isNarrator ? .narrator : .character
+                role: isNarrator ? .narrator : .character, bookID: bookID
             ))
         }
 

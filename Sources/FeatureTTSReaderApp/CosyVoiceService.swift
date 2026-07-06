@@ -8,8 +8,8 @@ import os
 // MARK: - Download proxy configuration
 
 private let _proxyLock = OSAllocatedUnfairLock()
-private var _proxyActive: DownloadProxy = .direct
-private var _proxyCustomPrefix = ""
+nonisolated(unsafe) private var _proxyActive: DownloadProxy = .direct
+nonisolated(unsafe) private var _proxyCustomPrefix = ""
 
 enum DownloadProxy: String, CaseIterable, Sendable {
     case direct = "直连 (GitHub)"
@@ -266,7 +266,7 @@ actor CosyVoiceService {
     }
 
     /// Cancellable download task (set before download starts, cleared after).
-    private var activeDownloadTask: Task<Void, Never>?
+    private var activeDownloadTask: Task<Void, Error>?
 
     func cancelDownload() {
         activeDownloadTask?.cancel()
