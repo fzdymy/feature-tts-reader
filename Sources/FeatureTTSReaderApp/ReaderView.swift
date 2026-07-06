@@ -1225,21 +1225,9 @@ struct ReaderView: View {
         }
     }
 
-    @ViewBuilder
     private func paragraphView(pi: Int, paraText: String, isCurrentChapter: Bool) -> some View {
-        let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
-            ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
-               ?? store.ttsQueue[store.ttsCurrentIndex].segment.paragraphIndex)
-            : nil
-        let isReading: Bool
-        if let paraIdx, isCurrentChapter {
-            isReading = paraIdx == pi
-        } else if isCurrentChapter {
-            isReading = store.currentParagraphIndex.map { $0 == pi } ?? false
-        } else {
-            isReading = false
-        }
-        Text(indentedText(paraText))
+        let isReading = isParagraphReading(pi: pi, isCurrentChapter: isCurrentChapter)
+        return Text(indentedText(paraText))
             .font(Font.custom(store.readerFontName, size: store.readerFontSize))
             .foregroundColor(textColor)
             .lineSpacing(store.readerLineSpacing + 2)
@@ -1263,6 +1251,19 @@ struct ReaderView: View {
                     UIPasteboard.general.string = paraText
                 }
             }
+    }
+
+    private func isParagraphReading(pi: Int, isCurrentChapter: Bool) -> Bool {
+        let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
+            ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
+               ?? store.ttsQueue[store.ttsCurrentIndex].segment.paragraphIndex)
+            : nil
+        if let paraIdx, isCurrentChapter {
+            return paraIdx == pi
+        } else if isCurrentChapter {
+            return store.currentParagraphIndex.map { $0 == pi } ?? false
+        }
+        return false
     }
 }
 
