@@ -3,8 +3,13 @@ import CosyVoiceTTS
 import AudioCommon
 import CryptoKit
 import zlib
+import os
 
 // MARK: - Download proxy configuration
+
+private let _proxyLock = OSAllocatedUnfairLock()
+private var _proxyActive: DownloadProxy = .direct
+private var _proxyCustomPrefix = ""
 
 enum DownloadProxy: String, CaseIterable, Sendable {
     case direct = "直连 (GitHub)"
@@ -14,18 +19,26 @@ enum DownloadProxy: String, CaseIterable, Sendable {
 
     var displayName: String { rawValue }
 
-    /// Transform a raw GitHub release URL through this proxy.
     func rewrite(_ url: String) -> String {
         switch self {
         case .direct: return url
         case .ghProxy: return "https://gh-proxy.org/\(url)"
         case .ghfast: return "https://ghfast.top/\(url)"
-        case .custom: return Self.customPrefix.isEmpty ? url : "\(Self.customPrefix)/\(url)"
+        case .custom:
+            let prefix = _proxyLock.withLock { _proxyCustomPrefix }
+            return prefix.isEmpty ? url : "\(prefix)/\(url)"
         }
     }
 
-    nonisolated(unsafe) static var customPrefix = ""
-    nonisolated(unsafe) static var active: DownloadProxy = .direct
+    static var active: DownloadProxy {
+        get { _proxyLock.withLock { _proxyActive } }
+        set { _proxyLock.withLock { _proxyActive = newValue } }
+    }
+
+    static var customPrefix: String {
+        get { _proxyLock.withLock { _proxyCustomPrefix } }
+        set { _proxyLock.withLock { _proxyCustomPrefix = newValue } }
+    }
 }
 
 // MARK: - GitHub release asset URL helpers
@@ -258,11 +271,11 @@ actor CosyVoiceService {
     func cancelDownload() {
         activeDownloadTask?.cancel()
         activeDownloadTask = nil
-        if downloadPhase == .downloading {
-            downloadPhase = .failed
-            downloadError = "用户取消了下载"
-            isDownloading = false
-        }
+        // Reset state regardless of current phase
+        downloadPhase = .failed
+        downloadError = "用户取消了下载"
+        isDownloading = false
+        downloadStartedAt = nil
     }
 
     func ensureModel() async throws {
@@ -283,9 +296,13 @@ actor CosyVoiceService {
             let dstDir = try modelCacheDirectory()
             try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
 
-            // Check if model is already cached on disk (from a previous download)
             if !isModelCached(at: dstDir) {
-                try await downloadAndExtract(to: dstDir)
+                // Wrap download in a cancellable Task
+                activeDownloadTask = Task {
+                    try await downloadAndExtract(to: dstDir)
+                }
+                defer { activeDownloadTask = nil }
+                try await activeDownloadTask!.value
                 try Task.checkCancellation()
             }
 
@@ -299,8 +316,13 @@ actor CosyVoiceService {
             ttsModel?.warmUp()
             downloadPhase = .ready
         } catch {
-            downloadPhase = .failed
-            downloadError = error.localizedDescription
+            if error is CancellationError || (error as NSError).code == URLError.cancelled.rawValue {
+                downloadPhase = .failed
+                downloadError = "用户取消了下载"
+            } else {
+                downloadPhase = .failed
+                downloadError = error.localizedDescription
+            }
             isDownloading = false
             downloadStartedAt = nil
             throw error

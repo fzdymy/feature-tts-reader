@@ -18,7 +18,7 @@ struct CharacterScanner {
     }
 
     static func scan(text: String, config: Config = Config(), voices: [VoiceItem] = [],
-                     defaultSensitivity: Int = 50) async -> Result
+                     defaultSensitivity: Int = 50, bookID: UUID? = nil) async -> Result
     {
         let analyzer = CharacterAnalyzer()
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
@@ -80,7 +80,7 @@ struct CharacterScanner {
             let attrs = analyzer.analyzeAttributes(for: name, context: ctx)
             let isNarrator = isNarratorPattern(name: name, context: ctx, indicators: narratorIndicators)
             profiles.append(CharacterProfile(
-                id: UUID(), name: name, aliases: aliases,
+                id: UUID(), name: name, aliases: aliases, bookID: bookID,
                 gender: attrs.gender, age: attrs.age, tone: attrs.baseTone,
                 voice: isNarrator ? "" : defaultVoice(for: attrs.gender, voices: voices),
                 rate: attrs.baseRate, pitch: attrs.basePitch, style: attrs.baseStyle,

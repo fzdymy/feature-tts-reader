@@ -701,16 +701,22 @@ final class CharacterAnalyzer: @unchecked Sendable {
         let sadWords = ["叹", "悲", "哭", "哀", "泣", "叹道", "哭道", "轻声", "低声", "哽咽", "啜泣", "悲伤", "凄凉"]
         let cheerfulWords = ["笑", "喜", "欢", "乐", "开心", "笑道", "莞尔", "玩笑", "高兴"]
 
-        if line.contains("！") && !line.contains("？") {
+        let hasExclamation = line.contains("！")
+        let hasQuestion = line.contains("？") || line.contains("?")
+
+        if hasExclamation {
             for w in angryWords where line.contains(w) {
                 return ToneResult(style: "angry", pitchAdjust: 12, rateAdjust: 10)
             }
             for w in cheerfulWords where line.contains(w) {
                 return ToneResult(style: "cheerful", pitchAdjust: 8, rateAdjust: 5)
             }
-            return ToneResult(style: "cheerful", pitchAdjust: 8, rateAdjust: 5)
+            if hasQuestion {
+                return ToneResult(style: "angry", pitchAdjust: 10, rateAdjust: 8)
+            }
+            return ToneResult(style: "neutral", pitchAdjust: 5, rateAdjust: 3)
         }
-        if line.contains("？") || line.contains("?") {
+        if hasQuestion {
             return ToneResult(style: "neutral", pitchAdjust: 5, rateAdjust: 0)
         }
         for w in angryWords where line.contains(w) {

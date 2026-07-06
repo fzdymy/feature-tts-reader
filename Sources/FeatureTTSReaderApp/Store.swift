@@ -981,9 +981,10 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             useNLValidation: true,
             includeGraph: targetText.count > 10000
         )
+        let bookID = UUID(uuidString: currentBookID)
         let scanResult = await CharacterScanner.scan(
             text: targetText, config: config, voices: currentVoices,
-            defaultSensitivity: currentSensitivity
+            defaultSensitivity: currentSensitivity, bookID: bookID
         )
 
         await MainActor.run {
@@ -1007,7 +1008,6 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
                 }
             }
             // Only replace characters for the current book; keep others intact
-            let bookID = UUID(uuidString: currentBookID)
             characters.removeAll { $0.bookID == bookID || $0.bookID == nil }
             characters.append(contentsOf: final)
             lastScannedBookText = targetText
@@ -1306,12 +1306,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         // Build speaker embeddings map: prefer cached Data over re-extracting from URL
         var speakerEmbeddings: [String: [Float]] = [:]
         for char in characters {
-            if let embData = char.voiceSampleEmbedding, embData.count >= 192 * 4 {
-                let floats: [Float] = embData.withUnsafeBytes { buf in
-                    guard let base = buf.baseAddress else { return [] }
-                    let floatPtr = base.bindMemory(to: Float.self, capacity: embData.count / 4)
-                    return Array(UnsafeBufferPointer(start: floatPtr, count: embData.count / 4))
-                }
+            if let embData = char.voiceSampleEmbedding,
+               let floats = try? JSONDecoder().decode([Float].self, from: embData),
+               floats.count >= 192 {
                 speakerEmbeddings[char.name] = floats
             }
         }
@@ -1325,10 +1322,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
 
         for (blockIdx, block) in blocks.enumerated() {
             try Task.checkCancellation()
-            guard block.globalStart >= startParaIndex else {
-                if block.globalStart + block.texts.count > startParaIndex { }
-                continue
-            }
+            guard block.globalStart + block.texts.count > startParaIndex else { continue }
 
             let paragraphIndex = block.globalStart
             await MainActor.run { currentParagraphIndex = paragraphIndex }
@@ -1342,8 +1336,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             }
 
             // CosyVoice 合成整个 block
-            let cosySegments: [(speaker: String, text: String, emotion: String?)] = dialogueParts.map {
-                ($0.speaker, $0.text, $0.emotionTag)
+            let cosySegments: [(speaker: String, text: String, emotion: String?)] = dialogueParts.map { part in
+                let canonical = characters.first(where: { $0.name == part.speaker || $0.aliases.contains(part.speaker) })?.name ?? part.speaker
+                return (canonical, part.text, part.emotionTag)
             }
 
             let audioData: Data
@@ -1388,16 +1383,15 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             }
             audioController.playQueue([item])
 
-            if audioController.isPlaying {
-                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                    let c = audioController.$isPlaying
-                        .filter { !$0 }
-                        .first()
-                        .sink { _ in cont.resume() }
-                    playbackContinuationCancellable = c
-                }
-                playbackContinuationCancellable = nil
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                let c = audioController.$isPlaying
+                    .dropFirst()
+                    .filter { !$0 }
+                    .first()
+                    .sink { _ in cont.resume() }
+                playbackContinuationCancellable = c
             }
+            playbackContinuationCancellable = nil
 
             DispatchQueue.global(qos: .utility).async {
                 try? FileManager.default.removeItem(at: audioURL)
@@ -1737,10 +1731,10 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
 
             // If still not found, look for vocative inside the quote
             if speaker == nil {
-                // Check if quote starts with a character name + comma/vocative
                 for ch in characters {
                     let name = ch.name
                     if quoteText.hasPrefix("\(name)，") || quoteText.hasPrefix("\(name),") || quoteText.hasPrefix(name) {
+                        speaker = name
                         break
                     }
                 }

@@ -174,6 +174,8 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
         DispatchQueue.global(qos: .utility).async {
             for url in urls { try? FileManager.default.removeItem(at: url) }
         }
+        playbackContinuation?.resume()
+        playbackContinuation = nil
     }
 
     func playNext() {
