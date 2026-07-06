@@ -1,6 +1,12 @@
 name: Release CosyVoice Model
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/release-model.yml'
+  schedule:
+    - cron: '0 6 1 * *'  # 每月1日 06:00 UTC 自动运行
   workflow_dispatch:
     inputs:
       variant:
@@ -13,46 +19,78 @@ on:
           - aufklarer/CosyVoice3-0.5B-MLX-8bit
           - aufklarer/CosyVoice3-0.5B-MLX-8bit-full
           - aufklarer/CosyVoice3-0.5B-MLX-bf16
-  schedule:
-    - cron: '0 0 1 * *'  # Monthly check
+
+concurrency:
+  group: release-model-${{ github.event.inputs.variant || 'aufklarer/CosyVoice3-0.5B-MLX-4bit' }}
+  cancel-in-progress: true
 
 jobs:
   upload-model:
     runs-on: macos-15
+    timeout-minutes: 120  # 2h should be enough for 1.2GB download
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install huggingface_hub
-        run: pip3 install huggingface_hub
+      - name: Install huggingface_hub (venv)
+        run: |
+          python3 -m venv /tmp/hf-venv
+          source /tmp/hf-venv/bin/activate
+          pip install huggingface_hub
+          echo "/tmp/hf-venv/bin" >> $GITHUB_PATH
+
+      - name: Resolve variant
+        id: resolve
+        run: |
+          MODEL="${{ github.event.inputs.variant }}"
+          if [ -z "$MODEL" ]; then
+            MODEL="aufklarer/CosyVoice3-0.5B-MLX-4bit"
+          fi
+          echo "MODEL=$MODEL" >> $GITHUB_OUTPUT
+
+          TAG="${MODEL#*/}"
+          TAG="${TAG//\//-}"
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
 
       - name: Download model from HuggingFace
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
         run: |
-          MODEL_ID="${{ github.event.inputs.variant || 'aufklarer/CosyVoice3-0.5B-MLX-4bit' }}"
-          TAG="${MODEL_ID#*/}"
-          TAG="${TAG//\//-}"
-          echo "TAG=$TAG" >> $GITHUB_ENV
+          MODEL="${{ steps.resolve.outputs.MODEL }}"
+          TAG="${{ steps.resolve.outputs.TAG }}"
+          echo "Downloading $MODEL ..."
 
           mkdir -p /tmp/cosyvoice-model
+          source /tmp/hf-venv/bin/activate
+
+          # Login if token is available (public repos work without it)
+          if [ -n "$HF_TOKEN" ]; then
+            huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
+          fi
+
           huggingface-cli download \
-            "$MODEL_ID" \
+            "$MODEL" \
             --local-dir /tmp/cosyvoice-model \
             --local-dir-use-symlinks False \
             --resume-download
 
           # Create tarball
           cd /tmp
-          tar czf cosyvoice-model.tar.gz cosyvoice-model/
-          ls -lh cosyvoice-model.tar.gz
+          tar czf "cosyvoice-${TAG}.tar.gz" cosyvoice-model/
+          ls -lh "cosyvoice-${TAG}.tar.gz"
 
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "cosyvoice-${{ env.TAG }}" \
-            /tmp/cosyvoice-model.tar.gz \
-            --title "CosyVoice Model ${{ env.TAG }}" \
-            --notes "CosyVoice model variant: ${{ github.event.inputs.variant || 'aufklarer/CosyVoice3-0.5B-MLX-4bit' }}" \
+          TAG="${{ steps.resolve.outputs.TAG }}"
+          MODEL="${{ steps.resolve.outputs.MODEL }}"
+
+          # Delete existing release with same tag if it exists
+          gh release delete "cosyvoice-${TAG}" --yes 2>/dev/null || true
+
+          gh release create "cosyvoice-${TAG}" \
+            "/tmp/cosyvoice-${TAG}.tar.gz" \
+            --title "CosyVoice Model ${TAG}" \
+            --notes "CosyVoice model variant: ${MODEL}" \
             --prerelease
