@@ -116,6 +116,35 @@ actor CosyVoiceService {
 }
 ```
 
+## 待处理事项 (2026-07-06)
+
+### P1 (高优先级)
+- [#6] 全屏 TapGesture 冲突 (ReaderView simultaneousGesture) — ✅ 已改为双击
+- [#10] 两套 Scan 逻辑 (CharacterListView vs CharacterAssignmentView) — ❌ 未处理
+  - `scanCharacters()` 用正则+AC自动机, `startScan()` 用 CJK bigram
+  - 需提取共享逻辑到 `ReaderStore` 或专用 `CharacterScanner`
+- [#12] segmentStartOffset 同步误触发 — ❌ 未处理
+  - `ReaderView` 的 `segmentStartOffset` 在 `onChange(of: scrollPositionID)` 中误触发
+  - 需加 2 帧滞后防抖
+
+### P2 (中优先级)
+- [#14-15] SettingsView/BookshelfView 进一步拆分 — ❌ 未处理
+  - SettingsView: 拆分 主题/导出/字体 为独立 sub-view
+  - BookshelfView: BookGridCard/BookListRow 移出到独立文件
+  - 注意: FontManagerView 已复用 `FontManager.availableFonts`
+- [#14-15 partial] `loadChapterCount()` 已去重 (BookshelfView) — ✅
+
+### P3 (低优先级)
+- [#26-30] 进度文字本地化 / audio length 校验 / 搜索筛选 — ❌ 未处理
+  - 扫描阶段提示文字中文化 (如 "正则匹配中..." → "正在扫描角色...")
+  - 录制前检查 audio 文件时长 ≥ 3s
+  - 章节列表添加搜索/筛选
+
+### 启动崩溃 (当前焦点)
+- Commit `675436e` 仍崩溃闪退
+- 已添加文件级 crash_marker.txt → Documents 目录
+- 请测试后告知 `crash_marker.txt` 最后一行内容
+
 ## 注意事项
 
 1. CosyVoice 3 需要 iOS 18+ (MLState API) ✅ 已满足

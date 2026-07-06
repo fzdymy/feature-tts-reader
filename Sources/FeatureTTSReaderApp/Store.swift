@@ -174,10 +174,28 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         Self.writeCrashMarker("init_prewarm_done")
     }
 
-    /// Write a crash marker to UserDefaults so we can identify where the app crashes on launch.
-    /// The last written marker before the crash is the culprit.
+    /// Write a crash marker to a file in Documents directory + UserDefaults.
+    /// The last written marker before the crash pinpoints the culprit.
     nonisolated static func writeCrashMarker(_ marker: String) {
+        // UserDefaults (fast, survives most crashes)
         UserDefaults.standard.set(marker, forKey: "last_crash_marker")
+
+        // File in Documents (accessible via file browser for self-signed installs)
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        if let url = docs?.appendingPathComponent("crash_marker.txt") {
+            let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            let line = "\(ts) \(marker)\n"
+            if let data = line.data(using: .utf8) {
+                if let handle = try? FileHandle(forWritingTo: url) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    try? handle.synchronize()  // Force fsync
+                    handle.closeFile()
+                } else {
+                    try? data.write(to: url)
+                }
+            }
+        }
     }
 
     private func setupAudioSession() {

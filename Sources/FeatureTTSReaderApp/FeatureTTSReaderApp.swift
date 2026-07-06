@@ -2,7 +2,10 @@ import SwiftUI
 
 @main
 struct FeatureTTSReaderApp: App {
-    @StateObject private var store = ReaderStore()
+    @StateObject private var store: ReaderStore = {
+        ReaderStore.writeCrashMarker("app_init_start")
+        return ReaderStore()
+    }()
 
     var body: some Scene {
         WindowGroup {
