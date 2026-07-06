@@ -318,22 +318,30 @@ actor CosyVoiceService {
 
         let tarball = tmpDir.appendingPathComponent("model.tar.gz")
 
-        // Get file size (HEAD)
-        var head = URLRequest(url: url, timeoutInterval: 30)
-        head.httpMethod = "HEAD"
-        let (_, headResp) = try await URLSession.shared.data(for: head)
-        guard let resp = headResp as? HTTPURLResponse,
-              let totalSize = resp.allHeaderFields["Content-Length"] as? String,
-              let total = Int64(totalSize) else {
-            // Fall back to single-threaded download
-            try await singleDownload(url: url, to: tarball, totalSize: nil)
+        // Get file size (HEAD) — catch errors and fall back
+        let total: Int64
+        do {
+            var head = URLRequest(url: url, timeoutInterval: 30)
+            head.httpMethod = "HEAD"
+            let (_, headResp) = try await URLSession.shared.data(for: head)
+            guard let resp = headResp as? HTTPURLResponse,
+                  let totalSize = resp.allHeaderFields["Content-Length"] as? String,
+                  let parsed = Int64(totalSize) else {
+                try await singleDownload(url: url, to: tarball)
+                try extract(tarball: tarball, to: dstDir)
+                return
+            }
+            total = parsed
+        } catch {
+            try await singleDownload(url: url, to: tarball)
             try extract(tarball: tarball, to: dstDir)
             return
         }
 
         let chunkSize = total / Int64(Self.downloadThreads)
-        try FileManager.default.createFile(atPath: tarball.path, contents: Data(count: Int(total)))
+        FileManager.default.createFile(atPath: tarball.path, contents: nil)
         let fileHandle = try FileHandle(forWritingTo: tarball)
+        try fileHandle.truncate(atOffset: UInt64(total))
         defer { try? fileHandle.close() }
         // Use async task group for concurrent chunk downloads
         try await withThrowingTaskGroup(of: (offset: Int64, data: Data).self) { taskGroup in
@@ -365,12 +373,13 @@ actor CosyVoiceService {
     }
 
     /// Single-threaded download fallback (uses `data(for:)` to avoid byte-by-byte iteration).
-    private func singleDownload(url: URL, to dst: URL, totalSize: Int64?) async throws {
+    private func singleDownload(url: URL, to dst: URL) async throws {
         let req = URLRequest(url: url, timeoutInterval: 300)
         let (data, resp) = try await URLSession.shared.data(for: req)
-        let total = totalSize ?? (resp.expectedContentLength > 0 ? resp.expectedContentLength : Int64(data.count))
+        let estimate = resp.expectedContentLength > 0 ? resp.expectedContentLength : Int64(data.count)
+        reportProgress(0.5)
         try data.write(to: dst, options: .atomic)
-        reportProgress(Double(data.count) / Double(total))
+        reportProgress(1.0)
     }
 
     private func reportProgress(_ p: Double) {

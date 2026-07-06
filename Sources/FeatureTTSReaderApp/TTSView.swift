@@ -271,7 +271,7 @@ struct TTSView: View {
         }
         .fileImporter(
             isPresented: $showManualImport,
-            allowedContentTypes: [.folder, .gzip]
+            allowedContentTypes: [.folder, .data]
         ) { result in
             handleModelImport(result)
         }
@@ -337,7 +337,15 @@ struct TTSView: View {
         if selectedProxy == .custom { customProxyURL = DownloadProxy.customPrefix }
         Task {
             let svc = CosyVoiceService.shared
-            downloadPhase = await svc.downloadPhase
+            let actorPhase = await svc.downloadPhase
+            // Only override local phase if no user-initiated download is in flight.
+            // This prevents the timer from reverting startDownload()'s immediate .downloading back to .idle.
+            switch (actorPhase, downloadPhase) {
+            case (.idle, .downloading):
+                break // keep local .downloading until actor catches up
+            default:
+                downloadPhase = actorPhase
+            }
             downloadError = await svc.downloadError
             downloadStartedAt = await svc.downloadStartedAt
             downloadProgress = await svc.downloadProgress
