@@ -103,7 +103,7 @@ struct TTSView: View {
 
                 if selectedProxy == .custom {
                     HStack {
-                        TextField("例如 https://gh-proxy.org", text: $customProxyURL)
+                        TextField("例如 http://10.0.1.45/tts/", text: $customProxyURL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .font(.caption)
@@ -213,7 +213,13 @@ struct TTSView: View {
                     Spacer()
                     Button {
                         let tag = CosyVoiceService.variants[selectedVariant].tag
-                        let raw = "https://github.com/fzdymy/feature-tts-reader/releases/download/\(tag)/cosyvoice-\(tag).tar.gz"
+                        let raw: String
+                        if selectedProxy == .custom {
+                            let prefix = customProxyURL.hasSuffix("/") ? customProxyURL : "\(customProxyURL)/"
+                            raw = "\(prefix)cosyvoice-\(tag).zip"
+                        } else {
+                            raw = "https://github.com/fzdymy/feature-tts-reader/releases/download/\(tag)/cosyvoice-\(tag).tar.gz"
+                        }
                         UIPasteboard.general.string = raw
                         showCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }

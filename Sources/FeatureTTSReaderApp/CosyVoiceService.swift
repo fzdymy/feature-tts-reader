@@ -57,7 +57,9 @@ private func releaseTag(forVariant variant: String) -> String {
 
 /// e.g. "cosyvoice-CosyVoice3-0.5B-MLX-4bit.tar.gz"
 private func assetName(forVariant variant: String) -> String {
-    "cosyvoice-\(releaseTag(forVariant: variant)).tar.gz"
+    let tag = releaseTag(forVariant: variant)
+    let ext = DownloadProxy.active == .custom ? "zip" : "tar.gz"
+    return "cosyvoice-\(tag).\(ext)"
 }
 
 /// Raw GitHub release download URL (before proxy rewriting).
@@ -110,6 +112,12 @@ actor CosyVoiceService {
     ]
     /// Download URL (after proxy rewriting).
     nonisolated static var modelDownloadURL: String {
+        if DownloadProxy.active == .custom {
+            let tag = releaseTag(forVariant: defaultVariant)
+            let prefix = _proxyLock.withLock { _proxyCustomPrefix }
+            let base = prefix.hasSuffix("/") ? prefix : "\(prefix)/"
+            return "\(base)cosyvoice-\(tag).zip"
+        }
         let raw = rawReleaseURL(forVariant: defaultVariant)
         return DownloadProxy.active.rewrite(raw)
     }
@@ -346,10 +354,21 @@ actor CosyVoiceService {
         }
     }
 
-    /// Download the tarball → extract → clean up.
+    /// Download the archive → extract → clean up.
     private func downloadAndExtract(to dstDir: URL) async throws {
-        let raw = rawReleaseURL(forVariant: Self.defaultVariant)
-        let urlStr = DownloadProxy.active.rewrite(raw)
+        let urlStr: String
+        let isZip: Bool
+        if DownloadProxy.active == .custom {
+            let tag = releaseTag(forVariant: Self.defaultVariant)
+            let prefix = _proxyLock.withLock { _proxyCustomPrefix }
+            let base = prefix.hasSuffix("/") ? prefix : "\(prefix)/"
+            urlStr = "\(base)cosyvoice-\(tag).zip"
+            isZip = true
+        } else {
+            let raw = rawReleaseURL(forVariant: Self.defaultVariant)
+            urlStr = DownloadProxy.active.rewrite(raw)
+            isZip = false
+        }
         guard let url = URL(string: urlStr) else { throw TTSError.invalidURL(urlStr) }
 
         let tmpDir = FileManager.default.temporaryDirectory
@@ -357,7 +376,7 @@ actor CosyVoiceService {
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let tarball = tmpDir.appendingPathComponent("model.tar.gz")
+        let archiveFile = tmpDir.appendingPathComponent("model.\(isZip ? "zip" : "tar.gz")")
 
         // Report indeterminate progress (0.5) while download is in flight
         reportProgress(0.5)
@@ -367,8 +386,12 @@ actor CosyVoiceService {
         // download(for:) streams to disk — report completion
         reportProgress(1.0)
 
-        try FileManager.default.moveItem(at: tempFile, to: tarball)
-        try extract(tarball: tarball, to: dstDir)
+        try FileManager.default.moveItem(at: tempFile, to: archiveFile)
+        if isZip {
+            try extractZip(archive: archiveFile, to: dstDir)
+        } else {
+            try extract(tarball: archiveFile, to: dstDir)
+        }
     }
 
     private func reportProgress(_ p: Double) {
@@ -430,6 +453,52 @@ actor CosyVoiceService {
                 try fileData.prefix(fileSize).write(to: dest, options: .atomic)
             default:
                 break
+            }
+        }
+    }
+
+    /// Extract a .zip archive using zlib raw inflate.
+    private func extractZip(archive: URL, to dstDir: URL) throws {
+        let data = try Data(contentsOf: archive)
+        var offset = 0
+        while offset + 30 <= data.count {
+            let sig = UInt32(data[offset]) | (UInt32(data[offset+1]) << 8) | (UInt32(data[offset+2]) << 16) | (UInt32(data[offset+3]) << 24)
+            guard sig == 0x04034b50 else { offset += 1; continue }
+
+            let compression = Int(data[offset+8]) | (Int(data[offset+9]) << 8)
+            let compressedSize = Int(data[offset+18]) | (Int(data[offset+19]) << 8) | (Int(data[offset+20]) << 16) | (Int(data[offset+21]) << 24)
+            let uncompressedSize = Int(data[offset+22]) | (Int(data[offset+23]) << 8) | (Int(data[offset+24]) << 16) | (Int(data[offset+25]) << 24)
+            let nameLength = Int(data[offset+26]) | (Int(data[offset+27]) << 8)
+            let extraLength = Int(data[offset+28]) | (Int(data[offset+29]) << 8)
+
+            let headerSize = 30 + nameLength + extraLength
+            guard offset + headerSize + compressedSize <= data.count else { break }
+            guard nameLength > 0 else { offset += headerSize + compressedSize; continue }
+
+            let name = String(data: data[offset+30..<offset+30+nameLength], encoding: .utf8) ?? ""
+            let fileData = data[offset+headerSize..<offset+headerSize+compressedSize]
+            offset += headerSize + compressedSize
+
+            let cleanName = name.hasPrefix("./") ? String(name.dropFirst(2)) : name
+            guard !cleanName.isEmpty, !cleanName.contains("..") else { continue }
+
+            let dest = dstDir.appendingPathComponent(cleanName)
+            let parent = dest.deletingLastPathComponent()
+
+            if cleanName.hasSuffix("/") || cleanName.hasSuffix("\\") {
+                try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+                continue
+            }
+
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+
+            if compression == 0 {
+                try Data(fileData).write(to: dest, options: .atomic)
+            } else if compression == 8 {
+                let decompressed = try Data(fileData).rawInflate(uncompressedSize: uncompressedSize)
+                try decompressed.write(to: dest, options: .atomic)
+            } else {
+                throw TTSError.extractionFailed("不支持的 zip 压缩方式: \(compression)")
             }
         }
     }
@@ -754,6 +823,34 @@ private extension URL {
         }
         guard ret == Z_OK else {
             throw TTSError.extractionFailed("zlib uncompress error \(ret)")
+        }
+        return result
+    }
+}
+
+// MARK: - Raw Inflate (for zip decompression)
+
+private extension Data {
+    /// Decompress raw deflate data (no zlib/gzip header) using zlib.
+    func rawInflate(uncompressedSize: Int) throws -> Data {
+        var result = Data(count: uncompressedSize)
+        var stream = z_stream()
+        let ret = self.withUnsafeBytes { srcRaw in
+            result.withUnsafeMutableBytes { dstRaw in
+                let srcPtr = srcRaw.bindMemory(to: UInt8.self).baseAddress!
+                let dstPtr = dstRaw.bindMemory(to: UInt8.self).baseAddress!
+                stream.next_in = UnsafeMutablePointer(mutating: srcPtr)
+                stream.avail_in = uInt(self.count)
+                stream.next_out = dstPtr
+                stream.avail_out = uInt(uncompressedSize)
+                return inflateInit2_(&stream, -15, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+            }
+        }
+        guard ret == Z_OK else { inflateEnd(&stream); throw TTSError.extractionFailed("inflateInit failed: \(ret)") }
+        let ret2 = inflate(&stream, Z_FINISH)
+        inflateEnd(&stream)
+        guard ret2 == Z_STREAM_END || ret2 == Z_OK else {
+            throw TTSError.extractionFailed("inflate failed: \(ret2)")
         }
         return result
     }
