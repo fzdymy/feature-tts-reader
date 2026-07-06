@@ -976,38 +976,39 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         let currentSensitivity = defaultSensitivity
         let targetText = chapterText ?? bookText
 
-        let inferred = await Task.detached { [targetText, currentVoices, currentSensitivity, weak self] in
-            return self?.inferCharacters(from: targetText, voices: currentVoices, defaultSensitivity: currentSensitivity) ?? []
-        }.value
+        let config = CharacterScanner.Config(
+            maxResults: 12,
+            useNLValidation: true,
+            includeGraph: targetText.count > 10000
+        )
+        let scanResult = await CharacterScanner.scan(
+            text: targetText, config: config, voices: currentVoices,
+            defaultSensitivity: currentSensitivity
+        )
 
         await MainActor.run {
-            var final = inferred
+            var final = scanResult.characters
+            // Assign voices
+            final = final.map { profile in
+                var p = profile
+                if p.voice.isEmpty {
+                    p.voice = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
+                }
+                return p
+            }
+
             if final.isEmpty {
                 final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
                 statusMessage = "未识别到明确人物，已创建默认叙述者。"
             } else {
-                final = final.map { profile in
-                    var updated = profile
-                    if updated.voice.isEmpty {
-                        updated.voice = defaultVoice(for: profile.gender, tone: profile.tone, name: profile.name, voices: voices)
-                    }
-                    return updated
-                }
                 statusMessage = "已识别 \(final.count) 个角色。"
+                if !scanResult.edges.isEmpty {
+                    statusMessage! += " 关系图: \(scanResult.edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
+                }
             }
             characters = final
             lastScannedBookText = targetText
             updateRecommendations(from: targetText)
-
-            if targetText.count > 10000 {
-                // Include aliases in graph name set (counts map to canonical)
-                let graphNames = characters.flatMap { [$0.name] + $0.aliases }
-                let edges = CharacterAnalyzer().buildRelationshipGraph(text: targetText, characterNames: graphNames)
-                if !edges.isEmpty {
-                    statusMessage = (statusMessage ?? "") + " 关系图: \(edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
-                }
-            }
-
             saveState()
         }
     }
@@ -1497,112 +1498,24 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
     }
 
 
-    nonisolated func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) -> [CharacterProfile] {
-        let raw = text.replacingOccurrences(of: "\r", with: "\n")
-        var names = OrderedSet<String>()
-
-        let analyzer = CharacterAnalyzer()
-        let candidates = analyzer.extractDialogueNames(from: raw)
-        var candidateScores: [String: Int] = [:]
-        for n in candidates { candidateScores[n, default: 0] += 1 }
-        let scores = analyzer.countWithAC(text: raw, candidates: candidateScores)
-        let sorted = scores.keys.sorted { scores[$0, default: 0] > scores[$1, default: 0] }
-        for n in sorted {
-            let freq = scores[n, default: 0]
-            // High-frequency names (>10) get a relaxed surname check
-            let accepted = CharacterAnalyzer.looksLikeRealName(n) ||
-                CharacterAnalyzer.titleSuffixes.contains(where: { n.hasSuffix($0) }) ||
-                (freq >= 10 && n.count >= 2 && n.count <= 4 && !analyzer.isStopWord(n))
-            guard accepted else { continue }
-            names.append(n)
-        }
-
-        // Validate candidates with Apple NL tagger (filters common-word false positives)
-        let nlValidated = analyzer.validateWithNL(text: raw, candidates: Set(names))
-        if !nlValidated.isEmpty {
-            names = OrderedSet(names.filter { nlValidated.contains($0) })
-        }
-
-        // Resolve aliases: 无忌 → 张无忌, 张公子 → 张无忌, etc.
-        let resolved = CharacterAnalyzer.resolveAliases(Array(names))
-        let allAliases = Set(resolved.flatMap { $0.aliases })
-        let canonicalNames = resolved.map { $0.canonical }.filter { !allAliases.contains($0) }
-
-        // Analyze narrator patterns - text that is not dialogue
-        let narratorIndicators = detectNarratorPatterns(in: raw)
-
-        var result: [CharacterProfile] = []
-        for resolvedName in resolved.prefix(12) {
-            let name = resolvedName.canonical
-            let aliases = resolvedName.aliases
-            let context = raw.contextAround(name, radius: 120)
-            let attrs = analyzer.analyzeAttributes(for: name, context: context)
-
-            // Detect if this is likely a narrator
-            let isNarrator = isLikelyNarrator(name: name, context: context, narratorIndicators: narratorIndicators)
-            let role: CharacterRole = isNarrator ? .narrator : .character
-
-            let assignedVoice: String
-            if isNarrator {
-                assignedVoice = defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices)
-            } else {
-                assignedVoice = defaultVoice(for: attrs.gender, tone: attrs.baseTone, voices: voices)
+    nonisolated func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) async -> [CharacterProfile] {
+        let config = CharacterScanner.Config(
+            maxResults: 12,
+            useNLValidation: true,
+            includeGraph: false
+        )
+        let result = await CharacterScanner.scan(
+            text: text, config: config, voices: voices,
+            defaultSensitivity: defaultSensitivity
+        )
+        // Assign voices to non-narrator characters
+        return result.characters.map { profile in
+            var p = profile
+            if p.voice.isEmpty {
+                p.voice = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
             }
-
-            result.append(CharacterProfile(
-                id: UUID(),
-                name: name,
-                aliases: aliases,
-                gender: attrs.gender,
-                age: attrs.age,
-                tone: attrs.baseTone,
-                voice: assignedVoice,
-                rate: attrs.baseRate,
-                pitch: attrs.basePitch,
-                style: attrs.baseStyle,
-                sensitivity: defaultSensitivity,
-                isNarrator: isNarrator,
-                role: role
-            ))
+            return p
         }
-
-        // If no characters found, add a default narrator
-        if result.isEmpty {
-            result.append(CharacterProfile(
-                id: UUID(),
-                name: "旁白",
-                gender: "未知",
-                age: "未知",
-                tone: "平稳",
-                voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
-                rate: 0,
-                pitch: 0,
-                style: "neutral",
-                sensitivity: defaultSensitivity,
-                isNarrator: true,
-                role: .narrator
-            ))
-        }
-
-        // Ensure at least one narrator exists
-        if !result.contains(where: { $0.isNarrator }) {
-            result.insert(CharacterProfile(
-                id: UUID(),
-                name: "旁白",
-                gender: "未知",
-                age: "未知",
-                tone: "平稳",
-                voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices),
-                rate: 0,
-                pitch: 0,
-                style: "neutral",
-                sensitivity: defaultSensitivity,
-                isNarrator: true,
-                role: .narrator
-            ), at: 0)
-        }
-
-        return result
     }
 
     nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {

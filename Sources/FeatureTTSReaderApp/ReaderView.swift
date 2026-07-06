@@ -179,6 +179,9 @@ struct ReaderView: View {
             .scrollPosition(id: $scrollPositionID)
             .background(ScrollViewAccessor(coordinator: scrollCoordinator))
             .onChange(of: scrollPositionID) { newID in
+                // Hysteresis: ignore scroll-position changes within 0.15s of auto-scroll
+                // to prevent the animation from incorrectly updating currentChapterIndex.
+                guard Date().timeIntervalSince(lastAutoScrollTime) > 0.15 else { return }
                 guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
                 // While navigating to a target, ignore intermediate chapters
                 if let target = navigationTarget {
