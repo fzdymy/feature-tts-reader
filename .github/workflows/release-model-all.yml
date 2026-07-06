@@ -1,7 +1,7 @@
 name: Release All CosyVoice Models
 
 on:
-  workflow_dispatch:  # 手动触发即可，无需选择
+  workflow_dispatch:
 
 concurrency:
   group: release-all-cosyvoice-models
@@ -10,7 +10,7 @@ concurrency:
 jobs:
   upload-models:
     runs-on: macos-15
-    timeout-minutes: 300   # 时间加长，因为要下载4个模型
+    timeout-minutes: 300
     permissions:
       contents: write
 
@@ -24,6 +24,7 @@ jobs:
 
       - name: Download and Release All Models
         env:
+          GH_TOKEN: ${{ github.token }}
           HF_HUB_ENABLE_HF_TRANSFER: 1
         run: |
           MODELS=(
@@ -75,4 +76,4 @@ jobs:
             echo ""
           done
 
-          echo "All 4 models have been downloaded and released!"
+          echo "🎉 All 4 models have been downloaded and released!"
