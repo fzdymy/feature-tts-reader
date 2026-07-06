@@ -3,16 +3,19 @@ import UIKit
 
 // MARK: - Haptic Feedback
 enum HapticManager {
+    @MainActor
     static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
         guard UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true else { return }
         UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
 
+    @MainActor
     static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
         guard UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true else { return }
         UINotificationFeedbackGenerator().notificationOccurred(type)
     }
 
+    @MainActor
     static func selection() {
         guard UserDefaults.standard.object(forKey: "enableHaptics") as? Bool ?? true else { return }
         UISelectionFeedbackGenerator().selectionChanged()

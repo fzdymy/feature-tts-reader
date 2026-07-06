@@ -295,8 +295,6 @@ struct FontPickerView: View {
     }
 
     private func removeCustomFonts(at offsets: IndexSet) {
-        let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
-        let fontsDir = docs.appendingPathComponent("CustomFonts")
         for index in offsets { try? FileManager.default.removeItem(at: customFonts[index].url) }
         loadCustomFonts()
     }

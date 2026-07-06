@@ -152,7 +152,7 @@ struct ReaderView: View {
             ScrollView {
                 GeometryReader { proxy in
                     Color.clear
-                        .onChange(of: proxy.frame(in: .scrollView).minY) { newY in
+                        .onChange(of: proxy.frame(in: .scrollView).minY) { _, newY in
                             scrollOffset = -newY
                             if isAudioMode && isImmersive {
                                 let screenH = UIScreen.main.bounds.height
@@ -178,7 +178,7 @@ struct ReaderView: View {
             }
             .scrollPosition(id: $scrollPositionID)
             .background(ScrollViewAccessor(coordinator: scrollCoordinator))
-            .onChange(of: scrollPositionID) { newID in
+            .onChange(of: scrollPositionID) { _, newID in
                 // Hysteresis: ignore scroll-position changes within 0.15s of auto-scroll
                 // to prevent the animation from incorrectly updating currentChapterIndex.
                 guard Date().timeIntervalSince(lastAutoScrollTime) > 0.15 else { return }
@@ -205,10 +205,10 @@ struct ReaderView: View {
                     chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
                 }
             }
-            .onChange(of: chaptersList.count) { _ in
+            .onChange(of: chaptersList.count) { _, _ in
                 chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
             }
-            .onChange(of: store.ttsCurrentIndex) { _ in
+            .onChange(of: store.ttsCurrentIndex) { _, _ in
                 if !scrolledAway, let offset = autoScrollOffset(for: currentSegmentText) {
                     lastAutoScrollTime = Date()
                     scrollCoordinator.scrollTo(offset: offset, animated: true)
@@ -219,7 +219,7 @@ struct ReaderView: View {
                 scrolledAway = false
                 withAnimation { isPlaying = store.ttsIsPlaying }
             }
-            .onChange(of: store.ttsIsPlaying) { newValue in
+            .onChange(of: store.ttsIsPlaying) { _, newValue in
                 isPlaying = newValue
             }
 
@@ -328,7 +328,9 @@ struct ReaderView: View {
         }
         .onAppear(perform: onAppearSetup)
         .onDisappear(perform: onDisappearCleanup)
-        .onChange(of: store.externalChapterNavigate, perform: handleExternalNavigate)
+        .onChange(of: store.externalChapterNavigate) { _, newValue in
+            handleExternalNavigate(newValue)
+        }
         .modifier(ReaderSheets(
             showSettings: $showSettings,
             showFontPicker: $showFontPicker,
@@ -444,7 +446,7 @@ struct ReaderView: View {
                 .padding(.top, 24)
                 .padding(.bottom, 12)
 
-            ForEach(Array(paragraphs.indices), id: \.self) { pi in
+            ForEach(0..<paragraphs.count, id: \.self) { pi in
                 let paraText = paragraphs[pi]
                 let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
                     ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
