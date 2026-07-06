@@ -53,8 +53,13 @@ actor CosyVoiceService {
     private var _cacheDirectory: URL?
     private var cacheDirectory: URL {
         if let dir = _cacheDirectory { return dir }
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("tts-cache", isDirectory: true)
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("tts-cache", isDirectory: true)
+            try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+            _cacheDirectory = fallback
+            return fallback
+        }
+        let dir = caches.appendingPathComponent("tts-cache", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         _cacheDirectory = dir
         return dir
@@ -62,7 +67,8 @@ actor CosyVoiceService {
 
     private func cacheKey(text: String, embedding: [Float]?) -> String {
         let embedData = embedding.map { Data(bytes: $0, count: $0.count * MemoryLayout<Float>.size) } ?? Data()
-        let combined = text.data(using: .utf8)! + embedData
+        guard let textData = text.data(using: .utf8) else { return embedData.base64EncodedString() }
+        let combined = textData + embedData
         let digest = SHA256.hash(data: combined)
         return Data(digest).base64EncodedString()
     }

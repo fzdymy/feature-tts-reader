@@ -8,9 +8,11 @@ func parseChapters(text: String) -> [BookChapter] {
 
     // Precompile regex for per-line matching (avoids O(n) regex compilation per line)
     let matches = headingRegex.matches(in: trimmed, range: NSRange(location: 0, length: trimmed.utf16.count))
-    let headings = matches.map { m -> String in
+    let headings = matches.compactMap { m -> String? in
         let r = m.range(at: 1)
-        return (r.location != NSNotFound && r.location < trimmed.utf16.count) ? String(trimmed[Range(r, in: trimmed)!]) : ""
+        guard r.location != NSNotFound, r.location < trimmed.utf16.count,
+              let range = Range(r, in: trimmed) else { return nil }
+        return String(trimmed[range])
     }
     if headings.count >= 2 {
         var chapters: [BookChapter] = []

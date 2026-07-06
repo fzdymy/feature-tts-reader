@@ -173,7 +173,7 @@ struct ReaderView: View {
                 }
                 .scrollTargetLayout()
                 .simultaneousGesture(
-                    TapGesture().onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+                    TapGesture(count: 2).onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
                 )
             }
             .scrollPosition(id: $scrollPositionID)

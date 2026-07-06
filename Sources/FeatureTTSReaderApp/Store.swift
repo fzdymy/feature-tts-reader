@@ -141,26 +141,43 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
     private var autoSaveTimer: Timer?
 
     override init() {
+        Self.writeCrashMarker("init_start")
         super.init()
+        Self.writeCrashMarker("init_super_done")
         speechSynthesizer.delegate = speechDelegate
+        Self.writeCrashMarker("init_speech_delegate_done")
         voices = selectedVoiceCatalog.voices
+        Self.writeCrashMarker("init_voices_done")
         setupAudioSession()
+        Self.writeCrashMarker("init_audio_session_done")
         setupRemoteCommands()
+        Self.writeCrashMarker("init_remote_commands_done")
         observeAudioController()
+        Self.writeCrashMarker("init_observe_done")
         audioController.restorePlaybackState()
+        Self.writeCrashMarker("init_restore_playback_done")
         startAutoSaveTimer()
+        Self.writeCrashMarker("init_timer_done")
 
         // Restore reading position from UserDefaults (tiny, <1KB) so "继续阅读" works immediately
         if let data = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
            let map = try? JSONDecoder().decode([UUID: Int].self, from: data) {
             lastReadChapterIndexByBook = map
         }
+        Self.writeCrashMarker("init_userdefaults_done")
 
         // Full state loaded async to avoid blocking UI with ~40MB JSON decode
         Task { await loadStateAsync() }
 
         // Pre-warm CosyVoice model so playback doesn't trigger first-time download
         CosyVoiceService.prewarm()
+        Self.writeCrashMarker("init_prewarm_done")
+    }
+
+    /// Write a crash marker to UserDefaults so we can identify where the app crashes on launch.
+    /// The last written marker before the crash is the culprit.
+    nonisolated static func writeCrashMarker(_ marker: String) {
+        UserDefaults.standard.set(marker, forKey: "last_crash_marker")
     }
 
     private func setupAudioSession() {
@@ -742,9 +759,10 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         let url = docs.appendingPathComponent("debug_log.txt")
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         let line = "\(timestamp) \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8)!)
+            handle.write(data)
             handle.closeFile()
         } else {
             try? line.write(to: url, atomically: true, encoding: .utf8)
@@ -1260,11 +1278,12 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         var lastSpeaker: String? = nil
         let blocks = Self.buildDialogueBlocks(paragraphs)
 
-        // Build speaker samples map
-        let speakerSamples = Dictionary(
-            characters.filter { $0.voiceSampleURL != nil }.map { ($0.name, $0.voiceSampleURL!) },
-            uniquingKeysWith: { a, _ in a }
-        )
+        // Build speaker samples map (safe unwrap, no data race)
+        var speakerSamples: [String: URL] = [:]
+        for char in characters {
+            guard let url = char.voiceSampleURL else { continue }
+            speakerSamples[char.name] = url
+        }
 
         for (blockIdx, block) in blocks.enumerated() {
             try Task.checkCancellation()
@@ -1706,7 +1725,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             }
 
             // Find the closing quote
-            let closeIdx = findQuoteClose(chars, openChar: bestOpenChar!, closeChar: closeCh, from: openIdx + 1)
+            let closeIdx = findQuoteClose(chars, openChar: bestOpenChar ?? closeCh, closeChar: closeCh, from: openIdx + 1)
             let quoteText: String
             if let ci = closeIdx {
                 quoteText = String(chars[(openIdx + 1)..<ci])
