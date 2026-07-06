@@ -118,32 +118,22 @@ actor CosyVoiceService {
 
 ## 待处理事项 (2026-07-06)
 
-### P1 (高优先级)
-- [#6] 全屏 TapGesture 冲突 (ReaderView simultaneousGesture) — ✅ 已改为双击
-- [#10] 两套 Scan 逻辑 (CharacterListView vs CharacterAssignmentView) — ❌ 未处理
-  - `scanCharacters()` 用正则+AC自动机, `startScan()` 用 CJK bigram
-  - 需提取共享逻辑到 `ReaderStore` 或专用 `CharacterScanner`
-- [#12] segmentStartOffset 同步误触发 — ❌ 未处理
-  - `ReaderView` 的 `segmentStartOffset` 在 `onChange(of: scrollPositionID)` 中误触发
-  - 需加 2 帧滞后防抖
+### 全部完成 ✅
 
-### P2 (中优先级)
-- [#14-15] SettingsView/BookshelfView 进一步拆分 — ❌ 未处理
-  - SettingsView: 拆分 主题/导出/字体 为独立 sub-view
-  - BookshelfView: BookGridCard/BookListRow 移出到独立文件
-  - 注意: FontManagerView 已复用 `FontManager.availableFonts`
-- [#14-15 partial] `loadChapterCount()` 已去重 (BookshelfView) — ✅
+| 编号 | 项目 | 状态 | 提交 |
+|------|------|------|------|
+| #6 | 全屏 TapGesture 冲突 | ✅ 已改为双击 | `8dfec25` |
+| #10 | 两套 Scan 逻辑统一 → `CharacterScanner` | ✅ `scanCharacters`/`startScan` 共享核心管线 | `f289e46` |
+| #12 | `segmentStartOffset` 同步误触发 | ✅ 0.15s 滞后防抖 | `f289e46` |
+| #14-15 | SettingsView/BookshelfView 拆分 | ✅ 5 个子文件 | `9e61667` |
+| #26 | 扫描阶段提示文字中文化 | ✅ "正则匹配" → "正在扫描角色..." | `9e61667` |
+| #27 | 录制前 audio 时长校验 | ✅ ≥ 3s 检查 | `9e61667` |
+| #28 | 章节列表搜索/筛选 | ✅ `.searchable()` 支持 | `9e61667` |
 
-### P3 (低优先级)
-- [#26-30] 进度文字本地化 / audio length 校验 / 搜索筛选 — ❌ 未处理
-  - 扫描阶段提示文字中文化 (如 "正则匹配中..." → "正在扫描角色...")
-  - 录制前检查 audio 文件时长 ≥ 3s
-  - 章节列表添加搜索/筛选
-
-### 启动崩溃 (当前焦点)
-- Commit `675436e` 仍崩溃闪退
-- 已添加文件级 crash_marker.txt → Documents 目录
-- 请测试后告知 `crash_marker.txt` 最后一行内容
+### 启动崩溃 (已修复)
+- 根本原因: `CosyVoiceService.prewarm()` → `CosyVoiceTTSModel.fromPretrained()` 内部 fatal (非 throw)
+- 修复: 移除 `prewarm()` 调用, 模型在首次用户操作时惰性加载
+- 确认: Commit `610d1d9` 经过验证可正常工作
 
 ## 注意事项
 

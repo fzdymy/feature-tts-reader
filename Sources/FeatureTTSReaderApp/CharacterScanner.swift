@@ -147,9 +147,7 @@ struct CharacterScanner {
     }
 
     private static func defaultVoice(for gender: String, voices: [VoiceItem]) -> String {
-        if gender == "男" || gender == "男性" {
-            return voices.first(where: { $0.gender == "男" || $0.gender == "男性" })?.id ?? voices.first?.id ?? ""
-        }
-        return voices.first(where: { $0.gender == "女" || $0.gender == "女性" })?.id ?? voices.first?.id ?? ""
+        let target: VoiceGender = (gender == "男" || gender == "男性") ? .male : .female
+        return voices.first(where: { $0.gender == target })?.id ?? voices.first?.id ?? ""
     }
 }

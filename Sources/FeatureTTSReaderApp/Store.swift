@@ -1003,7 +1003,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             } else {
                 statusMessage = "已识别 \(final.count) 个角色。"
                 if !scanResult.edges.isEmpty {
-                    statusMessage! += " 关系图: \(scanResult.edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
+                    statusMessage += " 关系图: \(scanResult.edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
                 }
             }
             characters = final
