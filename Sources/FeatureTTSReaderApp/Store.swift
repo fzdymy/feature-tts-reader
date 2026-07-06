@@ -1559,6 +1559,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             }
 
             for part in dialogueParts {
+                let speakerProfile = characters.first(where: { $0.name == part.speaker || $0.aliases.contains(part.speaker) })
                 let chunks = part.text.chunked(into: maxLength)
                 for chunk in chunks {
                     let toneResult = sharedAnalyzer.analyzeSentenceTone(chunk)

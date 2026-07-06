@@ -444,7 +444,7 @@ struct ReaderView: View {
                 .padding(.top, 24)
                 .padding(.bottom, 12)
 
-            ForEach(paragraphs.indices, id: \.self) { pi in
+            ForEach(Array(paragraphs.indices), id: \.self) { pi in
                 let paraText = paragraphs[pi]
                 let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
                     ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex

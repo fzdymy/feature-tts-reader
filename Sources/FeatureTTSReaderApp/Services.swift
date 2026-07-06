@@ -92,7 +92,7 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
     }
 
     func playFilesAndWait(_ urls: [URL]) async {
-        let items = urls.map { TTSQueueItem(segment: ScriptSegment(id: UUID(), characterName: "", voice: "", rate: 0, pitch: 0, style: "", text: ""), audioURL: $0, chapterTitle: "", bookTitle: "", bookID: "", chapterIndex: 0, segmentIndex: 0, totalSegments: urls.count) }
+        let items = urls.map { TTSQueueItem(segment: ScriptSegment(id: UUID(), characterName: "", voice: "", rate: 0, pitch: 0, style: "", text: ""), audioURL: $0, chapterTitle: "", bookTitle: "", bookID: "", chapterIndex: 0, segmentIndex: 0, totalSegments: urls.count, paragraphIndex: nil) }
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             playbackContinuation = cont
             playQueue(items)
