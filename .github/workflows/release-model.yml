@@ -21,7 +21,7 @@ on:
           - aufklarer/CosyVoice3-0.5B-MLX-bf16
 
 concurrency:
-  group: release-model-${{ github.event.inputs.variant || 'aufklarer/CosyVoice3-0.5B-MLX-4bit' }}
+  group: release-model-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
