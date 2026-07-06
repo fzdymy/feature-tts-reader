@@ -29,6 +29,10 @@ actor CosyVoiceService {
     private(set) var downloadStartedAt: Date?
     /// Real download progress (0.0–1.0) reported by HuggingFaceDownloader
     private(set) var downloadProgress: Double = 0
+    /// Estimated download speed in bytes/second (0 if unknown)
+    private(set) var downloadSpeed: Double = 0
+    /// Smoothing: track recent (time, progress) samples for speed calculation
+    private var speedSamples: [(Date, Double)] = []
     /// Approximate model size for progress estimation (bytes)
     static let estimatedModelSize: Int64 = 1_300_000_000
     /// Default CosyVoice 3 variant (4-bit, ~1.2 GB)
@@ -237,6 +241,21 @@ actor CosyVoiceService {
 
     private func updateDownloadProgress(_ progress: Double, stage: String) {
         downloadProgress = progress
+        let now = Date()
+        speedSamples.append((now, progress))
+        // Keep only samples from the last 10 seconds
+        let cutoff = now.addingTimeInterval(-10)
+        speedSamples.removeAll { $0.0 < cutoff }
+        // Calculate speed from the oldest and newest samples
+        if speedSamples.count >= 2,
+           let first = speedSamples.first,
+           let last = speedSamples.last {
+            let dt = last.0.timeIntervalSince(first.0)
+            if dt > 0.5 {
+                let dp = last.1 - first.1
+                downloadSpeed = (dp / dt) * Double(Self.estimatedModelSize)
+            }
+        }
     }
 
     func resetDownload() {
@@ -246,6 +265,8 @@ actor CosyVoiceService {
         downloadError = nil
         downloadStartedAt = nil
         downloadProgress = 0
+        downloadSpeed = 0
+        speedSamples.removeAll()
     }
 
     /// Import a pre-downloaded model from a local folder selected by the user.
