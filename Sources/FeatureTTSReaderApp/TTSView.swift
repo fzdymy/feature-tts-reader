@@ -16,10 +16,6 @@ struct TTSView: View {
     @State private var selectedVariant = 0
     @State private var importError: String?
     @State private var downloadProgress: Double = 0
-    @State private var showManualImport = false
-    @State private var importModelURL: URL?
-    @State private var selectedVariant = 0  // index into CosyVoiceService.variants
-    @State private var importError: String?
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -297,8 +293,10 @@ struct TTSView: View {
     }
 
     private var voiceSamples: [URL] {
-        guard let bundleURL = Bundle.module.url(forResource: "default_samples", withExtension: nil) else { return [] }
-        let urls = (try? FileManager.default.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)) ?? []
+        guard let resourceURL = Bundle.module.resourceURL else { return [] }
+        let samplesDir = resourceURL.appendingPathComponent("Models/default_samples")
+        guard FileManager.default.fileExists(atPath: samplesDir.path) else { return [] }
+        let urls = (try? FileManager.default.contentsOfDirectory(at: samplesDir, includingPropertiesForKeys: nil)) ?? []
         return urls.filter { $0.pathExtension.lowercased() == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
