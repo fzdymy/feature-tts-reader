@@ -12,8 +12,7 @@ DerivedData/
 
 # Core ML model (large ~194MB, downloaded from Release during CI build)
 Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage/
-# Default voice samples (~8MB, downloaded by Scripts/download_default_samples.sh)
-Sources/FeatureTTSReaderApp/Models/default_samples/
+# Default voice samples (13MB, committed for IPA bundling)
 # Keep Models directory placeholder
 !Sources/FeatureTTSReaderApp/Models/
 Sources/FeatureTTSReaderApp/Models/vocab.txt
