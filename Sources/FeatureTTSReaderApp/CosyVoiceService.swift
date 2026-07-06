@@ -2,15 +2,56 @@ import Foundation
 import CosyVoiceTTS
 import AudioCommon
 import CryptoKit
+import zlib
 
-// MARK: - Endpoint configuration (non-isolated to allow mutation from UI)
+// MARK: - Download proxy configuration
 
-enum ModelEndpoint: Sendable {
-    static let mirrorBaseURL = "https://hf-mirror.com"
-    static let hfBaseURL = "https://huggingface.co"
+enum DownloadProxy: String, CaseIterable, Sendable {
+    case direct = "直连 (GitHub)"
+    case ghProxy = "gh-proxy.org"
+    case ghfast = "ghfast.top"
+    case custom = "自定义"
 
-    /// Set to `mirrorBaseURL` for Chinese users (mutable from UI, safe single-writer pattern).
-    nonisolated(unsafe) static var active: String = hfBaseURL
+    var displayName: String { rawValue }
+
+    /// Transform a raw GitHub release URL through this proxy.
+    func rewrite(_ url: String) -> String {
+        switch self {
+        case .direct: return url
+        case .ghProxy: return "https://gh-proxy.org/\(url)"
+        case .ghfast: return "https://ghfast.top/\(url)"
+        case .custom: return Self.customPrefix.isEmpty ? url : "\(Self.customPrefix)/\(url)"
+        }
+    }
+
+    nonisolated(unsafe) static var customPrefix = ""
+    nonisolated(unsafe) static var active: DownloadProxy = .direct
+}
+
+// MARK: - GitHub release asset URL helpers
+
+private let ghOwner = "fzdymy"
+private let ghRepo = "feature-tts-reader"
+
+/// e.g. "CosyVoice3-0.5B-MLX-4bit"
+private func releaseTag(forVariant variant: String) -> String {
+    // variant like "aufklarer/CosyVoice3-0.5B-MLX-4bit" → "CosyVoice3-0.5B-MLX-4bit"
+    if let slash = variant.firstIndex(of: "/") {
+        return String(variant[slash...].dropFirst())
+    }
+    return variant
+}
+
+/// e.g. "cosyvoice-CosyVoice3-0.5B-MLX-4bit.tar.gz"
+private func assetName(forVariant variant: String) -> String {
+    "cosyvoice-\(releaseTag(forVariant: variant)).tar.gz"
+}
+
+/// Raw GitHub release download URL (before proxy rewriting).
+private func rawReleaseURL(forVariant variant: String) -> String {
+    let tag = releaseTag(forVariant: variant)
+    let asset = assetName(forVariant: variant)
+    return "https://github.com/\(ghOwner)/\(ghRepo)/releases/download/\(tag)/\(asset)"
 }
 
 // MARK: - On-device CosyVoice 3 TTS engine
@@ -43,25 +84,28 @@ actor CosyVoiceService {
     private(set) var downloadSpeed: Double = 0
     /// Smoothing: track recent (time, progress) samples for speed calculation
     private var speedSamples: [(Date, Double)] = []
-    /// Approximate model size for progress estimation (bytes)
-    static let estimatedModelSize: Int64 = 1_300_000_000
-    /// Default CosyVoice 3 variant (4-bit, ~1.2 GB)
-    static let defaultVariant = "aufklarer/CosyVoice3-0.5B-MLX-4bit"
-    /// All available variants
-    static let variants: [(name: String, repo: String)] = [
-        ("4bit (默认, ~1.2 GB)", "aufklarer/CosyVoice3-0.5B-MLX-4bit"),
-        ("8bit (~1.4 GB)", "aufklarer/CosyVoice3-0.5B-MLX-8bit"),
-        ("8bit-full (~1.6 GB)", "aufklarer/CosyVoice3-0.5B-MLX-8bit-full"),
-        ("bf16 (~2.1 GB)", "aufklarer/CosyVoice3-0.5B-MLX-bf16"),
+    /// Approximate model size for progress estimation (1 GB tarball)
+    static let estimatedModelSize: Int64 = 1_040_000_000
+    /// Default variant tag on GitHub Releases
+    static let defaultVariant = "CosyVoice3-0.5B-MLX-4bit"
+    /// All available variants (tag name → display name)
+    static let variants: [(name: String, tag: String)] = [
+        ("4bit (默认, ~1.0 GB)", "CosyVoice3-0.5B-MLX-4bit"),
+        ("8bit (~1.2 GB)", "CosyVoice3-0.5B-MLX-8bit"),
+        ("8bit-full (~1.4 GB)", "CosyVoice3-0.5B-MLX-8bit-full"),
+        ("bf16 (~1.9 GB)", "CosyVoice3-0.5B-MLX-bf16"),
     ]
-    /// Direct download URL (respects mirror setting).
+    /// Download URL (after proxy rewriting).
     nonisolated static var modelDownloadURL: String {
-        "\(ModelEndpoint.active)/\(defaultVariant)/resolve/main/config.json?download=1"
+        let raw = rawReleaseURL(forVariant: defaultVariant)
+        return DownloadProxy.active.rewrite(raw)
     }
-    /// Model page URL (for browsing what files are available).
+    /// Release page URL.
     nonisolated static var modelPageURL: String {
-        "\(ModelEndpoint.active)/\(defaultVariant)"
+        "https://github.com/\(ghOwner)/\(ghRepo)/releases/tag/\(releaseTag(forVariant: defaultVariant))"
     }
+    /// Number of concurrent connections for multi-threaded download.
+    static let downloadThreads = 4
 
     // MARK: - TTS Cache
     // SHA256(text + embedding) key → WAV Data, in-memory (NSCache) + disk LRU (max 100 MB)
@@ -214,22 +258,25 @@ actor CosyVoiceService {
         downloadError = nil
         downloadPhase = .downloading
         downloadProgress = 0
+        downloadSpeed = 0
         downloadStartedAt = Date()
+        speedSamples.removeAll()
         do {
-            // Set HF_ENDPOINT if user selected mirror (HubApi reads env var)
-            let endpoint = ModelEndpoint.active
-            if endpoint != ModelEndpoint.hfBaseURL {
-                setenv("HF_ENDPOINT", endpoint, 1)
+            let dstDir = try modelCacheDirectory()
+            try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
+
+            // Check if model is already cached on disk (from a previous download)
+            if !isModelCached(at: dstDir) {
+                try await downloadAndExtract(to: dstDir)
             }
-            ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: Self.defaultVariant,
-                offlineMode: false,
-                progressHandler: { [weak self] progress, stage in
-                    Task { await self?.updateDownloadProgress(progress, stage: stage) }
-                }
-            )
+
             try Task.checkCancellation()
             downloadPhase = .warming
+            ttsModel = try await CosyVoiceTTSModel.fromPretrained(
+                modelId: Self.defaultVariant,
+                cacheDir: dstDir,
+                offlineMode: true
+            )
             ttsModel?.warmUp()
             downloadPhase = .ready
         } catch {
@@ -243,21 +290,177 @@ actor CosyVoiceService {
         downloadStartedAt = nil
     }
 
-    private func updateDownloadProgress(_ progress: Double, stage: String) {
-        downloadProgress = progress
+    // MARK: - Multi-threaded download from GitHub Releases
+
+    /// Directory where model files should live (inside caches).
+    private func modelCacheDirectory() throws -> URL {
+        try HuggingFaceDownloader.getCacheDirectory(for: Self.defaultVariant)
+    }
+
+    /// Check whether all expected model files exist.
+    private func isModelCached(at dir: URL) -> Bool {
+        let required = ["config.json", "llm.safetensors", "flow.safetensors", "hifigan.safetensors"]
+        return required.allSatisfy { fn in
+            FileManager.default.fileExists(atPath: dir.appendingPathComponent(fn).path)
+        }
+    }
+
+    /// Download the tarball (multi-threaded) → extract → clean up.
+    private func downloadAndExtract(to dstDir: URL) async throws {
+        let raw = rawReleaseURL(forVariant: Self.defaultVariant)
+        let urlStr = DownloadProxy.active.rewrite(raw)
+        guard let url = URL(string: urlStr) else { throw TTSError.invalidURL(urlStr) }
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cosyvoice-dl-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let tarball = tmpDir.appendingPathComponent("model.tar.gz")
+
+        // Get file size (HEAD)
+        var head = URLRequest(url: url, timeoutInterval: 30)
+        head.httpMethod = "HEAD"
+        let (_, headResp) = try await URLSession.shared.data(for: head)
+        guard let resp = headResp as? HTTPURLResponse,
+              let totalSize = resp.allHeaderFields["Content-Length"] as? String,
+              let total = Int64(totalSize) else {
+            // Fall back to single-threaded download
+            try await singleDownload(url: url, to: tarball, totalSize: nil)
+            try extract(tarball: tarball, to: dstDir)
+            return
+        }
+
+        let chunkSize = total / Int64(Self.downloadThreads)
+        let group = DispatchGroup()
+        var chunks: [(offset: Int64, data: Data)] = []
+        let lock = NSLock()
+        var errors: [Error] = []
+
+        for i in 0..<Self.downloadThreads {
+            let start = Int64(i) * chunkSize
+            let end = (i == Self.downloadThreads - 1) ? total - 1 : start + chunkSize - 1
+            group.enter()
+            URLSession.shared.dataTask(with: {
+                var req = URLRequest(url: url, timeoutInterval: 120)
+                req.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
+                return req
+            }()) { data, resp, error in
+                defer { group.leave() }
+                if let error = error { lock.lock(); errors.append(error); lock.unlock(); return }
+                guard let data = data, let httpResp = resp as? HTTPURLResponse,
+                      (200...299).contains(httpResp.statusCode) || httpResp.statusCode == 206 else {
+                    lock.lock(); errors.append(TTSError.downloadFailed("chunk \(i) status \((resp as? HTTPURLResponse)?.statusCode ?? 0)")); lock.unlock()
+                    return
+                }
+                lock.lock(); chunks.append((offset: start, data: data)); lock.unlock()
+            }.resume()
+        }
+        group.wait()
+
+        if !errors.isEmpty { throw errors[0] }
+
+        // Reassemble chunks in order
+        chunks.sort { $0.offset < $1.offset }
+        var fileData = Data(capacity: Int(total))
+        for chunk in chunks { fileData.append(chunk.data) }
+        try fileData.write(to: tarball, options: .atomic)
+
+        try extract(tarball: tarball, to: dstDir)
+    }
+
+    /// Single-threaded download fallback.
+    private func singleDownload(url: URL, to dst: URL, totalSize: Int64?) async throws {
+        let (stream, resp) = try await URLSession.shared.bytes(from: url)
+        let total = totalSize ?? (resp.expectedContentLength > 0 ? resp.expectedContentLength : 1_040_000_000)
+        var written: Int64 = 0
+        // Create empty file first
+        FileManager.default.createFile(atPath: dst.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: dst)
+        defer { try? handle.close() }
+        for try await data in stream {
+            try handle.write(contentsOf: data)
+            written += Int64(data.count)
+            let p = Double(written) / Double(total)
+            reportProgress(p)
+        }
+    }
+
+    private func reportProgress(_ p: Double) {
+        downloadProgress = p
         let now = Date()
-        speedSamples.append((now, progress))
-        // Keep only samples from the last 10 seconds
+        speedSamples.append((now, p))
         let cutoff = now.addingTimeInterval(-10)
         speedSamples.removeAll { $0.0 < cutoff }
-        // Calculate speed from the oldest and newest samples
-        if speedSamples.count >= 2,
-           let first = speedSamples.first,
-           let last = speedSamples.last {
+        if speedSamples.count >= 2, let first = speedSamples.first, let last = speedSamples.last {
             let dt = last.0.timeIntervalSince(first.0)
             if dt > 0.5 {
-                let dp = last.1 - first.1
-                downloadSpeed = (dp / dt) * Double(Self.estimatedModelSize)
+                downloadSpeed = ((last.1 - first.1) / dt) * Double(Self.estimatedModelSize)
+            }
+        }
+    }
+
+    private func extract(tarball: URL, to dstDir: URL) throws {
+        let data = try Data(contentsOf: tarball)
+        let gunzipped: Data
+        if #available(iOS 18.0, *) {
+            // Use built-in gzip decompression (iOS 18+)
+            gunzipped = try data.gunzipped()
+        } else {
+            // Fallback using zlib
+            gunzipped = try tarball.gunzippedFallback()
+        }
+        try extractTar(data: gunzipped, to: dstDir)
+    }
+
+    /// Minimal tar extractor (header + content split).
+    private func extractTar(data: Data, to dstDir: URL) throws {
+        var offset = 0
+        let count = data.count
+        while offset + 512 <= count {
+            let block = data[offset..<offset+512]
+            offset += 512
+            // Two consecutive zero blocks = end of archive
+            if block.allSatisfy({ $0 == 0 }) { break }
+
+            // Parse tar header (POSIX format)
+            let name = String(data: block[0..<100], encoding: .utf8)?
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\0 ")) ?? ""
+            let sizeStr = String(data: block[124..<136], encoding: .utf8)?
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\0 ")) ?? ""
+            let typeFlag = block[156]
+
+            guard !name.isEmpty, let size = Int(sizeStr, radix: 8) else {
+                offset += (511 + size) / 512 * 512
+                continue
+            }
+
+            // Round up to 512-byte boundary
+            let paddedSize = (511 + size) / 512 * 512
+            let fileData = data[offset..<offset+min(size, paddedSize)]
+            offset += paddedSize
+
+            let destPath: String
+            if name.hasPrefix("./") {
+                destPath = String(name.dropFirst(2))
+            } else {
+                destPath = name
+            }
+
+            guard !destPath.isEmpty else { continue }
+
+            let dest = dstDir.appendingPathComponent(destPath)
+            let parent = dest.deletingLastPathComponent()
+
+            switch typeFlag {
+            case 53, 48: // '5' directory or '0' regular file
+                try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                if typeFlag != 53 {
+                    try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                    try fileData.prefix(size).write(to: dest, options: .atomic)
+                }
+            default:
+                break
             }
         }
     }
@@ -271,6 +474,10 @@ actor CosyVoiceService {
         downloadProgress = 0
         downloadSpeed = 0
         speedSamples.removeAll()
+        // Also wipe cached model files
+        if let dir = try? modelCacheDirectory(), FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.removeItem(at: dir)
+        }
     }
 
     /// Import a pre-downloaded model from a local folder selected by the user.
@@ -466,18 +673,77 @@ private extension Int16 {
     }
 }
 
+// MARK: - Gzip fallback (for iOS < 18 or when built-in gunzipped() unavailable)
+
+private extension URL {
+    /// Decompress a gzip file using zlib.
+    func gunzippedFallback() throws -> Data {
+        let compressed = try Data(contentsOf: self)
+        // Skip 10-byte gzip header and check magic bytes
+        guard compressed.count > 18, compressed[0] == 0x1F, compressed[1] == 0x8B else {
+            throw TTSError.extractionFailed("not a gzip file")
+        }
+        // Read original file size from last 4 bytes (little-endian)
+        let originalSize: Int = Int(compressed.suffix(4).withUnsafeBytes { $0.load(as: UInt32.self) })
+        guard originalSize > 0, originalSize < 2_000_000_000 else {
+            throw TTSError.extractionFailed("invalid original size in gzip trailer")
+        }
+
+        // Skip gzip header (10 bytes) + optional extra fields
+        var offset = 10
+        let flags = compressed[3]
+        if flags & 0x04 != 0 { // FEXTRA
+            let xlen = Int(compressed[offset]) | (Int(compressed[offset+1]) << 8)
+            offset += 2 + xlen
+        }
+        if flags & 0x08 != 0 { // FNAME
+            while offset < compressed.count, compressed[offset] != 0 { offset += 1 }
+            offset += 1
+        }
+        if flags & 0x10 != 0 { // FCOMMENT
+            while offset < compressed.count, compressed[offset] != 0 { offset += 1 }
+            offset += 1
+        }
+        if flags & 0x02 != 0 { // FHCRC
+            offset += 2
+        }
+
+        let deflated = compressed[offset..<compressed.count-8]
+        var result = Data(count: originalSize)
+        var destLen = uLongf(originalSize)
+        let ret = result.withUnsafeMutableBytes { destPtr in
+            deflated.withUnsafeBytes { srcPtr in
+                uncompress(destPtr.bindMemory(to: UInt8.self).baseAddress,
+                           &destLen,
+                           srcPtr.bindMemory(to: UInt8.self).baseAddress,
+                           uLong(deflated.count))
+            }
+        }
+        guard ret == Z_OK else {
+            throw TTSError.extractionFailed("zlib uncompress error \(ret)")
+        }
+        return result
+    }
+}
+
 // MARK: - Errors
 
 enum TTSError: LocalizedError {
     case modelNotAvailable
     case synthesisFailed(String)
     case importFailed(String)
+    case invalidURL(String)
+    case downloadFailed(String)
+    case extractionFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .modelNotAvailable: return "CosyVoice 模型未加载，请检查网络连接后重试"
         case .synthesisFailed(let msg): return "语音合成失败: \(msg)"
         case .importFailed(let msg): return "模型导入失败: \(msg)"
+        case .invalidURL(let url): return "无效的下载地址: \(url)"
+        case .downloadFailed(let msg): return "下载失败: \(msg)"
+        case .extractionFailed(let msg): return "解压失败: \(msg)"
         }
     }
 }

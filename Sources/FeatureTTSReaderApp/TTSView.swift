@@ -17,7 +17,8 @@ struct TTSView: View {
     @State private var importError: String?
     @State private var downloadProgress: Double = 0
     @State private var downloadSpeed: Double = 0
-    @State private var useMirror = false
+    @State private var selectedProxy: DownloadProxy = .direct
+    @State private var customProxyURL = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -88,31 +89,42 @@ struct TTSView: View {
                 .pickerStyle(.menu)
             }
 
-            // Mirror toggle (only when idle or failed)
+            // Proxy selector (only when idle or failed)
             if downloadPhase == .idle || downloadPhase == .failed {
-                Toggle(isOn: $useMirror) {
-                    VStack(alignment: .leading) {
-                        Text("使用国内镜像加速")
-                            .font(.caption)
-                        Text(useMirror ? "hf-mirror.com" : "huggingface.co")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                Picker("加速代理", selection: $selectedProxy) {
+                    ForEach(DownloadProxy.allCases, id: \.self) { proxy in
+                        Text(proxy.displayName).tag(proxy)
                     }
                 }
-                .onChange(of: useMirror) { _, newValue in
-                    ModelEndpoint.active = newValue
-                        ? ModelEndpoint.mirrorBaseURL
-                        : ModelEndpoint.hfBaseURL
+                .onChange(of: selectedProxy) { _, newValue in
+                    DownloadProxy.active = newValue
+                    if newValue != .custom { customProxyURL = "" }
+                }
+
+                if selectedProxy == .custom {
+                    HStack {
+                        TextField("例如 https://gh-proxy.org", text: $customProxyURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.caption)
+                        Button("应用") {
+                            DownloadProxy.customPrefix = customProxyURL
+                                .trimmingCharacters(in: .whitespaces)
+                                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        }
+                        .font(.caption)
+                        .buttonStyle(.bordered)
+                    }
                 }
             }
 
             switch downloadPhase {
             case .idle:
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("模型未下载 (~1.2GB)")
+                    Text("模型未下载 (~1.0GB)")
                         .foregroundColor(.secondary)
-                    if useMirror {
-                        Text("镜像: hf-mirror.com")
+                    if selectedProxy != .direct {
+                        Text("代理: \(selectedProxy.displayName)")
                             .font(.caption).foregroundColor(.green)
                     }
                     Text("需要网络连接，仅首次需下载")
@@ -168,7 +180,7 @@ struct TTSView: View {
                             .font(.caption).foregroundColor(.secondary)
                         }
                     }
-                    Text("约 1.3GB，请保持网络畅通")
+                    Text("约 1.0GB，请保持网络畅通")
                         .font(.caption).foregroundColor(.secondary)
                 }
 
@@ -214,9 +226,9 @@ struct TTSView: View {
                         .font(.caption).foregroundColor(.secondary)
                     Spacer()
                     Button {
-                        let repo = CosyVoiceService.variants[selectedVariant].repo
-                        let base = useMirror ? ModelEndpoint.mirrorBaseURL : ModelEndpoint.hfBaseURL
-                        UIPasteboard.general.string = "\(base)/\(repo)"
+                        let tag = CosyVoiceService.variants[selectedVariant].tag
+                        let raw = "https://github.com/fzdymy/feature-tts-reader/releases/download/\(tag)/cosyvoice-\(tag).tar.gz"
+                        UIPasteboard.general.string = raw
                         showCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }
                     } label: {
@@ -225,11 +237,11 @@ struct TTSView: View {
                     .font(.caption)
                     .buttonStyle(.borderless)
                 }
-                if useMirror {
-                    Text("当前使用国内镜像 hf-mirror.com，下载速度更快")
+                if selectedProxy != .direct {
+                    Text("当前使用代理: \(selectedProxy.displayName)")
                         .font(.caption2).foregroundColor(.green)
                 } else {
-                    Text("国内用户建议开启上方「国内镜像加速」开关")
+                    Text("国内用户建议选择加速代理")
                         .font(.caption2).foregroundColor(.orange)
                 }
             }
@@ -310,8 +322,9 @@ struct TTSView: View {
     // MARK: - Helpers
 
     private func refreshStatus() {
-        // Sync mirror toggle with current endpoint
-        useMirror = ModelEndpoint.active == ModelEndpoint.mirrorBaseURL
+        // Sync proxy selector with current setting
+        selectedProxy = DownloadProxy.active
+        if selectedProxy == .custom { customProxyURL = DownloadProxy.customPrefix }
         Task {
             let svc = CosyVoiceService.shared
             downloadPhase = await svc.downloadPhase
