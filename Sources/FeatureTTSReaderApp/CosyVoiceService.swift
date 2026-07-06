@@ -332,6 +332,9 @@ actor CosyVoiceService {
         }
 
         let chunkSize = total / Int64(Self.downloadThreads)
+        try FileManager.default.createFile(atPath: tarball.path, contents: Data(count: Int(total)))
+        let fileHandle = try FileHandle(forWritingTo: tarball)
+        defer { try? fileHandle.close() }
         // Use async task group for concurrent chunk downloads
         try await withThrowingTaskGroup(of: (offset: Int64, data: Data).self) { taskGroup in
             for i in 0..<Self.downloadThreads {
@@ -348,46 +351,26 @@ actor CosyVoiceService {
                     return (start, data)
                 }
             }
-            var chunks: [(offset: Int64, data: Data)] = []
+            var completedBytes: Int64 = 0
             for try await result in taskGroup {
-                chunks.append(result)
-                // Report approximate progress based on chunk completion
-                let completedBytes = chunks.reduce(0) { $0 + Int64($1.data.count) }
+                // Write chunk directly to disk at the correct offset
+                try fileHandle.seek(toOffset: UInt64(result.offset))
+                try fileHandle.write(contentsOf: result.data)
+                completedBytes += Int64(result.data.count)
                 reportProgress(Double(completedBytes) / Double(total))
             }
-            // Reassemble chunks in order
-            chunks.sort { $0.offset < $1.offset }
-            var fileData = Data(capacity: Int(total))
-            for chunk in chunks { fileData.append(chunk.data) }
-            try fileData.write(to: tarball, options: .atomic)
         }
 
         try extract(tarball: tarball, to: dstDir)
     }
 
-    /// Single-threaded download fallback.
+    /// Single-threaded download fallback (uses `data(for:)` to avoid byte-by-byte iteration).
     private func singleDownload(url: URL, to dst: URL, totalSize: Int64?) async throws {
-        let (stream, resp) = try await URLSession.shared.bytes(from: url)
-        let total = totalSize ?? (resp.expectedContentLength > 0 ? resp.expectedContentLength : 1_040_000_000)
-        var written: Int64 = 0
-        FileManager.default.createFile(atPath: dst.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: dst)
-        defer { try? handle.close() }
-        var buffer = Data(capacity: 256 * 1024)
-        for try await byte in stream {
-            buffer.append(byte)
-            if buffer.count >= 256 * 1024 {
-                try handle.write(contentsOf: buffer)
-                written += Int64(buffer.count)
-                reportProgress(Double(written) / Double(total))
-                buffer.removeAll(keepingCapacity: true)
-            }
-        }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
-            written += Int64(buffer.count)
-            reportProgress(Double(written) / Double(total))
-        }
+        let req = URLRequest(url: url, timeoutInterval: 300)
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let total = totalSize ?? (resp.expectedContentLength > 0 ? resp.expectedContentLength : Int64(data.count))
+        try data.write(to: dst, options: .atomic)
+        reportProgress(Double(data.count) / Double(total))
     }
 
     private func reportProgress(_ p: Double) {
@@ -468,12 +451,29 @@ actor CosyVoiceService {
         }
     }
 
-    /// Import a pre-downloaded model from a local folder selected by the user.
+    /// Import a pre-downloaded model from a local folder or .tar.gz archive selected by the user.
     /// Copies model files into the HF cache directory and loads the model.
-    func importModel(from sourceDir: URL) async throws {
+    func importModel(from sourceURL: URL) async throws {
         guard ttsModel == nil else { return }
         let cacheDir = try HuggingFaceDownloader.getCacheDirectory(for: Self.defaultVariant)
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+
+        var sourceDir = sourceURL
+
+        // If the selected URL is a .tar.gz archive, extract it first
+        if sourceURL.lastPathComponent.hasSuffix(".tar.gz") || sourceURL.pathExtension == "gz" {
+            let tmpDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cosyvoice-import-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+            let localArchive = tmpDir.appendingPathComponent("model.tar.gz")
+            try FileManager.default.copyItem(at: sourceURL, to: localArchive)
+            try extract(tarball: localArchive, to: tmpDir)
+            sourceDir = tmpDir
+        }
+
+        // Copy model files from source directory to cache
         let items = try FileManager.default.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil)
         for item in items {
             let dest = cacheDir.appendingPathComponent(item.lastPathComponent)

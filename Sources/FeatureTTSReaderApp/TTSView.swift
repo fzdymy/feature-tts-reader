@@ -269,7 +269,10 @@ struct TTSView: View {
         } header: {
             Label("模型下载", systemImage: "arrow.down.circle")
         }
-        .fileImporter(isPresented: $showManualImport, allowedContentTypes: [.folder]) { result in
+        .fileImporter(
+            isPresented: $showManualImport,
+            allowedContentTypes: [.folder, .gzip]
+        ) { result in
             handleModelImport(result)
         }
     }
@@ -353,6 +356,12 @@ struct TTSView: View {
     }
 
     private func startDownload() {
+        downloadPhase = .downloading
+        downloadError = nil
+        downloadProgress = 0
+        downloadSpeed = 0
+        downloadStartedAt = Date()
+        downloadElapsed = 0
         Task {
             do {
                 try await CosyVoiceService.shared.ensureModel()
@@ -365,9 +374,31 @@ struct TTSView: View {
     private func handleModelImport(_ result: Result<URL, Error>) {
         switch result {
         case .success(let url):
+            let bookmarkData = try? url.bookmarkData(
+                options: .minimalBookmark,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
             Task {
                 do {
-                    try await CosyVoiceService.shared.importModel(from: url)
+                    var isStale = false
+                    let resolvedURL: URL
+                    if let bookmarkData = bookmarkData {
+                        resolvedURL = try URL(
+                            resolvingBookmarkData: bookmarkData,
+                            options: [.withoutUI],
+                            relativeTo: nil,
+                            bookmarkDataIsStale: &isStale
+                        )
+                        guard resolvedURL.startAccessingSecurityScopedResource() else {
+                            importError = "无法访问文件权限"
+                            return
+                        }
+                        defer { resolvedURL.stopAccessingSecurityScopedResource() }
+                    } else {
+                        resolvedURL = url
+                    }
+                    try await CosyVoiceService.shared.importModel(from: resolvedURL)
                 } catch {
                     importError = error.localizedDescription
                 }
