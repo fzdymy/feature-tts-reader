@@ -278,9 +278,10 @@ struct TTSQueueItem: Identifiable, Codable, Hashable {
     let chapterIndex: Int
     let segmentIndex: Int
     let totalSegments: Int
+    let paragraphIndex: Int?  // index into chapter paragraphs for highlight sync
 
     enum CodingKeys: String, CodingKey {
-        case segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments
+        case segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments, paragraphIndex
     }
 }
 
@@ -308,8 +309,9 @@ struct ScriptSegment: Identifiable, Hashable, Codable {
     let style: String
     let text: String
     let emotionTag: String?  // CosyVoice 情绪标签: "angry"/"sad"/"happy"/nil
+    let paragraphIndex: Int?  // index into chapter paragraphs for highlight sync
 
-    init(id: UUID, characterName: String, voice: String, rate: Int, pitch: Int, style: String, text: String, emotionTag: String? = nil) {
+    init(id: UUID, characterName: String, voice: String, rate: Int, pitch: Int, style: String, text: String, emotionTag: String? = nil, paragraphIndex: Int? = nil) {
         self.id = id
         self.characterName = characterName
         self.voice = voice
@@ -318,6 +320,7 @@ struct ScriptSegment: Identifiable, Hashable, Codable {
         self.style = style
         self.text = text
         self.emotionTag = emotionTag
+        self.paragraphIndex = paragraphIndex
     }
 }
 

@@ -1006,7 +1006,10 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
                     statusMessage += " 关系图: \(scanResult.edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
                 }
             }
-            characters = final
+            // Only replace characters for the current book; keep others intact
+            let bookID = UUID(uuidString: currentBookID)
+            characters.removeAll { $0.bookID == bookID || $0.bookID == nil }
+            characters.append(contentsOf: final)
             lastScannedBookText = targetText
             updateRecommendations(from: targetText)
             saveState()
@@ -1274,7 +1277,6 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         return blocks
     }
 
-    /// 逐段落流水线：高亮段落 → 识别对白 → 匹配音色 → 发送TTS → 播放 → 下一段落
     /// 逐段落流水线：高亮段落 → 识别对白 → CosyVoice 合成 → 播放
     func playChapterStreaming(chapter: BookChapter, fromParagraph: String? = nil) async throws {
         await MainActor.run {
@@ -1301,10 +1303,23 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         var lastSpeaker: String? = nil
         let blocks = Self.buildDialogueBlocks(paragraphs)
 
-        // Build speaker samples map (safe unwrap, no data race)
+        // Build speaker embeddings map: prefer cached Data over re-extracting from URL
+        var speakerEmbeddings: [String: [Float]] = [:]
+        for char in characters {
+            if let embData = char.voiceSampleEmbedding, embData.count >= 192 * 4 {
+                let floats: [Float] = embData.withUnsafeBytes { buf in
+                    guard let base = buf.baseAddress else { return [] }
+                    let floatPtr = base.bindMemory(to: Float.self, capacity: embData.count / 4)
+                    return Array(UnsafeBufferPointer(start: floatPtr, count: embData.count / 4))
+                }
+                speakerEmbeddings[char.name] = floats
+            }
+        }
+
+        // Also collect URLs for characters without cached embeddings
         var speakerSamples: [String: URL] = [:]
         for char in characters {
-            guard let url = char.voiceSampleURL else { continue }
+            guard speakerEmbeddings[char.name] == nil, let url = char.voiceSampleURL else { continue }
             speakerSamples[char.name] = url
         }
 
@@ -1315,7 +1330,8 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
                 continue
             }
 
-            await MainActor.run { currentParagraphIndex = block.globalStart }
+            let paragraphIndex = block.globalStart
+            await MainActor.run { currentParagraphIndex = paragraphIndex }
 
             let mergedText = block.texts.joined(separator: "\n\n")
             let dialogueParts = Self.parseDialogueSegments(in: mergedText, characters: characters, lastSpeaker: lastSpeaker)
@@ -1332,8 +1348,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
 
             let audioData: Data
             do {
-                audioData = try await CosyVoiceService.shared.synthesizeDialogue(
+                audioData = try await CosyVoiceService.shared.synthesizeDialogueWithEmbeddings(
                     segments: cosySegments,
+                    speakerEmbeddings: speakerEmbeddings,
                     speakerSamples: speakerSamples
                 )
             } catch {
@@ -1352,13 +1369,15 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
                 id: UUID(),
                 characterName: dialogueParts.first?.speaker ?? "叙述者",
                 voice: "", rate: 0, pitch: 0, style: "neutral",
-                text: dialogueParts.map(\.text).joined(separator: " ")
+                text: dialogueParts.map(\.text).joined(separator: " "),
+                paragraphIndex: paragraphIndex
             )
             let item = TTSQueueItem(
                 segment: seg, audioURL: audioURL,
                 chapterTitle: chapter.title, bookTitle: bookTitle,
                 bookID: bookID.uuidString, chapterIndex: chapterIndex,
-                segmentIndex: blockIdx, totalSegments: blocks.count
+                segmentIndex: blockIdx, totalSegments: blocks.count,
+                paragraphIndex: paragraphIndex
             )
 
             await MainActor.run {
@@ -1528,6 +1547,8 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         let maxLength = 350
         let blocks = Self.buildDialogueBlocks(paragraphs)
 
+        let sharedAnalyzer = CharacterAnalyzer()  // reuse single instance
+
         for (_, block) in blocks.enumerated() {
             let mergedText = block.texts.joined(separator: "\n\n")
             let dialogueParts = Self.parseDialogueSegments(in: mergedText, characters: characters, lastSpeaker: lastSpeaker)
@@ -1540,9 +1561,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             for part in dialogueParts {
                 let chunks = part.text.chunked(into: maxLength)
                 for chunk in chunks {
-                    let analyzer = CharacterAnalyzer()
-                    let speakerProfile = characters.first(where: { $0.name == part.speaker || $0.aliases.contains(part.speaker) })
-                    let toneResult = analyzer.analyzeSentenceTone(chunk)
+                    let toneResult = sharedAnalyzer.analyzeSentenceTone(chunk)
                     var profile = speakerProfile ?? CharacterProfile(id: UUID(), name: part.speaker, gender: "未知", age: "未知", tone: toneResult.style, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
 
                     if profile.voice.isEmpty && speakerProfile == nil {

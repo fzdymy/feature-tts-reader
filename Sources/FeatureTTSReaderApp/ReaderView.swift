@@ -445,8 +445,18 @@ struct ReaderView: View {
                 .padding(.bottom, 12)
 
             ForEach(paragraphs.indices, id: \.self) { pi in
-                let paraText = paragraphs[pi]
-                let isReading = isCurrentChapter && (store.currentParagraphIndex.map { $0 == pi } ?? currentSegmentText.map { paraText.contains($0) || $0.contains(paraText) } ?? false)
+                let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
+                    ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
+                       ?? store.ttsQueue[store.ttsCurrentIndex].segment.paragraphIndex)
+                    : nil
+                let isReading: Bool
+                if let paraIdx, isCurrentChapter {
+                    isReading = paraIdx == pi
+                } else if isCurrentChapter {
+                    isReading = store.currentParagraphIndex.map { $0 == pi } ?? false
+                } else {
+                    isReading = false
+                }
                 Text(indentedText(paraText))
                     .font(Font.custom(store.readerFontName, size: store.readerFontSize))
                     .foregroundColor(textColor)

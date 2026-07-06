@@ -491,6 +491,51 @@ actor CosyVoiceService {
 
     // MARK: - Dialogue Synthesis
 
+    /// Synthesize multi-speaker dialogue with pre-computed embeddings AND fallback URL-based enrollment.
+    func synthesizeDialogueWithEmbeddings(
+        segments: [(speaker: String, text: String, emotion: String?)],
+        speakerEmbeddings: [String: [Float]],
+        speakerSamples: [String: URL]
+    ) async throws -> Data {
+        try await ensureModel()
+        guard let model = ttsModel else { throw TTSError.modelNotAvailable }
+
+        // 1. Compute cache key
+        let segmentText = segments.map { "\($0.speaker)|\($0.emotion ?? "")|\($0.text)" }.joined(separator: "\n")
+        let embedKeys = (speakerEmbeddings.keys + speakerSamples.keys).sorted().joined(separator: ",")
+        let key = cacheKey(text: "dialogue:\(segmentText)|samples:\(embedKeys)", embedding: nil)
+        if let cached = cachedAudio(key: key) { return cached }
+
+        // 2. Merge pre-computed embeddings with URL-based enrollments
+        var embeddings = speakerEmbeddings
+        for (name, url) in speakerSamples where embeddings[name] == nil {
+            if let emb = try? await enrollSpeaker(name: name, audioURL: url) {
+                embeddings[name] = emb
+            }
+        }
+
+        // 3. Build dialogue text with inline tags for DialogueParser
+        let dialogueText = segments.map { spk, text, emotion in
+            let emoTag = emotion.flatMap { Self.cosyEmotionTag($0) }.map { "(\($0))" } ?? ""
+            return "[\(spk)] \(emoTag)\(text)"
+        }.joined(separator: " ")
+        let dialogueSegments = DialogueParser.parse(dialogueText)
+
+        // 4. Synthesize
+        let samples = try DialogueSynthesizer.synthesize(
+            segments: dialogueSegments,
+            speakerEmbeddings: embeddings,
+            model: model,
+            language: "chinese",
+            config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
+        )
+
+        // 5. Convert to WAV and cache
+        let wavData = AudioConverter.floatToWAV(samples, sampleRate: 24_000)
+        storeCache(key: key, data: wavData)
+        return wavData
+    }
+
     /// Synthesize multi-speaker dialogue as 24kHz WAV data.
     func synthesizeDialogue(
         segments: [(speaker: String, text: String, emotion: String?)],
