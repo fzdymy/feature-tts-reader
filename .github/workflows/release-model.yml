@@ -32,12 +32,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install huggingface_hub (venv)
+      - name: Ensure hf CLI (pre-installed on macos-15)
         run: |
-          python3 -m venv /tmp/hf-venv
-          source /tmp/hf-venv/bin/activate
-          pip install huggingface_hub
-          echo "/tmp/hf-venv/bin" >> $GITHUB_PATH
+          if ! command -v hf &>/dev/null; then
+            python3 -m venv /tmp/hf-venv
+            source /tmp/hf-venv/bin/activate
+            pip install huggingface-hub
+            echo "/tmp/hf-venv/bin" >> $GITHUB_PATH
+          fi
 
       - name: Resolve variant
         id: resolve
@@ -62,18 +64,24 @@ jobs:
           echo "Downloading $MODEL via $HF_ENDPOINT ..."
 
           mkdir -p /tmp/cosyvoice-model
-          source /tmp/hf-venv/bin/activate
 
           # Login if token is available (public repos work without it)
           if [ -n "$HF_TOKEN" ]; then
-            huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
+            if command -v hf &>/dev/null; then
+              hf auth login --token "$HF_TOKEN"
+            else
+              huggingface-cli login --token "$HF_TOKEN"
+            fi
           fi
 
-          huggingface-cli download \
-            "$MODEL" \
-            --local-dir /tmp/cosyvoice-model \
-            --local-dir-use-symlinks False \
-            --resume-download
+          if command -v hf &>/dev/null; then
+            hf download "$MODEL" --local-dir /tmp/cosyvoice-model
+          else
+            huggingface-cli download "$MODEL" \
+              --local-dir /tmp/cosyvoice-model \
+              --local-dir-use-symlinks False \
+              --resume-download
+          fi
 
           # Create tarball
           cd /tmp
