@@ -45,17 +45,17 @@ jobs:
             mkdir -p "$DOWNLOAD_DIR"
             
             /tmp/hf-venv/bin/python3 -c "
-import os
-from huggingface_hub import snapshot_download
-mid = '$MODEL'
-print(f'Starting download of {mid}...')
-snapshot_download(
-    repo_id=mid,
-    local_dir='$DOWNLOAD_DIR',
-    local_dir_use_symlinks=False,
-    resume_download=True
-)
-print('Download completed!')
+            import os
+            from huggingface_hub import snapshot_download
+            mid = '$MODEL'
+            print(f'Starting download of {mid}...')
+            snapshot_download(
+                repo_id=mid,
+                local_dir='$DOWNLOAD_DIR',
+                local_dir_use_symlinks=False,
+                resume_download=True
+            )
+            print('Download completed!')
             "
             
             echo "Creating archive for $TAG..."
