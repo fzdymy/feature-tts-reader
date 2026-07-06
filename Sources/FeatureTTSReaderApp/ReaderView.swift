@@ -329,7 +329,7 @@ struct ReaderView: View {
         .onAppear(perform: onAppearSetup)
         .onDisappear(perform: onDisappearCleanup)
         .onChange(of: store.externalChapterNavigate) { _, newValue in
-            handleExternalNavigate(newValue)
+            handleExternalNavigate(nav: newValue)
         }
         .modifier(ReaderSheets(
             showSettings: $showSettings,
@@ -446,8 +446,7 @@ struct ReaderView: View {
                 .padding(.top, 24)
                 .padding(.bottom, 12)
 
-            ForEach(0..<paragraphs.count, id: \.self) { pi in
-                let paraText = paragraphs[pi]
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { pi, paraText in
                 let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
                     ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
                        ?? store.ttsQueue[store.ttsCurrentIndex].segment.paragraphIndex)

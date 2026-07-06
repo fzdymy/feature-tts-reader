@@ -109,7 +109,7 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    var hasVoiceSample: Bool { voiceSampleURL != nil }
+    var hasVoiceSample: Bool { voiceSampleURL != nil || voiceSampleEmbedding != nil }
 
     init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, frequency: Int = 0, bookID: UUID? = nil, voiceSampleURL: URL? = nil, voiceSampleEmbedding: Data? = nil) {
         self.id = id
