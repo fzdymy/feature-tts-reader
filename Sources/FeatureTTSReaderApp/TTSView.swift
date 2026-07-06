@@ -199,6 +199,13 @@ struct TTSView: View {
                         .foregroundColor(.green)
                     Text("模型已就绪")
                         .foregroundColor(.secondary)
+                    Spacer()
+                    Button("删除模型", role: .destructive, systemImage: "trash") {
+                        Task { await CosyVoiceService.shared.resetDownload() }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .tint(.red)
                 }
 
             case .failed:

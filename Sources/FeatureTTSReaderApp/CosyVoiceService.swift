@@ -332,39 +332,35 @@ actor CosyVoiceService {
         }
 
         let chunkSize = total / Int64(Self.downloadThreads)
-        let group = DispatchGroup()
-        var chunks: [(offset: Int64, data: Data)] = []
-        let lock = NSLock()
-        var errors: [Error] = []
-
-        for i in 0..<Self.downloadThreads {
-            let start = Int64(i) * chunkSize
-            let end = (i == Self.downloadThreads - 1) ? total - 1 : start + chunkSize - 1
-            group.enter()
-            URLSession.shared.dataTask(with: {
-                var req = URLRequest(url: url, timeoutInterval: 120)
-                req.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
-                return req
-            }()) { data, resp, error in
-                defer { group.leave() }
-                if let error = error { lock.lock(); errors.append(error); lock.unlock(); return }
-                guard let data = data, let httpResp = resp as? HTTPURLResponse,
-                      (200...299).contains(httpResp.statusCode) || httpResp.statusCode == 206 else {
-                    lock.lock(); errors.append(TTSError.downloadFailed("chunk \(i) status \((resp as? HTTPURLResponse)?.statusCode ?? 0)")); lock.unlock()
-                    return
+        // Use async task group for concurrent chunk downloads
+        try await withThrowingTaskGroup(of: (offset: Int64, data: Data).self) { taskGroup in
+            for i in 0..<Self.downloadThreads {
+                let start = Int64(i) * chunkSize
+                let end = (i == Self.downloadThreads - 1) ? total - 1 : start + chunkSize - 1
+                taskGroup.addTask {
+                    var req = URLRequest(url: url, timeoutInterval: 120)
+                    req.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
+                    let (data, resp) = try await URLSession.shared.data(for: req)
+                    guard let httpResp = resp as? HTTPURLResponse,
+                          (200...299).contains(httpResp.statusCode) || httpResp.statusCode == 206 else {
+                        throw TTSError.downloadFailed("chunk \(i) status \((resp as? HTTPURLResponse)?.statusCode ?? 0)")
+                    }
+                    return (start, data)
                 }
-                lock.lock(); chunks.append((offset: start, data: data)); lock.unlock()
-            }.resume()
+            }
+            var chunks: [(offset: Int64, data: Data)] = []
+            for try await result in taskGroup {
+                chunks.append(result)
+                // Report approximate progress based on chunk completion
+                let completedBytes = chunks.reduce(0) { $0 + Int64($1.data.count) }
+                reportProgress(Double(completedBytes) / Double(total))
+            }
+            // Reassemble chunks in order
+            chunks.sort { $0.offset < $1.offset }
+            var fileData = Data(capacity: Int(total))
+            for chunk in chunks { fileData.append(chunk.data) }
+            try fileData.write(to: tarball, options: .atomic)
         }
-        group.wait()
-
-        if !errors.isEmpty { throw errors[0] }
-
-        // Reassemble chunks in order
-        chunks.sort { $0.offset < $1.offset }
-        var fileData = Data(capacity: Int(total))
-        for chunk in chunks { fileData.append(chunk.data) }
-        try fileData.write(to: tarball, options: .atomic)
 
         try extract(tarball: tarball, to: dstDir)
     }
@@ -374,15 +370,23 @@ actor CosyVoiceService {
         let (stream, resp) = try await URLSession.shared.bytes(from: url)
         let total = totalSize ?? (resp.expectedContentLength > 0 ? resp.expectedContentLength : 1_040_000_000)
         var written: Int64 = 0
-        // Create empty file first
         FileManager.default.createFile(atPath: dst.path, contents: nil)
         let handle = try FileHandle(forWritingTo: dst)
         defer { try? handle.close() }
-        for try await data in stream {
-            try handle.write(contentsOf: data)
-            written += Int64(data.count)
-            let p = Double(written) / Double(total)
-            reportProgress(p)
+        var buffer = Data(capacity: 256 * 1024)
+        for try await byte in stream {
+            buffer.append(byte)
+            if buffer.count >= 256 * 1024 {
+                try handle.write(contentsOf: buffer)
+                written += Int64(buffer.count)
+                reportProgress(Double(written) / Double(total))
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+        if !buffer.isEmpty {
+            try handle.write(contentsOf: buffer)
+            written += Int64(buffer.count)
+            reportProgress(Double(written) / Double(total))
         }
     }
 
@@ -401,15 +405,7 @@ actor CosyVoiceService {
     }
 
     private func extract(tarball: URL, to dstDir: URL) throws {
-        let data = try Data(contentsOf: tarball)
-        let gunzipped: Data
-        if #available(iOS 18.0, *) {
-            // Use built-in gzip decompression (iOS 18+)
-            gunzipped = try data.gunzipped()
-        } else {
-            // Fallback using zlib
-            gunzipped = try tarball.gunzippedFallback()
-        }
+        let gunzipped = try tarball.gunzippedFallback()
         try extractTar(data: gunzipped, to: dstDir)
     }
 
@@ -420,45 +416,37 @@ actor CosyVoiceService {
         while offset + 512 <= count {
             let block = data[offset..<offset+512]
             offset += 512
-            // Two consecutive zero blocks = end of archive
             if block.allSatisfy({ $0 == 0 }) { break }
 
-            // Parse tar header (POSIX format)
             let name = String(data: block[0..<100], encoding: .utf8)?
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\0 ")) ?? ""
             let sizeStr = String(data: block[124..<136], encoding: .utf8)?
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\0 ")) ?? ""
             let typeFlag = block[156]
 
-            guard !name.isEmpty, let size = Int(sizeStr, radix: 8) else {
-                offset += (511 + size) / 512 * 512
+            guard !name.isEmpty, let fileSize = Int(sizeStr, radix: 8) else {
+                offset += 512
                 continue
             }
 
-            // Round up to 512-byte boundary
-            let paddedSize = (511 + size) / 512 * 512
-            let fileData = data[offset..<offset+min(size, paddedSize)]
+            let paddedSize = (511 + fileSize) / 512 * 512
+            guard offset + paddedSize <= count else { break }
+
+            let fileData = data[offset..<offset + paddedSize]
             offset += paddedSize
 
-            let destPath: String
-            if name.hasPrefix("./") {
-                destPath = String(name.dropFirst(2))
-            } else {
-                destPath = name
-            }
-
+            let destPath = name.hasPrefix("./") ? String(name.dropFirst(2)) : name
             guard !destPath.isEmpty else { continue }
 
             let dest = dstDir.appendingPathComponent(destPath)
             let parent = dest.deletingLastPathComponent()
 
             switch typeFlag {
-            case 53, 48: // '5' directory or '0' regular file
+            case 53: // directory
                 try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-                if typeFlag != 53 {
-                    try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-                    try fileData.prefix(size).write(to: dest, options: .atomic)
-                }
+            case 48, 0: // regular file
+                try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                try fileData.prefix(fileSize).write(to: dest, options: .atomic)
             default:
                 break
             }
