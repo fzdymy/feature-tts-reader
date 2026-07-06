@@ -141,6 +141,13 @@ struct TTSView: View {
                         ProgressView()
                         Text("正在下载模型…")
                             .foregroundColor(.secondary)
+                        Spacer()
+                        Button("取消") {
+                            Task { await CosyVoiceService.shared.cancelDownload() }
+                        }
+                        .font(.caption)
+                        .buttonStyle(.bordered)
+                        .tint(.orange)
                     }
                     if let progress = realProgress {
                         ProgressView(value: progress)
@@ -151,34 +158,6 @@ struct TTSView: View {
                             Text("\(Int(progress * 100))%")
                         }
                         .font(.caption).foregroundColor(.secondary)
-                        // Download speed + ETA
-                        if downloadSpeed > 0 {
-                            let speedText: String = {
-                                let bps = downloadSpeed
-                                if bps >= 1_000_000 {
-                                    return String(format: "%.1f MB/s", bps / 1_000_000)
-                                } else {
-                                    return String(format: "%.0f KB/s", bps / 1_000)
-                                }
-                            }()
-                            let remaining = max(0, (1 - progress) * Double(CosyVoiceService.estimatedModelSize))
-                            let etaSecs = remaining / downloadSpeed
-                            let etaText: String = {
-                                guard etaSecs.isFinite, etaSecs > 0 else { return "计算中…" }
-                                if etaSecs < 60 {
-                                    return "剩余 \(Int(etaSecs))秒"
-                                }
-                                let m = Int(etaSecs) / 60
-                                let s = Int(etaSecs) % 60
-                                return "剩余 \(m)分\(s)秒"
-                            }()
-                            HStack {
-                                Text("速度 \(speedText)")
-                                Spacer()
-                                Text(etaText)
-                            }
-                            .font(.caption).foregroundColor(.secondary)
-                        }
                     }
                     Text("约 1.0GB，请保持网络畅通")
                         .font(.caption).foregroundColor(.secondary)
@@ -271,7 +250,11 @@ struct TTSView: View {
         }
         .fileImporter(
             isPresented: $showManualImport,
-            allowedContentTypes: [.folder, .data]
+            allowedContentTypes: {
+                let gz = UTType(filenameExtension: "gz") ?? .gzip
+                let tgz = UTType(filenameExtension: "tar.gz") ?? gz
+                return [.folder, gz, tgz]
+            }()
         ) { result in
             handleModelImport(result)
         }

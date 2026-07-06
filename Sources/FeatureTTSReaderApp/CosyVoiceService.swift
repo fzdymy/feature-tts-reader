@@ -252,8 +252,26 @@ actor CosyVoiceService {
         Task { try? await shared.ensureModel() }
     }
 
+    /// Cancellable download task (set before download starts, cleared after).
+    private var activeDownloadTask: Task<Void, Never>?
+
+    func cancelDownload() {
+        activeDownloadTask?.cancel()
+        activeDownloadTask = nil
+        if downloadPhase == .downloading {
+            downloadPhase = .failed
+            downloadError = "用户取消了下载"
+            isDownloading = false
+        }
+    }
+
     func ensureModel() async throws {
         guard ttsModel == nil else { return }
+
+        // Cancel any previous pending download
+        activeDownloadTask?.cancel()
+        activeDownloadTask = nil
+
         isDownloading = true
         downloadError = nil
         downloadPhase = .downloading
@@ -268,6 +286,7 @@ actor CosyVoiceService {
             // Check if model is already cached on disk (from a previous download)
             if !isModelCached(at: dstDir) {
                 try await downloadAndExtract(to: dstDir)
+                try Task.checkCancellation()
             }
 
             try Task.checkCancellation()
@@ -305,7 +324,7 @@ actor CosyVoiceService {
         }
     }
 
-    /// Download the tarball (multi-threaded) → extract → clean up.
+    /// Download the tarball → extract → clean up.
     private func downloadAndExtract(to dstDir: URL) async throws {
         let raw = rawReleaseURL(forVariant: Self.defaultVariant)
         let urlStr = DownloadProxy.active.rewrite(raw)
@@ -318,68 +337,16 @@ actor CosyVoiceService {
 
         let tarball = tmpDir.appendingPathComponent("model.tar.gz")
 
-        // Get file size (HEAD) — catch errors and fall back
-        let total: Int64
-        do {
-            var head = URLRequest(url: url, timeoutInterval: 30)
-            head.httpMethod = "HEAD"
-            let (_, headResp) = try await URLSession.shared.data(for: head)
-            guard let resp = headResp as? HTTPURLResponse,
-                  let totalSize = resp.allHeaderFields["Content-Length"] as? String,
-                  let parsed = Int64(totalSize) else {
-                try await singleDownload(url: url, to: tarball)
-                try extract(tarball: tarball, to: dstDir)
-                return
-            }
-            total = parsed
-        } catch {
-            try await singleDownload(url: url, to: tarball)
-            try extract(tarball: tarball, to: dstDir)
-            return
-        }
-
-        let chunkSize = total / Int64(Self.downloadThreads)
-        FileManager.default.createFile(atPath: tarball.path, contents: nil)
-        let fileHandle = try FileHandle(forWritingTo: tarball)
-        try fileHandle.truncate(atOffset: UInt64(total))
-        defer { try? fileHandle.close() }
-        // Use async task group for concurrent chunk downloads
-        try await withThrowingTaskGroup(of: (offset: Int64, data: Data).self) { taskGroup in
-            for i in 0..<Self.downloadThreads {
-                let start = Int64(i) * chunkSize
-                let end = (i == Self.downloadThreads - 1) ? total - 1 : start + chunkSize - 1
-                taskGroup.addTask {
-                    var req = URLRequest(url: url, timeoutInterval: 120)
-                    req.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
-                    let (data, resp) = try await URLSession.shared.data(for: req)
-                    guard let httpResp = resp as? HTTPURLResponse,
-                          (200...299).contains(httpResp.statusCode) || httpResp.statusCode == 206 else {
-                        throw TTSError.downloadFailed("chunk \(i) status \((resp as? HTTPURLResponse)?.statusCode ?? 0)")
-                    }
-                    return (start, data)
-                }
-            }
-            var completedBytes: Int64 = 0
-            for try await result in taskGroup {
-                // Write chunk directly to disk at the correct offset
-                try fileHandle.seek(toOffset: UInt64(result.offset))
-                try fileHandle.write(contentsOf: result.data)
-                completedBytes += Int64(result.data.count)
-                reportProgress(Double(completedBytes) / Double(total))
-            }
-        }
-
-        try extract(tarball: tarball, to: dstDir)
-    }
-
-    /// Single-threaded download fallback (uses `data(for:)` to avoid byte-by-byte iteration).
-    private func singleDownload(url: URL, to dst: URL) async throws {
-        let req = URLRequest(url: url, timeoutInterval: 300)
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let estimate = resp.expectedContentLength > 0 ? resp.expectedContentLength : Int64(data.count)
+        // Report indeterminate progress (0.5) while download is in flight
         reportProgress(0.5)
-        try data.write(to: dst, options: .atomic)
+
+        let req = URLRequest(url: url, timeoutInterval: 600)
+        let (tempFile, resp) = try await URLSession.shared.download(for: req)
+        // download(for:) streams to disk — report completion
         reportProgress(1.0)
+
+        try FileManager.default.moveItem(at: tempFile, to: tarball)
+        try extract(tarball: tarball, to: dstDir)
     }
 
     private func reportProgress(_ p: Double) {
@@ -446,6 +413,8 @@ actor CosyVoiceService {
     }
 
     func resetDownload() {
+        activeDownloadTask?.cancel()
+        activeDownloadTask = nil
         ttsModel = nil
         downloadPhase = .idle
         isDownloading = false
