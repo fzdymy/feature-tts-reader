@@ -54,19 +54,19 @@ jobs:
           echo "Downloading $MODEL_ID ..."
           mkdir -p /tmp/cosyvoice-model
           
-          cat > /tmp/download.py << 'EOF'
-import os
-from huggingface_hub import snapshot_download
-mid = os.environ['MODEL_ID']
-print(f"Starting download of {mid}...")
-snapshot_download(
-    repo_id=mid,
-    local_dir='/tmp/cosyvoice-model',
-    local_dir_use_symlinks=False,
-    resume_download=True
-)
-print("Download completed!")
-EOF
+          cat > /tmp/download.py <<-'PYCODE'
+          import os
+          from huggingface_hub import snapshot_download
+          mid = os.environ["MODEL_ID"]
+          print(f"Starting download of {mid}...")
+          snapshot_download(
+          repo_id=mid,
+          local_dir="/tmp/cosyvoice-model",
+          local_dir_use_symlinks=False,
+          resume_download=True
+          )
+          print("Download completed!")
+          PYCODE
           
           /tmp/hf-venv/bin/python3 /tmp/download.py
           
