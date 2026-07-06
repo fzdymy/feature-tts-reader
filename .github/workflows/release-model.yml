@@ -1,18 +1,12 @@
 name: Release CosyVoice Model
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - '.github/workflows/release-model.yml'
-  schedule:
-    - cron: '0 6 1 * *'  # 每月1日 06:00 UTC 自动运行
   workflow_dispatch:
     inputs:
       variant:
-        description: 'Model variant'
+        description: Model variant
         required: true
-        default: 'aufklarer/CosyVoice3-0.5B-MLX-4bit'
+        default: aufklarer/CosyVoice3-0.5B-MLX-4bit
         type: choice
         options:
           - aufklarer/CosyVoice3-0.5B-MLX-4bit
@@ -21,23 +15,21 @@ on:
           - aufklarer/CosyVoice3-0.5B-MLX-bf16
 
 concurrency:
-  group: release-model-${{ github.ref_name }}
+  group: release-model
   cancel-in-progress: true
 
 jobs:
   upload-model:
     runs-on: macos-15
-    timeout-minutes: 120  # 2h should be enough for 1.2GB download
+    timeout-minutes: 120
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install huggingface_hub
+      - name: Install deps
         run: |
           python3 -m venv /tmp/hf-venv
           source /tmp/hf-venv/bin/activate
           pip install -q huggingface_hub
-          echo "/tmp/hf-venv/bin" >> $GITHUB_PATH
 
       - name: Resolve variant
         id: resolve
@@ -46,41 +38,25 @@ jobs:
           if [ -z "$MODEL" ]; then
             MODEL="aufklarer/CosyVoice3-0.5B-MLX-4bit"
           fi
-          echo "MODEL=$MODEL" >> $GITHUB_OUTPUT
-
+          echo "MODEL=$MODEL" >> "$GITHUB_OUTPUT"
           TAG="${MODEL#*/}"
-          TAG="${TAG//\//-}"
-          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Download model from HuggingFace
+      - name: Download model
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
           MODEL_ID: ${{ steps.resolve.outputs.MODEL }}
         run: |
           source /tmp/hf-venv/bin/activate
-          TAG="${{ steps.resolve.outputs.TAG }}"
           echo "Downloading $MODEL_ID ..."
-
           mkdir -p /tmp/cosyvoice-model
-
-          python3 -c "
+          python3 << 'PYEOF'
 import os
 os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
-from huggingface_hub import snapshot_download, login
-
-token = os.environ.get('HF_TOKEN', '')
-if token:
-    login(token=token)
-
-snapshot_download(
-    repo_id=os.environ['MODEL_ID'],
-    local_dir='/tmp/cosyvoice-model',
-    local_dir_use_symlinks=False,
-    resume_download=True,
-)
-"
-
-          # Create tarball
+from huggingface_hub import snapshot_download
+mid = os.environ['MODEL_ID']
+snapshot_download(repo_id=mid, local_dir='/tmp/cosyvoice-model',
+                  local_dir_use_symlinks=False, resume_download=True)
+PYEOF
           cd /tmp
           tar czf "cosyvoice-${TAG}.tar.gz" cosyvoice-model/
           ls -lh "cosyvoice-${TAG}.tar.gz"
@@ -91,12 +67,9 @@ snapshot_download(
         run: |
           TAG="${{ steps.resolve.outputs.TAG }}"
           MODEL="${{ steps.resolve.outputs.MODEL }}"
-
-          # Delete existing release with same tag if it exists
           gh release delete "cosyvoice-${TAG}" --yes 2>/dev/null || true
-
           gh release create "cosyvoice-${TAG}" \
             "/tmp/cosyvoice-${TAG}.tar.gz" \
             --title "CosyVoice Model ${TAG}" \
-            --notes "CosyVoice model variant: ${MODEL}" \
+            --notes "CosyVoice variant: ${MODEL}" \
             --prerelease
