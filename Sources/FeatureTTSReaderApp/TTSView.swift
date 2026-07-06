@@ -16,6 +16,7 @@ struct TTSView: View {
     @State private var selectedVariant = 0
     @State private var importError: String?
     @State private var downloadProgress: Double = 0
+    @State private var useMirror = false
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -86,11 +87,33 @@ struct TTSView: View {
                 .pickerStyle(.menu)
             }
 
+            // Mirror toggle (only when idle or failed)
+            if downloadPhase == .idle || downloadPhase == .failed {
+                Toggle(isOn: $useMirror) {
+                    VStack(alignment: .leading) {
+                        Text("使用国内镜像加速")
+                            .font(.caption)
+                        Text(useMirror ? "hf-mirror.com" : "huggingface.co")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .onChange(of: useMirror) { _, newValue in
+                    CosyVoiceService.activeEndpoint = newValue
+                        ? CosyVoiceService.mirrorBaseURL
+                        : CosyVoiceService.hfBaseURL
+                }
+            }
+
             switch downloadPhase {
             case .idle:
                 VStack(alignment: .leading, spacing: 8) {
                     Text("模型未下载 (~1.2GB)")
                         .foregroundColor(.secondary)
+                    if useMirror {
+                        Text("镜像: hf-mirror.com")
+                            .font(.caption).foregroundColor(.green)
+                    }
                     Text("需要网络连接，仅首次需下载")
                         .font(.caption).foregroundColor(.secondary)
                     Button("开始下载模型", systemImage: "icloud.and.arrow.down") {
@@ -156,20 +179,30 @@ struct TTSView: View {
             }
 
             Divider()
-            HStack {
-                Text("手动下载（复制链接到浏览器）")
-                    .font(.caption).foregroundColor(.secondary)
-                Spacer()
-                Button {
-                    let repo = CosyVoiceService.variants[selectedVariant].repo
-                    UIPasteboard.general.string = "https://huggingface.co/\(repo)"
-                    showCopied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }
-                } label: {
-                    Label(showCopied ? "已复制" : "复制链接", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+            VStack(spacing: 4) {
+                HStack {
+                    Text("手动下载（复制到浏览器）")
+                        .font(.caption).foregroundColor(.secondary)
+                    Spacer()
+                    Button {
+                        let repo = CosyVoiceService.variants[selectedVariant].repo
+                        let base = useMirror ? CosyVoiceService.mirrorBaseURL : CosyVoiceService.hfBaseURL
+                        UIPasteboard.general.string = "\(base)/\(repo)"
+                        showCopied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }
+                    } label: {
+                        Label(showCopied ? "已复制" : "复制链接", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
                 }
-                .font(.caption)
-                .buttonStyle(.borderless)
+                if useMirror {
+                    Text("当前使用国内镜像 hf-mirror.com，下载速度更快")
+                        .font(.caption2).foregroundColor(.green)
+                } else {
+                    Text("国内用户建议开启上方「国内镜像加速」开关")
+                        .font(.caption2).foregroundColor(.orange)
+                }
             }
 
             HStack {

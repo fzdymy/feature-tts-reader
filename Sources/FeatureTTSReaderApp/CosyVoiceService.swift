@@ -40,9 +40,19 @@ actor CosyVoiceService {
         ("8bit-full (~1.6 GB)", "aufklarer/CosyVoice3-0.5B-MLX-8bit-full"),
         ("bf16 (~2.1 GB)", "aufklarer/CosyVoice3-0.5B-MLX-bf16"),
     ]
-    /// Direct download: HF uses ?download=1 param to force download.
+    /// HuggingFace mirror in China (hf-mirror.com) for faster downloads.
+    static let mirrorBaseURL = "https://hf-mirror.com"
+    static let hfBaseURL = "https://huggingface.co"
+    /// Set to `mirrorBaseURL` for Chinese users.
+    nonisolated static var activeEndpoint: String = hfBaseURL
+
+    /// Direct download URL (respects mirror setting).
     nonisolated static var modelDownloadURL: String {
-        "https://huggingface.co/\(defaultVariant)/resolve/main/config.json?download=1"
+        "\(activeEndpoint)/\(defaultVariant)/resolve/main/config.json?download=1"
+    }
+    /// Model page URL (for browsing what files are available).
+    nonisolated static var modelPageURL: String {
+        "\(activeEndpoint)/\(defaultVariant)"
     }
 
     // MARK: - TTS Cache
@@ -198,6 +208,11 @@ actor CosyVoiceService {
         downloadProgress = 0
         downloadStartedAt = Date()
         do {
+            // Set HF_ENDPOINT if user selected mirror (HubApi reads env var)
+            let endpoint = Self.activeEndpoint
+            if endpoint != Self.hfBaseURL {
+                setenv("HF_ENDPOINT", endpoint, 1)
+            }
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
                 modelId: Self.defaultVariant,
                 offlineMode: false,

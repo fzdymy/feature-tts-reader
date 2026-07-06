@@ -52,13 +52,14 @@ jobs:
           TAG="${TAG//\//-}"
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Download model from HuggingFace
+      - name: Download model from HuggingFace (China mirror)
         env:
+          HF_ENDPOINT: https://hf-mirror.com
           HF_TOKEN: ${{ secrets.HF_TOKEN || '' }}
         run: |
           MODEL="${{ steps.resolve.outputs.MODEL }}"
           TAG="${{ steps.resolve.outputs.TAG }}"
-          echo "Downloading $MODEL ..."
+          echo "Downloading $MODEL via $HF_ENDPOINT ..."
 
           mkdir -p /tmp/cosyvoice-model
           source /tmp/hf-venv/bin/activate
