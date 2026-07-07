@@ -325,8 +325,9 @@ actor CosyVoiceService {
 
             try Task.checkCancellation()
             guard isModelCached(at: dstDir) else {
-                throw TTSError.extractionFailed("缓存校验失败：模型文件不完整")
+                throw TTSError.extractionFailed("缓存校验失败：模型文件不完整或尺寸异常，请重新下载")
             }
+            try checkAvailableMemory()
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
@@ -366,15 +367,30 @@ actor CosyVoiceService {
         return caches.appendingPathComponent("com.cosyvoice/models/\(Self.defaultVariant)")
     }
 
-    /// Check whether all expected model files exist and are non-empty.
+    /// Check whether all expected model files exist and have reasonable sizes.
     private func isModelCached(at dir: URL) -> Bool {
-        let required = ["config.json", "llm.safetensors", "flow.safetensors", "hifigan.safetensors", "speech_tokenizer.safetensors"]
-        return required.allSatisfy { fn in
+        let required: [(name: String, minBytes: Int64)] = [
+            ("config.json", 100),
+            ("llm.safetensors", 500_000_000),
+            ("flow.safetensors", 50_000_000),
+            ("hifigan.safetensors", 10_000_000),
+            ("speech_tokenizer.safetensors", 1_000_000),
+        ]
+        return required.allSatisfy { fn, minBytes in
             let path = dir.appendingPathComponent(fn).path
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? Int64, size > 0
+                  let size = attrs[.size] as? Int64, size >= minBytes
             else { return false }
             return true
+        }
+    }
+
+    /// Check available memory; throw if too low to load the model.
+    private func checkAvailableMemory() throws {
+        let available = os_proc_available_memory()
+        // Require at least 500 MB free for model loading overhead
+        guard available >= 500_000_000 else {
+            throw TTSError.downloadFailed("设备可用内存不足（仅剩 \(available / 1_000_000) MB），无法加载模型")
         }
     }
 
@@ -644,9 +660,10 @@ actor CosyVoiceService {
         }
 
         guard isModelCached(at: cacheDir) else {
-            throw TTSError.extractionFailed("导入的模型文件不完整")
+            throw TTSError.extractionFailed("导入的模型文件不完整或尺寸异常")
         }
 
+        try checkAvailableMemory()
         ReaderStore.writeCrashMarker("importModel_warm_start")
         downloadPhase = .warming
         do {
