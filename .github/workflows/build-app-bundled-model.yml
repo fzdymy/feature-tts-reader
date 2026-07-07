@@ -114,6 +114,15 @@ jobs:
           ls -la distilbert_chinese.mlpackage/ | head -5
           echo "::endgroup::"
 
+      - name: Compile Core ML Model
+        run: |
+          mkdir -p /tmp/compiled_models
+          xcrun coremlcompiler compile \
+            Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage \
+            /tmp/compiled_models
+          echo "Compiled Core ML model:"
+          ls -lh /tmp/compiled_models/distilbert_chinese.mlmodelc/
+
       - name: Build unsigned app
         run: |
           xcodebuild build \
@@ -150,7 +159,13 @@ jobs:
             find "$APP_DIR" -type f -permalink +111 -exec strip -S {} + 2>/dev/null || true
           fi
 
-          # 3. Inject model files into .app bundle
+          # 3. Inject compiled Core ML model (.mlmodelc) at app bundle root
+          if [ -d "/tmp/compiled_models/distilbert_chinese.mlmodelc" ]; then
+            cp -R /tmp/compiled_models/distilbert_chinese.mlmodelc "$APP_DIR/"
+            echo "✅ Core ML model (.mlmodelc) injected"
+          fi
+
+          # 4. Inject CosyVoice model files into .app bundle
           if [ -d "/tmp/model-extracted" ] && [ "$(ls -A /tmp/model-extracted/ 2>/dev/null)" ]; then
             MODEL_BUNDLE_DIR="$APP_DIR/cosyvoice-model"
             mkdir -p "$MODEL_BUNDLE_DIR"

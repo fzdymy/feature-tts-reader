@@ -81,6 +81,16 @@ final class BertSpeakerDetector {
     // MARK: - Private
 
     private func loadModel() {
+        // Try compiled .mlmodelc at app bundle root first (smaller, faster)
+        if let url = Bundle.main.url(forResource: "distilbert_chinese", withExtension: "mlmodelc") {
+            do {
+                model = try MLModel(contentsOf: url)
+                return
+            } catch {
+                print("[BertSpeakerDetector] Failed to load .mlmodelc: \(error)")
+            }
+        }
+        // Fall back to .mlpackage in SPM resource bundle (development builds)
         guard let url = Bundle.module.url(forResource: "distilbert_chinese", withExtension: "mlpackage", subdirectory: "Models") else {
             print("[BertSpeakerDetector] Model not found in bundle")
             return
