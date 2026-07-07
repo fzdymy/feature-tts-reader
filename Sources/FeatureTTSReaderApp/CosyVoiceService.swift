@@ -282,6 +282,9 @@ actor CosyVoiceService {
     func cancelDownload() {
         activeDownloadTask?.cancel()
         activeDownloadTask = nil
+        // Invalidate session to cancel actual network request immediately.
+        // The delegate stays alive until defer in downloadStreaming cleans up.
+        downloadSession?.invalidateAndCancel()
         // Reset state regardless of current phase
         downloadPhase = .failed
         downloadError = "用户取消了下载"
@@ -291,6 +294,7 @@ actor CosyVoiceService {
 
     func ensureModel() async throws {
         guard ttsModel == nil else { return }
+        ReaderStore.writeCrashMarker("ensureModel_start")
 
         // Cancel any previous pending download
         activeDownloadTask?.cancel()
@@ -308,6 +312,7 @@ actor CosyVoiceService {
             try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
 
             if !isModelCached(at: dstDir) {
+                ReaderStore.writeCrashMarker("download_start")
                 // Wrap download in a cancellable Task
                 activeDownloadTask = Task {
                     try await downloadAndExtract(to: dstDir)
@@ -315,9 +320,14 @@ actor CosyVoiceService {
                 defer { activeDownloadTask = nil }
                 try await activeDownloadTask!.value
                 try Task.checkCancellation()
+                ReaderStore.writeCrashMarker("download_done")
             }
 
             try Task.checkCancellation()
+            guard isModelCached(at: dstDir) else {
+                throw TTSError.extractionFailed("缓存校验失败：模型文件不完整")
+            }
+            ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
                 modelId: Self.defaultVariant,
@@ -326,6 +336,7 @@ actor CosyVoiceService {
             )
             ttsModel?.warmUp()
             downloadPhase = .ready
+            ReaderStore.writeCrashMarker("model_warm_done")
         } catch {
             downloadPhase = .failed
             if error is CancellationError || (error as NSError).code == URLError.cancelled.rawValue {
@@ -340,6 +351,7 @@ actor CosyVoiceService {
             }
             isDownloading = false
             downloadStartedAt = nil
+            ReaderStore.writeCrashMarker("ensureModel_failed:\(error.localizedDescription.prefix(60))")
             throw error
         }
         isDownloading = false
@@ -354,11 +366,15 @@ actor CosyVoiceService {
         return caches.appendingPathComponent("com.cosyvoice/models/\(Self.defaultVariant)")
     }
 
-    /// Check whether all expected model files exist.
+    /// Check whether all expected model files exist and are non-empty.
     private func isModelCached(at dir: URL) -> Bool {
         let required = ["config.json", "llm.safetensors", "flow.safetensors", "hifigan.safetensors", "speech_tokenizer.safetensors"]
         return required.allSatisfy { fn in
-            FileManager.default.fileExists(atPath: dir.appendingPathComponent(fn).path)
+            let path = dir.appendingPathComponent(fn).path
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                  let size = attrs[.size] as? Int64, size > 0
+            else { return false }
+            return true
         }
     }
 
@@ -486,8 +502,9 @@ actor CosyVoiceService {
     }
 
     /// Extract a .zip archive using zlib raw inflate.
+    /// Uses memory-mapped file (`mappedIfSafe`) to avoid loading the entire ~1.2 GB zip into RAM.
     private func extractZip(archive: URL, to dstDir: URL) throws {
-        let data = try Data(contentsOf: archive)
+        let data = try Data(contentsOf: archive, options: .mappedIfSafe)
         var offset = 0
 
         // First pass: detect a common top-level directory prefix
@@ -576,6 +593,9 @@ actor CosyVoiceService {
     func resetDownload() {
         activeDownloadTask?.cancel()
         activeDownloadTask = nil
+        downloadSession?.invalidateAndCancel()
+        downloadSession = nil
+        downloadDelegate = nil
         ttsModel = nil
         downloadPhase = .idle
         isDownloading = false
@@ -594,6 +614,7 @@ actor CosyVoiceService {
     /// Copies model files into the cache directory and loads the model.
     func importModel(from sourceURL: URL) async throws {
         guard ttsModel == nil else { return }
+        ReaderStore.writeCrashMarker("importModel_start")
         let cacheDir = try modelCacheDirectory()
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
@@ -621,6 +642,12 @@ actor CosyVoiceService {
             }
             try FileManager.default.copyItem(at: item, to: dest)
         }
+
+        guard isModelCached(at: cacheDir) else {
+            throw TTSError.extractionFailed("导入的模型文件不完整")
+        }
+
+        ReaderStore.writeCrashMarker("importModel_warm_start")
         downloadPhase = .warming
         do {
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
@@ -630,9 +657,11 @@ actor CosyVoiceService {
             )
             ttsModel?.warmUp()
             downloadPhase = .ready
+            ReaderStore.writeCrashMarker("importModel_done")
         } catch {
             downloadPhase = .failed
             downloadError = error.localizedDescription
+            ReaderStore.writeCrashMarker("importModel_failed:\(error.localizedDescription.prefix(60))")
             throw error
         }
     }
@@ -836,19 +865,23 @@ private extension UInt16 {
 
 /// Minimal URLSessionDownloadDelegate: copies file to stable temp location during callback,
 /// then exposes async `result` property.
+/// All shared state protected by `OSAllocatedUnfairLock` to prevent data races
+/// between the URLSession delegate queue and the async caller.
 private final class _DownloadDelegate: NSObject, URLSessionDownloadDelegate {
-    private var continuation: CheckedContinuation<URL, Error>?
-    private var tempURL: URL?
+    private let _lock = OSAllocatedUnfairLock()
+    private nonisolated(unsafe) var _continuation: CheckedContinuation<URL, Error>?
+    private nonisolated(unsafe) var _tempURL: URL?
 
     var result: URL {
         get async throws {
             try await withCheckedThrowingContinuation { c in
-                continuation = c
-                // If the file already arrived before this async call, resume immediately
-                if let url = tempURL {
-                    continuation?.resume(returning: url)
-                    continuation = nil
+                _lock.lock()
+                _continuation = c
+                if let url = _tempURL {
+                    _continuation?.resume(returning: url)
+                    _continuation = nil
                 }
+                _lock.unlock()
             }
         }
     }
@@ -857,15 +890,19 @@ private final class _DownloadDelegate: NSObject, URLSessionDownloadDelegate {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("cosyvoice-\(UUID().uuidString)")
         try? FileManager.default.copyItem(at: location, to: tmp)
-        tempURL = tmp
-        continuation?.resume(returning: tmp)
-        continuation = nil
+        _lock.lock()
+        _tempURL = tmp
+        _continuation?.resume(returning: tmp)
+        _continuation = nil
+        _lock.unlock()
     }
 
     nonisolated func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error else { return }
-        continuation?.resume(throwing: error)
-        continuation = nil
+        _lock.lock()
+        _continuation?.resume(throwing: error)
+        _continuation = nil
+        _lock.unlock()
     }
 }
 
