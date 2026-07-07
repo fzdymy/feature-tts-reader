@@ -330,13 +330,11 @@ actor CosyVoiceService {
             try checkAvailableMemory()
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
-            ttsModel = try await MainActor.run {
-                try await CosyVoiceTTSModel.fromPretrained(
-                    modelId: Self.defaultVariant,
-                    cacheDir: dstDir,
-                    offlineMode: true
-                )
-            }
+            ttsModel = try await CosyVoiceTTSModel.fromPretrained(
+                modelId: Self.defaultVariant,
+                cacheDir: dstDir,
+                offlineMode: true
+            )
             ReaderStore.writeCrashMarker("model_load_done")
             ttsModel?.warmUp()
             downloadPhase = .ready
@@ -670,13 +668,11 @@ actor CosyVoiceService {
         ReaderStore.writeCrashMarker("importModel_warm_start")
         downloadPhase = .warming
         do {
-            ttsModel = try await MainActor.run {
-                try await CosyVoiceTTSModel.fromPretrained(
-                    modelId: Self.defaultVariant,
-                    cacheDir: cacheDir,
-                    offlineMode: true
-                )
-            }
+            ttsModel = try await CosyVoiceTTSModel.fromPretrained(
+                modelId: Self.defaultVariant,
+                cacheDir: cacheDir,
+                offlineMode: true
+            )
             ReaderStore.writeCrashMarker("importModel_load_done")
             ttsModel?.warmUp()
             downloadPhase = .ready
