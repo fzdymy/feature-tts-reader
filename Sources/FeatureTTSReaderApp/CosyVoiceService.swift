@@ -308,7 +308,8 @@ actor CosyVoiceService {
         downloadStartedAt = Date()
         speedSamples.removeAll()
         do {
-            let dstDir = try modelCacheDirectory()
+            let rootCache = try modelCacheDirectory()
+            let dstDir = try modelVariantDirectory()
             try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
 
             if !isModelCached(at: dstDir) {
@@ -337,9 +338,12 @@ actor CosyVoiceService {
             try validateModelFiles(at: dstDir)
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
+            // Use the directory path as modelId — this tells the library
+            // to load from a local folder and avoids fatalError from its
+            // internal HuggingFace Hub resolution.
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: Self.defaultVariant,
-                cacheDir: dstDir,
+                modelId: dstDir.path,
+                cacheDir: rootCache,
                 offlineMode: true
             )
             ReaderStore.writeCrashMarker("model_load_done")
@@ -369,11 +373,16 @@ actor CosyVoiceService {
 
     // MARK: - Multi-threaded download from GitHub Releases
 
-    /// Directory where model files should live (inside caches).
-    private func modelCacheDirectory() throws -> URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        return caches.appendingPathComponent("com.cosyvoice/models/\(Self.defaultVariant)")
-    }
+/// Directory where model files should live (inside caches).
+private func modelCacheDirectory() throws -> URL {
+    let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+    return caches.appendingPathComponent("com.cosyvoice/models")
+}
+
+/// Subdirectory inside modelCacheDirectory for a specific variant.
+private func modelVariantDirectory() throws -> URL {
+    try modelCacheDirectory().appendingPathComponent(Self.defaultVariant)
+}
 
     /// Check whether all expected model files exist and have reasonable sizes.
     /// Also searches one level of subdirectories (zip may unpack to a top-level dir).
@@ -697,7 +706,7 @@ actor CosyVoiceService {
         downloadSpeed = 0
         speedSamples.removeAll()
         // Also wipe cached model files
-        if let dir = try? modelCacheDirectory(), FileManager.default.fileExists(atPath: dir.path) {
+        if let dir = try? modelVariantDirectory(), FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.removeItem(at: dir)
         }
     }
@@ -707,7 +716,8 @@ actor CosyVoiceService {
     func importModel(from sourceURL: URL) async throws {
         guard ttsModel == nil else { return }
         ReaderStore.writeCrashMarker("importModel_start")
-        let cacheDir = try modelCacheDirectory()
+        let rootCache = try modelCacheDirectory()
+        let cacheDir = try modelVariantDirectory()
         try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
         var sourceDir = sourceURL
@@ -744,8 +754,8 @@ actor CosyVoiceService {
         downloadPhase = .warming
         do {
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: Self.defaultVariant,
-                cacheDir: cacheDir,
+                modelId: cacheDir.path,
+                cacheDir: rootCache,
                 offlineMode: true
             )
             ReaderStore.writeCrashMarker("importModel_load_done")
