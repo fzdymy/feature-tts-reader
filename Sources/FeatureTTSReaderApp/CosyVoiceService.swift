@@ -337,20 +337,25 @@ actor CosyVoiceService {
             try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
 
             if !isModelCached(at: try hfSnapshotsDirectory()) {
-                ReaderStore.writeCrashMarker("download_start")
-                // Wrap download in a cancellable Task
-                activeDownloadTask = Task {
-                    try await downloadAndExtract(to: stagingDir)
-                }
-                defer { activeDownloadTask = nil }
-                try await activeDownloadTask!.value
-                try Task.checkCancellation()
-                ReaderStore.writeCrashMarker("download_done")
+                // First, try to copy from the app bundle (bundled model)
+                if try copyBundledModelToCache() {
+                    os_log("[TTS] Model loaded from app bundle", type: .debug)
+                } else {
+                    ReaderStore.writeCrashMarker("download_start")
+                    // Wrap download in a cancellable Task
+                    activeDownloadTask = Task {
+                        try await downloadAndExtract(to: stagingDir)
+                    }
+                    defer { activeDownloadTask = nil }
+                    try await activeDownloadTask!.value
+                    try Task.checkCancellation()
+                    ReaderStore.writeCrashMarker("download_done")
 
-                // Arrange files into HuggingFace cache structure
-                try setupHuggingFaceCache(from: stagingDir)
-                // Clean up staging
-                try? FileManager.default.removeItem(at: stagingDir)
+                    // Arrange files into HuggingFace cache structure
+                    try setupHuggingFaceCache(from: stagingDir)
+                    // Clean up staging
+                    try? FileManager.default.removeItem(at: stagingDir)
+                }
             }
 
             try Task.checkCancellation()
@@ -424,6 +429,27 @@ private func hfSnapshotsDirectory() throws -> URL {
 /// Temp staging directory for raw extraction.
 private func stagingDirectory() throws -> URL {
     try modelCacheDirectory().appendingPathComponent(".staging-\(Self.activeVariant)")
+}
+
+/// If the model is bundled inside the .app bundle (at cosyvoice-model/),
+/// copy it into the HF cache structure.
+/// Returns true if bundled model was found and copied.
+private func copyBundledModelToCache() throws -> Bool {
+    guard let bundleDir = Bundle.main.resourceURL?.appendingPathComponent("cosyvoice-model"),
+          FileManager.default.fileExists(atPath: bundleDir.path) else { return false }
+    os_log("[TTS] Found bundled model at %@", type: .debug, bundleDir.path)
+    let stagingDir = try stagingDirectory()
+    try? FileManager.default.removeItem(at: stagingDir)
+    try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+    let items = try FileManager.default.contentsOfDirectory(at: bundleDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+    for item in items {
+        let dest = stagingDir.appendingPathComponent(item.lastPathComponent)
+        try FileManager.default.copyItem(at: item, to: dest)
+        os_log("[TTS]   bundled -> %@", type: .debug, item.lastPathComponent)
+    }
+    try setupHuggingFaceCache(from: stagingDir)
+    try? FileManager.default.removeItem(at: stagingDir)
+    return true
 }
 
 /// Move extracted model files into the HuggingFace cache layout and create refs.
