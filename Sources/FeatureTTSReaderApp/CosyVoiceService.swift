@@ -238,11 +238,8 @@ actor CosyVoiceService {
     }
 
     /// Observability: cache hit/miss/store stats.
-    nonisolated static func cacheStatistics() -> CacheStats.Snapshot {
-        Task { await shared.cacheStats.snapshot() }
-        // Best-effort synchronous snapshot via actor proxy
-        // Called from UI; returns stale snapshot if actor busy.
-        return CacheStats.Snapshot(hits: 0, misses: 0, stores: 0, evicted: 0)
+    nonisolated static func cacheStatistics() async -> CacheStats.Snapshot {
+        await shared.cacheStats.snapshot()
     }
 
     struct CacheStats {
@@ -649,7 +646,6 @@ private func setupHuggingFaceCache(from staging: URL) throws {
             let typeFlag = block[156]
 
             guard !name.isEmpty, let fileSize = Int(sizeStr, radix: 8) else {
-                offset += 512
                 continue
             }
 
@@ -694,7 +690,7 @@ private func setupHuggingFaceCache(from staging: URL) throws {
             let compSize = Int(readLEU32(data, tempOff + 18))
             let hdrSize = 30 + nameLen + extraLen
             guard tempOff + hdrSize + compSize <= data.count else { break }
-            if nameLen > 0, let name = String(data: data[tempOff+30..<tempOff+30+nameLen], encoding: .utf8), !name.isEmpty {
+            if nameLen > 0, tempOff + 30 + nameLen <= data.count, let name = String(data: data[tempOff+30..<tempOff+30+nameLen], encoding: .utf8), !name.isEmpty {
                 if let slash = name.firstIndex(of: "/") {
                     let top = String(name[name.startIndex...slash])
                     if commonPrefix == nil { commonPrefix = top }
@@ -1059,16 +1055,23 @@ private final class _DownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private let _lock = OSAllocatedUnfairLock()
     private nonisolated(unsafe) var _continuation: CheckedContinuation<URL, Error>?
     private nonisolated(unsafe) var _tempURL: URL?
+    private nonisolated(unsafe) var _error: Error?
 
     var result: URL {
         get async throws {
             try await withCheckedThrowingContinuation { c in
                 _lock.lock()
-                _continuation = c
-                if let url = _tempURL {
-                    _continuation?.resume(returning: url)
-                    _continuation = nil
+                if let error = _error {
+                    c.resume(throwing: error)
+                    _lock.unlock()
+                    return
                 }
+                if let url = _tempURL {
+                    c.resume(returning: url)
+                    _lock.unlock()
+                    return
+                }
+                _continuation = c
                 _lock.unlock()
             }
         }
@@ -1088,6 +1091,7 @@ private final class _DownloadDelegate: NSObject, URLSessionDownloadDelegate {
     nonisolated func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error else { return }
         _lock.lock()
+        _error = error
         _continuation?.resume(throwing: error)
         _continuation = nil
         _lock.unlock()
