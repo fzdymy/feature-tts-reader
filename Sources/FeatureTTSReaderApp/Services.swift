@@ -3,8 +3,7 @@ import AVFoundation
 import MediaPlayer
 import Combine
 
-@MainActor
-final class AudioPlaybackController: NSObject, ObservableObject {
+final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Sendable {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentProgress: Double = 0
     @Published private(set) var currentDuration: TimeInterval = 0
