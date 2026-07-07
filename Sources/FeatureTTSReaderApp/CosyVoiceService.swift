@@ -309,40 +309,38 @@ actor CosyVoiceService {
         speedSamples.removeAll()
         do {
             let rootCache = try modelCacheDirectory()
-            let dstDir = try modelVariantDirectory()
-            try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
+            let stagingDir = try stagingDirectory()
+            try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
 
-            if !isModelCached(at: dstDir) {
+            if !isModelCached(at: try hfSnapshotsDirectory()) {
                 ReaderStore.writeCrashMarker("download_start")
                 // Wrap download in a cancellable Task
                 activeDownloadTask = Task {
-                    try await downloadAndExtract(to: dstDir)
+                    try await downloadAndExtract(to: stagingDir)
                 }
                 defer { activeDownloadTask = nil }
                 try await activeDownloadTask!.value
                 try Task.checkCancellation()
                 ReaderStore.writeCrashMarker("download_done")
+
+                // Arrange files into HuggingFace cache structure
+                try setupHuggingFaceCache(from: stagingDir)
+                // Clean up staging
+                try? FileManager.default.removeItem(at: stagingDir)
             }
 
             try Task.checkCancellation()
-            // If cache check fails, try flattening one level of subdirectories
-            // (some zips unpack to a top-level directory like modelId/).
-            if !isModelCached(at: dstDir) {
-                flattenSubdirectories(at: dstDir)
-            }
-            guard isModelCached(at: dstDir) else {
+            let snapDir = try hfSnapshotsDirectory()
+            guard isModelCached(at: snapDir) else {
                 throw TTSError.extractionFailed("缓存校验失败：模型文件不完整或尺寸异常，请重新下载")
             }
             try checkAvailableMemory()
             // Validate model files can be read before calling the library
-            try validateModelFiles(at: dstDir)
+            try validateModelFiles(at: snapDir)
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
-            // Use the directory path as modelId — this tells the library
-            // to load from a local folder and avoids fatalError from its
-            // internal HuggingFace Hub resolution.
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: dstDir.path,
+                modelId: Self.defaultVariant,
                 cacheDir: rootCache,
                 offlineMode: true
             )
@@ -373,15 +371,51 @@ actor CosyVoiceService {
 
     // MARK: - Multi-threaded download from GitHub Releases
 
-/// Directory where model files should live (inside caches).
+/// Root HuggingFace-style cache directory.
 private func modelCacheDirectory() throws -> URL {
     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
     return caches.appendingPathComponent("com.cosyvoice/models")
 }
 
-/// Subdirectory inside modelCacheDirectory for a specific variant.
-private func modelVariantDirectory() throws -> URL {
-    try modelCacheDirectory().appendingPathComponent(Self.defaultVariant)
+/// HF cache directory for the current variant: .../models--<variant>/
+private func hfModelCacheDirectory() throws -> URL {
+    try modelCacheDirectory().appendingPathComponent("models--\(Self.defaultVariant)")
+}
+
+/// HF snapshot directory: .../models--<variant>/snapshots/downloaded/
+private func hfSnapshotsDirectory() throws -> URL {
+    try hfModelCacheDirectory().appendingPathComponent("snapshots/downloaded")
+}
+
+/// Temp staging directory for raw extraction.
+private func stagingDirectory() throws -> URL {
+    try modelCacheDirectory().appendingPathComponent(".staging-\(Self.defaultVariant)")
+}
+
+/// Move extracted model files into the HuggingFace cache layout and create refs.
+private func setupHuggingFaceCache(from staging: URL) throws {
+    let destDir = try hfSnapshotsDirectory()
+    let refsDir = try hfModelCacheDirectory().appendingPathComponent("refs")
+
+    try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: refsDir, withIntermediateDirectories: true)
+
+    // Flatten subdirectories first (zip may unpack to a top-level dir)
+    flattenSubdirectories(at: staging)
+
+    // Move all files from staging into snapshots/downloaded/
+    let items = try FileManager.default.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)
+    for item in items {
+        let dest = destDir.appendingPathComponent(item.lastPathComponent)
+        if FileManager.default.fileExists(atPath: dest.path) {
+            try FileManager.default.removeItem(at: dest)
+        }
+        try FileManager.default.moveItem(at: item, to: dest)
+    }
+
+    // Write refs/main so the library resolves the snapshot
+    let refsFile = refsDir.appendingPathComponent("main")
+    try "downloaded".write(to: refsFile, atomically: true, encoding: .utf8)
 }
 
     /// Check whether all expected model files exist and have reasonable sizes.
@@ -706,8 +740,12 @@ private func modelVariantDirectory() throws -> URL {
         downloadSpeed = 0
         speedSamples.removeAll()
         // Also wipe cached model files
-        if let dir = try? modelVariantDirectory(), FileManager.default.fileExists(atPath: dir.path) {
+        if let dir = try? hfModelCacheDirectory(), FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.removeItem(at: dir)
+        }
+        // Also clean up any staging dir
+        if let staging = try? stagingDirectory(), FileManager.default.fileExists(atPath: staging.path) {
+            try? FileManager.default.removeItem(at: staging)
         }
     }
 
@@ -717,8 +755,8 @@ private func modelVariantDirectory() throws -> URL {
         guard ttsModel == nil else { return }
         ReaderStore.writeCrashMarker("importModel_start")
         let rootCache = try modelCacheDirectory()
-        let cacheDir = try modelVariantDirectory()
-        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let stagingDir = try stagingDirectory()
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
 
         var sourceDir = sourceURL
 
@@ -735,17 +773,22 @@ private func modelVariantDirectory() throws -> URL {
             sourceDir = tmpDir
         }
 
-        // Copy model files from source directory to cache
+        // Copy model files from source directory to staging
         let items = try FileManager.default.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil)
         for item in items {
-            let dest = cacheDir.appendingPathComponent(item.lastPathComponent)
+            let dest = stagingDir.appendingPathComponent(item.lastPathComponent)
             if FileManager.default.fileExists(atPath: dest.path) {
                 try FileManager.default.removeItem(at: dest)
             }
             try FileManager.default.copyItem(at: item, to: dest)
         }
 
-        guard isModelCached(at: cacheDir) else {
+        // Arrange into HuggingFace cache layout
+        try setupHuggingFaceCache(from: stagingDir)
+        try? FileManager.default.removeItem(at: stagingDir)
+
+        let snapDir = try hfSnapshotsDirectory()
+        guard isModelCached(at: snapDir) else {
             throw TTSError.extractionFailed("导入的模型文件不完整或尺寸异常")
         }
 
@@ -754,7 +797,7 @@ private func modelVariantDirectory() throws -> URL {
         downloadPhase = .warming
         do {
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: cacheDir.path,
+                modelId: Self.defaultVariant,
                 cacheDir: rootCache,
                 offlineMode: true
             )
