@@ -356,16 +356,23 @@ actor CosyVoiceService {
                 throw TTSError.extractionFailed("缓存校验失败：模型文件不完整或尺寸异常，请重新下载")
             }
             try checkAvailableMemory()
+            // Log cache state for debugging
+            os_log("[TTS] ensureModel: cacheDir=%@, snapDir=%@, variant=%@", type: .debug,
+                   rootCache.path, snapDir.path, Self.activeVariant)
+            if let files = try? FileManager.default.contentsOfDirectory(at: snapDir, includingPropertiesForKeys: [.fileSizeKey]) {
+                for f in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                    let size = (try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                    os_log("[TTS]   snap file: %@ (%lld bytes)", type: .debug, f.lastPathComponent, size)
+                }
+            }
             // Validate model files can be read before calling the library
             try validateModelFiles(at: snapDir)
-            os_log("[TTS] Loading model — cacheDir: %@, snapDir: %@, modelId: %@, activeVariant: %@",
-                   type: .debug, rootCache.path, snapDir.path, Self.activeVariant, Self.activeVariant)
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
                 modelId: Self.activeVariant,
                 cacheDir: rootCache,
-                offlineMode: false
+                offlineMode: true
             )
             ReaderStore.writeCrashMarker("model_load_done")
             ttsModel?.warmUp()
@@ -420,6 +427,16 @@ private func setupHuggingFaceCache(from staging: URL) throws {
     let destDir = try hfSnapshotsDirectory()
     let refsDir = try hfModelCacheDirectory().appendingPathComponent("refs")
 
+    os_log("[TTS] setupHuggingFaceCache: staging=%@, dest=%@", type: .debug, staging.path, destDir.path)
+
+    // Log what's in staging
+    if let items = try? FileManager.default.contentsOfDirectory(at: staging, includingPropertiesForKeys: [.fileSizeKey]) {
+        for item in items.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let size = (try? item.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            os_log("[TTS]   staging file: %@ (%lld bytes)", type: .debug, item.lastPathComponent, size)
+        }
+    }
+
     try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
     try FileManager.default.createDirectory(at: refsDir, withIntermediateDirectories: true)
 
@@ -434,6 +451,7 @@ private func setupHuggingFaceCache(from staging: URL) throws {
             try FileManager.default.removeItem(at: dest)
         }
         try FileManager.default.moveItem(at: item, to: dest)
+        os_log("[TTS]   moved -> %@", type: .debug, dest.lastPathComponent)
     }
 
     // Write refs/main so the library resolves the snapshot
@@ -822,7 +840,7 @@ private func setupHuggingFaceCache(from staging: URL) throws {
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
                 modelId: Self.activeVariant,
                 cacheDir: rootCache,
-                offlineMode: false
+                offlineMode: true
             )
             ReaderStore.writeCrashMarker("importModel_load_done")
             ttsModel?.warmUp()
