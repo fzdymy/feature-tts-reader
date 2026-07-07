@@ -61,21 +61,21 @@ struct ReaderView: View {
     @StateObject private var scrollCoordinator = ScrollCoordinator()
 
     private func navigateToChapter(_ target: Int) {
-        guard target >= 0, target < chaptersList.count else { return }
+        let safeTarget = min(max(0, target), chaptersList.count - 1)
+        guard safeTarget >= 0, safeTarget < chaptersList.count else { return }
         if isPlaying { store.stopPlayback(); isPlaying = false }
-        currentChapterIndex = target
-        currentChapter = chaptersList[target]
-        store.selectedChapterID = chaptersList[target].id
-        chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
-        ReaderStore.saveLastChapterIndex(target, for: bookID)
-        ReaderStore.debugLog("[NAV] idx=\(target)")
-        navigationTarget = target
-        scrollPositionID = "ch_\(target)"
-        // Use precise UIScrollView contentOffset for top-anchored scroll
-        let chapterTop = chaptersList[0..<target].reduce(0) { $0 + estimatedChapterHeight($1) }
+        currentChapterIndex = safeTarget
+        currentChapter = chaptersList[safeTarget]
+        store.selectedChapterID = chaptersList[safeTarget].id
+        chapterProgress = chaptersList.isEmpty ? 0 : Double(safeTarget) / Double(chaptersList.count)
+        ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
+        ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
+        navigationTarget = safeTarget
+        scrollPositionID = "ch_\(safeTarget)"
+        let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
         scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            if self.navigationTarget == target { self.navigationTarget = nil }
+            if self.navigationTarget == safeTarget { self.navigationTarget = nil }
         }
     }
 
@@ -221,6 +221,12 @@ struct ReaderView: View {
             }
             .onChange(of: store.ttsIsPlaying) { _, newValue in
                 isPlaying = newValue
+            }
+            .onChange(of: store.selectedChapterID) { _, newID in
+                guard let idx = chaptersList.firstIndex(where: { $0.id == newID }),
+                      idx != currentChapterIndex else { return }
+                currentChapterIndex = idx
+                currentChapter = chaptersList[idx]
             }
 
             VStack {
