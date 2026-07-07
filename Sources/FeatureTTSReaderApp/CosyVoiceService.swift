@@ -99,14 +99,14 @@ actor CosyVoiceService {
     private(set) var downloadSpeed: Double = 0
     /// Smoothing: track recent (time, progress) samples for speed calculation
     private var speedSamples: [(Date, Double)] = []
-    /// Approximate model size for progress estimation (1 GB tarball)
-    static let estimatedModelSize: Int64 = 1_040_000_000
-    /// Default variant tag on GitHub Releases
-    static let defaultVariant = "CosyVoice3-0.5B-MLX-4bit"
+    /// Approximate model size for progress estimation (1.2 GB tarball)
+    static let estimatedModelSize: Int64 = 1_200_000_000
+    /// Default variant tag on GitHub Releases (8bit: best balance of quality/size for the library)
+    static let defaultVariant = "CosyVoice3-0.5B-MLX-8bit"
     /// All available variants (tag name → display name)
     static let variants: [(name: String, tag: String)] = [
-        ("4bit (默认, ~1.0 GB)", "CosyVoice3-0.5B-MLX-4bit"),
-        ("8bit (~1.2 GB)", "CosyVoice3-0.5B-MLX-8bit"),
+        ("4bit (~1.0 GB, 库不支持)", "CosyVoice3-0.5B-MLX-4bit"),
+        ("8bit (推荐, ~1.2 GB)", "CosyVoice3-0.5B-MLX-8bit"),
         ("8bit-full (~1.4 GB)", "CosyVoice3-0.5B-MLX-8bit-full"),
         ("bf16 (~1.9 GB)", "CosyVoice3-0.5B-MLX-bf16"),
     ]
@@ -324,12 +324,16 @@ actor CosyVoiceService {
             ttsModel?.warmUp()
             downloadPhase = .ready
         } catch {
+            downloadPhase = .failed
             if error is CancellationError || (error as NSError).code == URLError.cancelled.rawValue {
-                downloadPhase = .failed
                 downloadError = "用户取消了下载"
             } else {
-                downloadPhase = .failed
-                downloadError = error.localizedDescription
+                let desc = error.localizedDescription
+                if desc.contains("must be 8-bit quantized") || desc.contains("plain Linear") {
+                    downloadError = "模型格式不兼容，请改用 8bit 或 bf16 变体（当前变体 \(Self.defaultVariant) 不被该库支持）"
+                } else {
+                    downloadError = desc
+                }
             }
             isDownloading = false
             downloadStartedAt = nil
@@ -379,19 +383,39 @@ actor CosyVoiceService {
 
         let archiveFile = tmpDir.appendingPathComponent("model.\(isZip ? "zip" : "tar.gz")")
 
-        // Report indeterminate progress (0.5) while download is in flight
-        reportProgress(0.5)
-
-        let req = URLRequest(url: url, timeoutInterval: 600)
-        let (tempFile, resp) = try await URLSession.shared.download(for: req)
-        // download(for:) streams to disk — report completion
-        reportProgress(1.0)
-
-        try FileManager.default.moveItem(at: tempFile, to: archiveFile)
+        reportProgress(0)
+        let tempFile = try await downloadFileStreaming(from: url)
+        let archiveURL = archiveFile
+        try FileManager.default.moveItem(at: tempFile, to: archiveURL)
         if isZip {
-            try extractZip(archive: archiveFile, to: dstDir)
+            try extractZip(archive: archiveURL, to: dstDir)
         } else {
-            try extract(tarball: archiveFile, to: dstDir)
+            try extract(tarball: archiveURL, to: dstDir)
+        }
+    }
+
+    /// Download a file with streaming progress via URLSessionDownloadDelegate.
+    private func downloadFileStreaming(from url: URL) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let delegate = _StreamingDownloadDelegate(
+                onProgress: { [weak self] p in
+                    Task { [weak self] in await self?.reportProgress(p) }
+                },
+                onFinish: { location in
+                    let tmp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("cosyvoice-dl-\(UUID().uuidString)", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+                    let dest = tmp.appendingPathComponent("archive")
+                    try? FileManager.default.copyItem(at: location, to: dest)
+                    continuation.resume(returning: dest)
+                },
+                onError: { error in
+                    continuation.resume(throwing: error)
+                }
+            )
+            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+            delegate.retain(session)
+            session.downloadTask(with: url).resume()
         }
     }
 
@@ -802,6 +826,52 @@ enum AudioConverter {
 private extension UInt16 {
     var littleEndianBytes: [UInt8] {
         [UInt8(self & 0xFF), UInt8((self >> 8) & 0xFF)]
+    }
+}
+
+// MARK: - Streaming download delegate
+
+/// URLSessionDownloadDelegate that bridges streaming progress callbacks to async.
+private final class _StreamingDownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    private let onProgress: @Sendable (Double) -> Void
+    private let onFinish: @Sendable (URL) -> Void
+    private let onError: @Sendable (Error) -> Void
+    private var session: URLSession?
+    private var finished = false
+
+    init(
+        onProgress: @escaping @Sendable (Double) -> Void,
+        onFinish: @escaping @Sendable (URL) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) {
+        self.onProgress = onProgress
+        self.onFinish = onFinish
+        self.onError = onError
+    }
+
+    func retain(_ session: URLSession) { self.session = session }
+
+    nonisolated func urlSession(_: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    nonisolated func urlSession(_: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard !finished else { return }
+        finished = true
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cosyvoice-dl-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let dest = tmp.appendingPathComponent("dl")
+        try? FileManager.default.copyItem(at: location, to: dest)
+        onFinish(dest)
+    }
+
+    nonisolated func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard !finished else { return }
+        finished = true
+        if let e = error { onError(e) }
+        session?.invalidateAndCancel()
     }
 }
 
