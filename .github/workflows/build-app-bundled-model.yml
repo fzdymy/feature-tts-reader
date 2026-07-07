@@ -1,4 +1,4 @@
-name: Build IPA with Bundled CosyVoice Model (手动)
+name: Build IPA with Bundled CosyVoice Model
 
 on:
   workflow_dispatch:
@@ -75,6 +75,9 @@ jobs:
         run: |
           mkdir -p /tmp/model-extracted
           unzip -o /tmp/model-dl/cosyvoice-*.zip -d /tmp/model-extracted
+          # 移除模型解压后可能存在的临时文件或 macOS 特性文件以省空间
+          find /tmp/model-extracted -name ".DS_Store" -delete
+          find /tmp/model-extracted -name "__MACOSX" -exec rm -rf {} + 2>/dev/null || true
           echo "Extracted files:"
           ls -la /tmp/model-extracted/
 
@@ -124,26 +127,34 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             SKIP_PLUGIN_VALIDATION=YES \
-            -skipPackagePluginValidation
+            -skipPackagePluginValidation \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            GCC_OPTIMIZATION_LEVEL=s \
+            SWIFT_OPTIMIZATION_LEVEL=-Osize \
+            DEPLOYMENT_POSTPROCESSING=YES \
+            STRIP_INSTALLED_PRODUCT=YES \
+            STRIP_STYLE=all
 
       - name: Inject model and create IPA
         run: |
           APP_DIR="build/Payload/FeatureTTSReader.app"
           mkdir -p "$APP_DIR"
 
-          # 1. Copy executable binary
+          # 1. Copy executable binary and strip
           cp build_output/Release-iphoneos/FeatureTTSReader "$APP_DIR/"
+          strip -S "$APP_DIR/FeatureTTSReader" 2>/dev/null || true
 
           # 2. Copy SPM resource bundle (if generated)
           if [ -d "build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle" ]; then
             cp -R "build_output/Release-iphoneos/FeatureTTSReader_FeatureTTSReaderApp.bundle" "$APP_DIR/"
+            find "$APP_DIR" -type f -permalink +111 -exec strip -S {} + 2>/dev/null || true
           fi
 
-          # 3. Inject model files into .app bundle (as raw files; app will set up HF cache)
+          # 3. Inject model files into .app bundle
           if [ -d "/tmp/model-extracted" ] && [ "$(ls -A /tmp/model-extracted/ 2>/dev/null)" ]; then
             MODEL_BUNDLE_DIR="$APP_DIR/cosyvoice-model"
             mkdir -p "$MODEL_BUNDLE_DIR"
-            cp -R /tmp/model-extracted/* "$MODEL_BUNDLE_DIR/"
+            rsync -av --exclude='*.md' --exclude='*.txt' --exclude='.git*' /tmp/model-extracted/ "$MODEL_BUNDLE_DIR/"
             echo "Injected model files into $MODEL_BUNDLE_DIR"
             ls -lh "$MODEL_BUNDLE_DIR/"
           else
@@ -167,11 +178,11 @@ jobs:
           plutil -insert UIDeviceFamily.0 -integer 1 "$PLIST_PATH"
           plutil -insert UIDeviceFamily.1 -integer 2 "$PLIST_PATH"
 
-          # 5. Create IPA
+          # 5. Create IPA (maximum compression)
           cd build
           MODEL_TAG="${{ steps.model.outputs.tag }}"
           IPA_NAME="FeatureTTSReader_${MODEL_TAG}.ipa"
-          zip -r "$IPA_NAME" Payload
+          zip -9 -r "$IPA_NAME" Payload
           echo "IPA created: build/$IPA_NAME"
           ls -lh "$IPA_NAME"
 
