@@ -46,6 +46,7 @@
 | #C3 | `cancelDownload()` 从不 cancel 实际网络请求 (activeDownloadTask 从未赋值) | **CRITICAL**: 取消按钮不可用 | 使用 `activeDownloadTask = Task { ... }` 包装下载 |
 | #C4 | `stop()` 不 resume `playbackContinuation` → 调用者永久挂起 | **CRITICAL**: 切换章节/停止朗读可能死锁 | `stop()` 末尾添加 `playbackContinuation?.resume()` |
 | #C5 | `nonisolated(unsafe)` static var 数据竞争 | **HIGH**: 未定义行为 | 改为 `OSAllocatedUnfairLock` 保护全局变量 |
+| #C6 | `_DownloadDelegate` 先 `didCompleteWithError` 后触发 `result` → 永久挂起 | **HIGH**: 网络错误后下载死锁 | 缓存 `_error`，`result` 中先检查再创建 continuation |
 
 ### P1 — 功能缺陷 ✅ 全部已修复
 
@@ -56,6 +57,7 @@
 | #D3 | 别名 vs 规范名不匹配: CosyVoice 查找 embedding 用规范名但 segments 可能用别名 | **HIGH** | `cosySegments` 构建时解析别名 → 规范名 |
 | #D4 | `CharacterScanner.scan` 不设置 `bookID` → 跨书角色污染 | **HIGH** | 添加 `bookID` 参数并传递到 `CharacterProfile.init` |
 | #D5 | `！`+`？` 组合 (如"你怎么敢？！") 错误返回 "neutral" | **HIGH** | 重写逻辑: 先检查 `！`, 再检查 `？`, `！+？=angry` |
+| #D6 | `extractTar` guard 冗余 `offset += 512` → 解析跳过数据 | **HIGH** | 删除重复偏移 |
 
 ### P2 — 逻辑缺陷 ✅ 已修复
 
@@ -68,6 +70,7 @@
 | #E5 | `activeServerTestResult` / `isTestingServer` 命名陈旧 | 保留 (功能正确但命名需后续清理) |
 | #E6 | `defaultVoice` / `defaultMaleVoiceID` / `defaultFemaleVoiceID` 使用 Azure ID | 对 CosyVoice 无效, 需后续替换 |
 | #E7 | `VoiceCatalog` / `VoiceItem` / `VoiceCatalogSource` 仍被引用但 Azure 音色无意义 | 需后续清理 |
+| #E8 | `extractZip` 第一遍 subslice 缺少显式越界检查 | 加入 `tempOff + 30 + nameLen <= data.count` |
 
 ## 已知待优化问题 (按优先级)
 
@@ -123,6 +126,8 @@
 | `c9d08da` | fix: ForEach enumerated approach + handleExternalNavigate label + hasVoiceSample |
 | `c937683` | fix: Task\<Void,Error\> type, CharacterProfile param order, global nonisolated(unsafe), revert to paragraphs.indices |
 | `21d9333` | fix: extract paragraphView + explicit Array(0..<count) for ForEach |
+| `9ed75e4` | fix: revert to offlineMode=true + detailed extraction/cache logging |
+| `388fe63` | fix: Tar双重复归, cacheStatistics异步, Zip越界保护, DownloadDelegate死锁 |
 
 ## 下一步行动 (优先级排序)
 
