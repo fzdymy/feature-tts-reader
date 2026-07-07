@@ -85,16 +85,12 @@ struct AllRecommendationsView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(rec.suggestedVoices) { voice in
-                                    Button(action: { store.applyVoice(voice.id, toCharacterID: rec.id) }) {
-                                        VStack(spacing: 2) {
-                                            Text(voice.name).font(.caption).fontWeight(.medium)
-                                            Text(VoiceCatalog.tier(for: voice.id).displayName).font(.caption2)
-                                        }
-                                        .padding(.horizontal, 12).padding(.vertical, 8)
-                                        .background(Color.blue.opacity(0.1)).cornerRadius(10)
-                                        .foregroundColor(.blue)
+                                    VStack(spacing: 2) {
+                                        Text(voice.name).font(.caption).fontWeight(.medium)
                                     }
-                                    .buttonStyle(.borderless)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(Color.blue.opacity(0.1)).cornerRadius(10)
+                                    .foregroundColor(.blue)
                                 }
                             }
                             .padding(.vertical, 4)

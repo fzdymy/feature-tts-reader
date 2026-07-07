@@ -275,6 +275,9 @@ actor CosyVoiceService {
 
     /// Cancellable download task (set before download starts, cleared after).
     private var activeDownloadTask: Task<Void, Error>?
+    /// Retained to keep download delegate alive across async boundaries.
+    private var downloadSession: URLSession?
+    private var downloadDelegate: _DownloadDelegate?
 
     func cancelDownload() {
         activeDownloadTask?.cancel()
@@ -384,39 +387,39 @@ actor CosyVoiceService {
         let archiveFile = tmpDir.appendingPathComponent("model.\(isZip ? "zip" : "tar.gz")")
 
         reportProgress(0)
-        let tempFile = try await downloadFileStreaming(from: url)
-        let archiveURL = archiveFile
-        try FileManager.default.moveItem(at: tempFile, to: archiveURL)
+        let tempFile = try await downloadStreaming(url: url)
+        try FileManager.default.moveItem(at: tempFile, to: archiveFile)
         if isZip {
-            try extractZip(archive: archiveURL, to: dstDir)
+            try extractZip(archive: archiveFile, to: dstDir)
         } else {
-            try extract(tarball: archiveURL, to: dstDir)
+            try extract(tarball: archiveFile, to: dstDir)
+        }
+        guard isModelCached(at: dstDir) else {
+            throw TTSError.extractionFailed("解压后缺少必要文件，请重新下载")
         }
     }
 
-    /// Download a file with streaming progress via URLSessionDownloadDelegate.
-    private func downloadFileStreaming(from url: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let delegate = _StreamingDownloadDelegate(
-                onProgress: { [weak self] p in
-                    Task { [weak self] in await self?.reportProgress(p) }
-                },
-                onFinish: { location in
-                    let tmp = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("cosyvoice-dl-\(UUID().uuidString)", isDirectory: true)
-                    try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-                    let dest = tmp.appendingPathComponent("archive")
-                    try? FileManager.default.copyItem(at: location, to: dest)
-                    continuation.resume(returning: dest)
-                },
-                onError: { error in
-                    continuation.resume(throwing: error)
-                }
-            )
-            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-            delegate.retain(session)
-            session.downloadTask(with: url).resume()
+    /// Download with streaming progress via retained delegate.
+    private func downloadStreaming(url: URL) async throws -> URL {
+        let delegate = _DownloadDelegate()
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        downloadSession = session
+        downloadDelegate = delegate
+
+        let task = session.downloadTask(with: URLRequest(url: url, timeoutInterval: 600))
+        // Poll progress via KVO observation
+        let obs = task.progress.observe(\.fractionCompleted, options: .initial) { [weak self] p, _ in
+            Task { [weak self] in await self?.reportProgress(p.fractionCompleted) }
         }
+        task.resume()
+
+        defer {
+            obs.invalidate()
+            downloadSession = nil
+            downloadDelegate = nil
+        }
+
+        return try await delegate.result
     }
 
     private func reportProgress(_ p: Double) {
@@ -829,49 +832,40 @@ private extension UInt16 {
     }
 }
 
-// MARK: - Streaming download delegate
+// MARK: - Download delegate (retained by actor, bridges URLSession to async)
 
-/// URLSessionDownloadDelegate that bridges streaming progress callbacks to async.
-private final class _StreamingDownloadDelegate: NSObject, URLSessionDownloadDelegate {
-    private let onProgress: @Sendable (Double) -> Void
-    private let onFinish: @Sendable (URL) -> Void
-    private let onError: @Sendable (Error) -> Void
-    private var session: URLSession?
-    private var finished = false
+/// Minimal URLSessionDownloadDelegate: copies file to stable temp location during callback,
+/// then exposes async `result` property.
+private final class _DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    private var continuation: CheckedContinuation<URL, Error>?
+    private var tempURL: URL?
 
-    init(
-        onProgress: @escaping @Sendable (Double) -> Void,
-        onFinish: @escaping @Sendable (URL) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) {
-        self.onProgress = onProgress
-        self.onFinish = onFinish
-        self.onError = onError
-    }
-
-    func retain(_ session: URLSession) { self.session = session }
-
-    nonisolated func urlSession(_: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    var result: URL {
+        get async throws {
+            try await withCheckedThrowingContinuation { c in
+                continuation = c
+                // If the file already arrived before this async call, resume immediately
+                if let url = tempURL {
+                    continuation?.resume(returning: url)
+                    continuation = nil
+                }
+            }
+        }
     }
 
     nonisolated func urlSession(_: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard !finished else { return }
-        finished = true
         let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cosyvoice-dl-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        let dest = tmp.appendingPathComponent("dl")
-        try? FileManager.default.copyItem(at: location, to: dest)
-        onFinish(dest)
+            .appendingPathComponent("cosyvoice-\(UUID().uuidString)")
+        try? FileManager.default.copyItem(at: location, to: tmp)
+        tempURL = tmp
+        continuation?.resume(returning: tmp)
+        continuation = nil
     }
 
     nonisolated func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard !finished else { return }
-        finished = true
-        if let e = error { onError(e) }
-        session?.invalidateAndCancel()
+        guard let error else { return }
+        continuation?.resume(throwing: error)
+        continuation = nil
     }
 }
 

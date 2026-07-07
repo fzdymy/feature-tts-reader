@@ -748,19 +748,6 @@ struct ReaderView: View {
                                 }
                             }
                             Text(character.voice).font(.caption2).foregroundColor(.secondary)
-                            if let rec = store.recommendations.first(where: { $0.profile.id == character.id }),
-                               !rec.suggestedVoices.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 6) {
-                                        ForEach(rec.suggestedVoices.prefix(4)) { voice in
-                                            Button(voice.name) {
-                                                store.applyVoice(voice.id, toCharacterID: rec.id)
-                                            }
-                                            .buttonStyle(.bordered).tint(.blue).font(.caption2).controlSize(.small)
-                                        }
-                                    }
-                                }
-                            }
                         }
                         Spacer()
                         Button("试听") { Task { await store.previewVoice(for: character) } }
@@ -857,27 +844,14 @@ struct ReaderView: View {
 
     private var voiceCatalogRow: some View {
         HStack(spacing: 10) {
-            Text("音色库")
+            Image(systemName: "waveform.circle")
+                .foregroundColor(.accentColor)
+            Text("声纹克隆")
                 .font(.subheadline)
                 .foregroundColor(textColor)
-            Button(action: { store.switchCatalog(to: .chinese35) }) {
-                Text("经典(40)")
-                    .font(.caption).padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(store.selectedVoiceCatalog == .chinese35 ? Color.blue : Color.gray.opacity(0.2))
-                    .foregroundColor(store.selectedVoiceCatalog == .chinese35 ? .white : textColor)
-                    .cornerRadius(6)
-            }
-            .buttonStyle(.borderless)
-            Button(action: { store.switchCatalog(to: .fullChinese) }) {
-                Text("全音色(76)")
-                    .font(.caption).padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(store.selectedVoiceCatalog == .fullChinese ? Color.blue : Color.gray.opacity(0.2))
-                    .foregroundColor(store.selectedVoiceCatalog == .fullChinese ? .white : textColor)
-                    .cornerRadius(6)
-            }
-            .buttonStyle(.borderless)
             Spacer()
-            Text("\(store.voices.count)个")
+            let cloned = store.characters.filter(\.hasVoiceSample).count
+            Text("\(cloned)/\(store.characters.count) 个角色已克隆")
                 .font(.caption2).foregroundColor(.secondary)
         }
     }
@@ -943,15 +917,12 @@ struct ReaderView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
                             ForEach(rec.suggestedVoices.prefix(4)) { voice in
-                                Button(action: { store.applyVoice(voice.id, toCharacterID: rec.id) }) {
-                                    Text(voice.name)
-                                        .font(.caption2)
-                                        .padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(Color.blue.opacity(0.1))
-                                        .cornerRadius(6)
-                                        .foregroundColor(.blue)
-                                }
-                                .buttonStyle(.borderless)
+                                Text(voice.name)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(6)
+                                    .foregroundColor(.blue)
                             }
                         }
                     }

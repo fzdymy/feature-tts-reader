@@ -19,7 +19,6 @@ struct CharacterScanner {
 
     static func scan(text: String, config: Config = Config(), voices: [VoiceItem] = [],
                      defaultSensitivity: Int = 50, bookID: UUID? = nil) async -> Result
-    {
         let analyzer = CharacterAnalyzer()
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
 
@@ -147,7 +146,6 @@ struct CharacterScanner {
     }
 
     private static func defaultVoice(for gender: String, voices: [VoiceItem]) -> String {
-        let target: VoiceGender = (gender == "男" || gender == "男性") ? .male : .female
-        return voices.first(where: { $0.gender == target })?.id ?? voices.first?.id ?? ""
+        ""
     }
 }

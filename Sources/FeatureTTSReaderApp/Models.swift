@@ -204,25 +204,6 @@ enum VoiceGender: String, Codable, CaseIterable {
     }
 }
 
-/// 音质等级
-enum VoiceTier: Int, Comparable, Codable {
-    case standard = 0
-    case multilingual = 1
-    case hd = 2
-    case mai = 3
-
-    static func < (lhs: VoiceTier, rhs: VoiceTier) -> Bool { lhs.rawValue < rhs.rawValue }
-
-    var displayName: String {
-        switch self {
-        case .standard: return "标准"
-        case .multilingual: return "多语言"
-        case .hd: return "高清"
-        case .mai: return "超拟真"
-        }
-    }
-}
-
 struct VoiceItem: Identifiable, Hashable, Codable {
     let id: String
     let name: String
@@ -234,29 +215,7 @@ struct VoiceItem: Identifiable, Hashable, Codable {
         name.isEmpty ? id : name
     }
 
-    static func defaultItems() -> [VoiceItem] {
-        [VoiceCatalog.chinese35.first ?? VoiceItem(id: "zh-CN-XiaoxiaoNeural", name: "晓晓", locale: "zh-CN", gender: .female, styleList: nil)]
-    }
-}
-
-enum VoiceCatalogSource: String, CaseIterable, Codable, Identifiable {
-    case chinese35
-    case fullChinese
-
-    var id: String { rawValue }
-    var displayName: String {
-        switch self {
-        case .chinese35: return "经典音色 (40)"
-        case .fullChinese: return "全音色 (76)"
-        }
-    }
-
-    var voices: [VoiceItem] {
-        switch self {
-        case .chinese35: return VoiceCatalog.chinese35
-        case .fullChinese: return VoiceCatalog.fullChinese
-        }
-    }
+    static func defaultItems() -> [VoiceItem] { [] }
 }
 
 struct BookBookmark: Identifiable, Hashable, Codable {
@@ -346,7 +305,6 @@ struct ReaderState: Codable {
     var readerFontSize: Double
     var readerLineSpacing: Double
     var readerTheme: ReaderTheme
-    var selectedVoiceCatalog: VoiceCatalogSource
     var defaultVoice: String
     var defaultRate: Int
     var defaultPitch: Int
@@ -387,7 +345,7 @@ struct ReaderState: Codable {
     private enum CodingKeys: String, CodingKey {
         case characters, scriptSegments, selectedChapterID,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, selectedVoiceCatalog, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking, defaultMaleVoiceID, defaultFemaleVoiceID, defaultFallbackRateOffset, defaultFallbackPitchOffset, defaultFallbackStyle
+             readerTheme, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking, defaultMaleVoiceID, defaultFemaleVoiceID, defaultFallbackRateOffset, defaultFallbackPitchOffset, defaultFallbackStyle
     }
 
     init(
@@ -403,8 +361,7 @@ struct ReaderState: Codable {
         readerFontSize: Double = 18,
         readerLineSpacing: Double = 8,
         readerTheme: ReaderTheme = .light,
-        selectedVoiceCatalog: VoiceCatalogSource = .chinese35,
-        defaultVoice: String = "zh-CN-XiaoxiaoNeural",
+        defaultVoice: String = "",
         defaultRate: Int = 0,
         defaultPitch: Int = 0,
         defaultStyle: String = "neutral",
@@ -453,7 +410,6 @@ struct ReaderState: Codable {
         self.readerFontSize = readerFontSize
         self.readerLineSpacing = readerLineSpacing
         self.readerTheme = readerTheme
-        self.selectedVoiceCatalog = selectedVoiceCatalog
         self.defaultVoice = defaultVoice
         self.defaultRate = defaultRate
         self.defaultPitch = defaultPitch
@@ -501,11 +457,7 @@ struct ReaderState: Codable {
         readerFontSize = try container.decodeIfPresent(Double.self, forKey: .readerFontSize) ?? 18
         readerLineSpacing = try container.decodeIfPresent(Double.self, forKey: .readerLineSpacing) ?? 8
         readerTheme = try container.decodeIfPresent(ReaderTheme.self, forKey: .readerTheme) ?? .light
-        selectedVoiceCatalog = {
-            let raw = try? container.decodeIfPresent(String.self, forKey: .selectedVoiceCatalog)
-            return raw.flatMap(VoiceCatalogSource.init(rawValue:)) ?? .chinese35
-        }()
-        defaultVoice = try container.decodeIfPresent(String.self, forKey: .defaultVoice) ?? "zh-CN-XiaoxiaoNeural"
+        defaultVoice = try container.decodeIfPresent(String.self, forKey: .defaultVoice) ?? ""
         defaultRate = try container.decodeIfPresent(Int.self, forKey: .defaultRate) ?? 0
         defaultPitch = try container.decodeIfPresent(Int.self, forKey: .defaultPitch) ?? 0
         defaultStyle = try container.decodeIfPresent(String.self, forKey: .defaultStyle) ?? "neutral"

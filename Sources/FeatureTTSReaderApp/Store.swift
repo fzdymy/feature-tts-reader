@@ -11,14 +11,14 @@ struct ChapterNavigate: Equatable {
     let chapterIndex: Int
 }
 
-final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
+@MainActor
+final class ReaderStore: NSObject, ObservableObject {
     @Published var navigationPath: NavigationPath = NavigationPath()
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
     @Published var characters: [CharacterProfile] = []
     @Published var scriptSegments: [ScriptSegment] = []
     @Published var voices: [VoiceItem] = []
-    @Published var selectedVoiceCatalog: VoiceCatalogSource = .chinese35
     @Published var recommendations: [CharacterRecommendation] = []
     @Published var selectedChapterID: UUID?
     @Published var externalChapterNavigate: ChapterNavigate?
@@ -146,7 +146,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         Self.writeCrashMarker("init_super_done")
         speechSynthesizer.delegate = speechDelegate
         Self.writeCrashMarker("init_speech_delegate_done")
-        voices = selectedVoiceCatalog.voices
+        voices = []
         Self.writeCrashMarker("init_voices_done")
         setupAudioSession()
         Self.writeCrashMarker("init_audio_session_done")
@@ -363,7 +363,6 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             currentBookProgress = state.currentBookProgress
             defaultSensitivity = state.defaultSensitivity
             playTimeoutSeconds = state.playTimeoutSeconds
-            selectedVoiceCatalog = state.selectedVoiceCatalog
             characters = state.characters
             scriptSegments = state.scriptSegments
             ttsQueue = state.ttsQueue ?? []
@@ -439,7 +438,6 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         bookmarks = state.bookmarks
         bookProgressByChapter = state.bookProgressByChapter
         lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
-        selectedVoiceCatalog = state.selectedVoiceCatalog
         defaultSensitivity = state.defaultSensitivity
         playTimeoutSeconds = state.playTimeoutSeconds
         ttsQueue = state.ttsQueue ?? []
@@ -522,8 +520,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             readerFontSize: readerFontSize,
             readerLineSpacing: readerLineSpacing,
             readerTheme: readerTheme,
-            selectedVoiceCatalog: selectedVoiceCatalog,
-            defaultVoice: characters.first?.voice ?? "zh-CN-XiaoxiaoNeural",
+            defaultVoice: characters.first?.voice ?? "",
             defaultRate: characters.first?.rate ?? 0,
             defaultPitch: characters.first?.pitch ?? 0,
             defaultStyle: characters.first?.style ?? "neutral",
@@ -1060,15 +1057,8 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         }
     }
 
-    func switchCatalog(to source: VoiceCatalogSource) {
-        selectedVoiceCatalog = source
-        voices = source.voices
-        statusMessage = "已加载音色目录：\(source.displayName)，共 \(voices.count) 个音色。"
-        saveState()
-    }
-
     func refreshVoices() async {
-        switchCatalog(to: selectedVoiceCatalog)
+        voices = []
     }
 
     func previewVoice(for profile: CharacterProfile) async {
@@ -1095,39 +1085,20 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         isBusy = false
     }
 
-    func applyVoice(_ voiceID: String, toCharacterID id: UUID) {
-        guard let index = characters.firstIndex(where: { $0.id == id }) else { return }
-        characters[index].voice = voiceID
-        statusMessage = "角色 \(characters[index].name) 已应用音色 \(voiceID)。"
-        updateRecommendations()
-        saveState()
-    }
-
     func applyRecommendationsToUnmapped() {
         for rec in recommendations {
             if let idx = characters.firstIndex(where: { $0.id == rec.profile.id }) {
-                let current = characters[idx].voice
-                // if voice is default or empty, apply suggestion
-                if current.isEmpty || current == defaultVoice(for: characters[idx].gender, tone: characters[idx].tone, voices: voices) {
-                    if let v = rec.suggestedVoices.first?.id {
-                        characters[idx].voice = v
-                    }
+                if characters[idx].voice.isEmpty {
+                    characters[idx].voice = ""
                 }
             }
         }
-        statusMessage = "已为未映射角色应用推荐音色。"
+        statusMessage = "已为未映射角色应用推荐。"
         saveState()
     }
 
     func autoApplyRecommendedToAll() {
-        for rec in recommendations {
-            if let idx = characters.firstIndex(where: { $0.id == rec.profile.id }) {
-                if let v = rec.suggestedVoices.first?.id {
-                    characters[idx].voice = v
-                }
-            }
-        }
-        statusMessage = "已为所有角色批量应用推荐音色。"
+        statusMessage = "CosyVoice 无需 Azure 音色推荐。"
         saveState()
     }
 
@@ -1240,6 +1211,12 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         }
     }
 
+    private static let dialogueOpenQuotes: Set<Character> = ["\u{201C}", "\u{300C}", "\u{300E}", "\u{2018}"]
+
+    private static func hasDialogueQuote(_ s: String) -> Bool {
+        dialogueOpenQuotes.contains(where: s.contains)
+    }
+
     /// Group paragraphs into dialogue blocks: merge consecutive paragraphs containing quotes,
     /// splitting only after 2 consecutive non-quote paragraphs.
     private static func buildDialogueBlocks(_ paragraphs: [String]) -> [(texts: [String], globalStart: Int)] {
@@ -1247,7 +1224,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         var i = 0
         while i < paragraphs.count {
             // Skip leading non-quote paragraphs
-            if !paragraphs[i].contains("\u{201C}") && !paragraphs[i].contains("\u{300C}") {
+            if !hasDialogueQuote(paragraphs[i]) {
                 blocks.append(([paragraphs[i]], i))
                 i += 1
                 continue
@@ -1258,7 +1235,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             i += 1
             var consecutiveEmpty = 0
             while i < paragraphs.count && consecutiveEmpty < 2 {
-                let hasQuote = paragraphs[i].contains("\u{201C}") || paragraphs[i].contains("\u{300C}")
+                let hasQuote = hasDialogueQuote(paragraphs[i])
                 if !hasQuote {
                     consecutiveEmpty += 1
                 } else {
@@ -2037,106 +2014,16 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
     }
 
     nonisolated func defaultVoice(for gender: String, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
-        let options = voices.isEmpty ? VoiceItem.defaultItems() : voices
-        
-        // For narrator, prefer neutral, clear voices
-        if role == "旁白" || role == "narrator" {
-            let narratorVoices = options.filter { $0.id.contains("Xiaoxiao") || $0.id.contains("Yunjian") || $0.id.contains("Yunxi") }
-            let profile = CharacterProfile(id: UUID(), name: name ?? "旁白", gender: "未知", age: "未知", tone: "平稳", voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: 50, isNarrator: true, role: .narrator)
-            let best = (narratorVoices.isEmpty ? options : narratorVoices).max(by: { voiceMatchScore($0, for: profile) < voiceMatchScore($1, for: profile) })
-            return best?.id ?? "zh-CN-XiaoxiaoNeural"
-        }
-        
-        let profile = CharacterProfile(id: UUID(), name: name ?? "叙述者", gender: gender, age: "未知", tone: tone, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: 50, isNarrator: false, role: .character)
-        let best = options.max(by: { voiceMatchScore($0, for: profile) < voiceMatchScore($1, for: profile) })
-        return best?.id ?? "zh-CN-XiaoxiaoNeural"
+        ""
     }
 
-    nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
-        var score = 0
-        let lowerID = voice.id.lowercased()
-        let lowerName = voice.name.lowercased()
-        let locale = voice.locale.lowercased()
-        let voiceTraits = VoiceCatalog.traits[voice.id] ?? []
-        let voiceTier = VoiceCatalog.tier(for: voice.id)
-
-        // 音质等级加分：主角/旁白优先使用高等级音色
-        if profile.role == .narrator || profile.isNarrator {
-            score += voiceTier.rawValue * 8
-        }
-        if voiceTraits.contains("男主角") || voiceTraits.contains("女主角") {
-            score += voiceTier.rawValue * 5 + 5
-        }
-
-        // 角色身份标签匹配
-        if voiceTraits.contains("旁白") && (profile.role == .narrator || profile.isNarrator) {
-            score += 30
-        }
-        if voiceTraits.contains("反派") && profile.tone == "激昂" {
-            score += 15
-        }
-
-        // 性别匹配
-        if profile.gender == "女性" {
-            if lowerID.contains("xiao") || lowerName.contains("小") || lowerName.contains("xia") || voiceTraits.contains("女主角") || voiceTraits.contains("女配角") { score += 25 }
-            if !lowerID.contains("yun") && !lowerName.contains("云") { score += 5 }
-        } else if profile.gender == "男性" {
-            if lowerID.contains("yun") || lowerName.contains("云") || voiceTraits.contains("男主角") || voiceTraits.contains("男配角") { score += 25 }
-            if !lowerID.contains("xiao") && !lowerName.contains("小") { score += 5 }
-        }
-
-        // 语气匹配
-        if profile.tone == "温柔" || profile.tone == "轻松" {
-            if lowerID.contains("xiao") || lowerName.contains("晓") || lowerName.contains("柔") || voiceTraits.contains("温柔") || voiceTraits.contains("治愈") || voiceTraits.contains("温婉") { score += 15 }
-        }
-        if profile.tone == "激昂" {
-            if let styles = voice.styleList, styles.contains(where: { $0.contains("angry") || $0.contains("excited") || $0.contains("strong") || $0.contains("loud") }) { score += 12 }
-            if voiceTraits.contains("激昂") || voiceTraits.contains("战斗型") { score += 10 }
-        }
-        if profile.tone == "疑问" {
-            if let styles = voice.styleList, styles.contains(where: { $0.contains("chat") || $0.contains("assistant") || $0.contains("question") }) { score += 8 }
-        }
-        if profile.tone == "平稳" {
-            score += 5
-        }
-
-        // 年龄/风格匹配
-        if voiceTraits.contains("萝莉") || voiceTraits.contains("少女") { score += (profile.age == "少年" || profile.age == "少女" ? 10 : 2) }
-        if voiceTraits.contains("少年感") || voiceTraits.contains("阳光") { score += (profile.age == "少年" || profile.age == "青年" ? 10 : 3) }
-        if voiceTraits.contains("成熟大叔") || voiceTraits.contains("沉稳") { score += (profile.age == "中年" || profile.age == "年长" ? 10 : 2) }
-
-        // 方言/地域匹配
-        if voiceTraits.contains("东北话") || voiceTraits.contains("四川话") || voiceTraits.contains("河南话") || voiceTraits.contains("山东话") || voiceTraits.contains("陕西话") || voiceTraits.contains("广西话") || voiceTraits.contains("粤语") || voiceTraits.contains("吴语") || voiceTraits.contains("台普") {
-            score += 8
-        }
-
-        if locale.contains("zh") { score += 5 }
-        if let styles = voice.styleList, styles.contains("chat") { score += 3 }
-
-        if let name = profile.name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
-            if lowerID.contains(name.lowercased()) || lowerName.contains(name.lowercased()) { score += 15 }
-        }
-
-        // Traits 标签综合加分
-        for trait in voiceTraits {
-            if trait == "元気" || trait == "活泼" || trait == "元气" { score += (profile.tone == "轻松" ? 8 : 2) }
-            if trait == "知性" || trait == "职业" { score += (profile.tone == "平稳" ? 8 : 2) }
-            if trait == "高冷" { score += (profile.tone == "平稳" || profile.tone == "疑问" ? 8 : 2) }
-            if trait == "磁性" || trait == "浑厚" { score += (profile.age == "中年" || profile.age == "年长" ? 8 : 3) }
-        }
-
-        return score
-    }
+    nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int { 0 }
 
     nonisolated func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
-        var list = voiceOptions
-        list.sort { voiceMatchScore($0, for: profile) > voiceMatchScore($1, for: profile) }
-        return Array(list.prefix(6))
+        []
     }
 
-    func voiceSourceDescription(_ source: VoiceCatalogSource) -> String {
-        source.displayName
-    }
+    func voiceSourceDescription(_ source: Any) -> String { "" }
 
     /// 从中文名字推测性别（启发式）
     nonisolated func guessGender(from name: String) -> Bool {
