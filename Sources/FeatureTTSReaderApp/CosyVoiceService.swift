@@ -100,15 +100,15 @@ actor CosyVoiceService {
     /// Smoothing: track recent (time, progress) samples for speed calculation
     private var speedSamples: [(Date, Double)] = []
     /// Approximate model size for progress estimation (1.2 GB tarball)
-    static let estimatedModelSize: Int64 = 1_200_000_000
-    /// Default variant tag on GitHub Releases (8bit: best balance of quality/size for the library)
-    static let defaultVariant = "CosyVoice3-0.5B-MLX-8bit"
+    static let estimatedModelSize: Int64 = 1_900_000_000
+    /// Default variant tag on GitHub Releases (bf16: officially supported by the library)
+    static let defaultVariant = "CosyVoice3-0.5B-MLX-bf16"
     /// All available variants (tag name → display name)
     static let variants: [(name: String, tag: String)] = [
         ("4bit (~1.0 GB, 库不支持)", "CosyVoice3-0.5B-MLX-4bit"),
-        ("8bit (推荐, ~1.2 GB)", "CosyVoice3-0.5B-MLX-8bit"),
+        ("8bit (~1.2 GB, 库有兼容问题)", "CosyVoice3-0.5B-MLX-8bit"),
         ("8bit-full (~1.4 GB)", "CosyVoice3-0.5B-MLX-8bit-full"),
-        ("bf16 (~1.9 GB)", "CosyVoice3-0.5B-MLX-bf16"),
+        ("bf16 (推荐, ~1.9 GB)", "CosyVoice3-0.5B-MLX-bf16"),
     ]
     /// Download URL (after proxy rewriting).
     nonisolated static var modelDownloadURL: String {
