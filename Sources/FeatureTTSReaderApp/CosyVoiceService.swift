@@ -335,6 +335,7 @@ actor CosyVoiceService {
                 cacheDir: dstDir,
                 offlineMode: true
             )
+            ReaderStore.writeCrashMarker("model_load_done")
             ttsModel?.warmUp()
             downloadPhase = .ready
             ReaderStore.writeCrashMarker("model_warm_done")
@@ -672,6 +673,7 @@ actor CosyVoiceService {
                 cacheDir: cacheDir,
                 offlineMode: true
             )
+            ReaderStore.writeCrashMarker("importModel_load_done")
             ttsModel?.warmUp()
             downloadPhase = .ready
             ReaderStore.writeCrashMarker("importModel_done")
