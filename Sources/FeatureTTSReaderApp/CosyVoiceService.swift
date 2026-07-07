@@ -324,10 +324,17 @@ actor CosyVoiceService {
             }
 
             try Task.checkCancellation()
+            // If cache check fails, try flattening one level of subdirectories
+            // (some zips unpack to a top-level directory like modelId/).
+            if !isModelCached(at: dstDir) {
+                flattenSubdirectories(at: dstDir)
+            }
             guard isModelCached(at: dstDir) else {
                 throw TTSError.extractionFailed("缓存校验失败：模型文件不完整或尺寸异常，请重新下载")
             }
             try checkAvailableMemory()
+            // Validate model files can be read before calling the library
+            try validateModelFiles(at: dstDir)
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
@@ -408,6 +415,50 @@ actor CosyVoiceService {
             }
         }
         return true
+    }
+
+    /// If model files ended up in a subdirectory (common zip structure), move them up one level.
+    private func flattenSubdirectories(at dir: URL) {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ) else { return }
+        for entry in entries where entry.hasDirectoryPath {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: entry, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+            ) else { continue }
+            for file in files {
+                let dest = dir.appendingPathComponent(file.lastPathComponent)
+                // Don't overwrite existing files
+                guard !FileManager.default.fileExists(atPath: dest.path) else { continue }
+                try? FileManager.default.moveItem(at: file, to: dest)
+            }
+        }
+    }
+
+    /// Verify model files are readable before calling the library.
+    /// Prevents crashes from corrupted or wrong-format files.
+    private func validateModelFiles(at dir: URL) throws {
+        // Check config.json is valid JSON
+        let configURL = dir.appendingPathComponent("config.json")
+        guard let configData = try? Data(contentsOf: configURL),
+              let configJSON = try? JSONSerialization.jsonObject(with: configData) as? [String: Any]
+        else {
+            throw TTSError.importFailed("config.json 无法解析，模型文件可能已损坏")
+        }
+        // Check each safetensors file starts with valid JSON metadata
+        let tensorFiles = ["llm.safetensors", "flow.safetensors", "hifigan.safetensors", "speech_tokenizer.safetensors"]
+        for fn in tensorFiles {
+            let url = dir.appendingPathComponent(fn)
+            guard let handle = try? FileHandle(forReadingFrom: url) else {
+                throw TTSError.importFailed("无法读取 \(fn)，文件可能已损坏")
+            }
+            // Read the first 8 bytes to get the JSON header length (little-endian u64)
+            guard let headerLenData = try? handle.read(upToCount: 8), headerLenData.count == 8 else {
+                try? handle.close()
+                throw TTSError.importFailed("\(fn) 文件格式异常")
+            }
+            try? handle.close()
+        }
     }
 
     /// Check available memory; throw if too low to load the model.
