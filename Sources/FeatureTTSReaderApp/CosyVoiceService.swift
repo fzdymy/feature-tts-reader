@@ -369,21 +369,45 @@ actor CosyVoiceService {
     }
 
     /// Check whether all expected model files exist and have reasonable sizes.
+    /// Also searches one level of subdirectories (zip may unpack to a top-level dir).
     private func isModelCached(at dir: URL) -> Bool {
         let required: [(name: String, minBytes: Int64)] = [
-            ("config.json", 100),
-            ("llm.safetensors", 500_000_000),
-            ("flow.safetensors", 50_000_000),
-            ("hifigan.safetensors", 10_000_000),
-            ("speech_tokenizer.safetensors", 1_000_000),
+            ("config.json", 50),
+            ("llm.safetensors", 1_000_000),
+            ("flow.safetensors", 1_000_000),
+            ("hifigan.safetensors", 100_000),
+            ("speech_tokenizer.safetensors", 10_000),
         ]
-        return required.allSatisfy { fn, minBytes in
-            let path = dir.appendingPathComponent(fn).path
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? Int64, size >= minBytes
-            else { return false }
-            return true
+
+        // Collect all files in dir and one level of subdirs
+        var entries: [URL] = []
+        if let top = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles
+        ) {
+            entries = top
+            for entry in top where entry.hasDirectoryPath {
+                if let sub = try? FileManager.default.contentsOfDirectory(
+                    at: entry, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles
+                ) {
+                    entries.append(contentsOf: sub)
+                }
+            }
         }
+
+        for (fn, minBytes) in required {
+            let match = entries.first { url in
+                url.lastPathComponent == fn
+                && (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) >= minBytes } == true
+            }
+            if match == nil {
+                let sizeStr = entries.filter { $0.lastPathComponent == fn }.compactMap {
+                    (try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { "\($0)b" }
+                }.joined(separator: ", ")
+                os_log("[TTS] isModelCached: missing or too small %@ (found: %@, min: %lld)", type: .debug, fn, sizeStr.isEmpty ? "none" : sizeStr, minBytes)
+                return false
+            }
+        }
+        return true
     }
 
     /// Check available memory; throw if too low to load the model.
