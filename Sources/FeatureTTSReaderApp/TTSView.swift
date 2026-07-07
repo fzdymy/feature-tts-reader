@@ -90,6 +90,11 @@ struct TTSView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .onChange(of: selectedVariant) { _, newIndex in
+                    guard newIndex < CosyVoiceService.variants.count else { return }
+                    let tag = CosyVoiceService.variants[newIndex].tag
+                    Task { await CosyVoiceService.shared.setVariant(tag) }
+                }
             }
 
             // Proxy selector (only when idle or failed)
@@ -330,6 +335,11 @@ struct TTSView: View {
     private func refreshStatus() {
         // Sync proxy selector with current setting
         selectedProxy = DownloadProxy.active
+        // Sync variant picker with service's active variant
+        let activeTag = CosyVoiceService.activeVariant
+        if let idx = CosyVoiceService.variants.firstIndex(where: { $0.tag == activeTag }) {
+            selectedVariant = idx
+        }
         Task {
             let svc = CosyVoiceService.shared
             let actorPhase = await svc.downloadPhase

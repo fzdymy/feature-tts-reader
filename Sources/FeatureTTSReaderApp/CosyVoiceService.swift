@@ -10,6 +10,8 @@ import os
 private let _proxyLock = OSAllocatedUnfairLock()
 nonisolated(unsafe) private var _proxyActive: DownloadProxy = .direct
 nonisolated(unsafe) private var _proxyCustomPrefix = ""
+private let _variantLock = OSAllocatedUnfairLock()
+nonisolated(unsafe) private var _activeVariant = "CosyVoice3-0.5B-MLX-bf16"
 
 enum DownloadProxy: String, CaseIterable, Sendable {
     case direct = "直连 (GitHub)"
@@ -101,29 +103,32 @@ actor CosyVoiceService {
     private var speedSamples: [(Date, Double)] = []
     /// Approximate model size for progress estimation (1.2 GB tarball)
     static let estimatedModelSize: Int64 = 1_900_000_000
-    /// Default variant tag on GitHub Releases (bf16: officially supported by the library)
-    static let defaultVariant = "CosyVoice3-0.5B-MLX-bf16"
+    /// Active variant (persisted via UserDefaults in Lifecycle + setVariant).
+    nonisolated static var activeVariant: String {
+        get { _variantLock.withLock { _activeVariant } }
+        set { _variantLock.withLock { _activeVariant = newValue } }
+    }
     /// All available variants (tag name → display name)
     static let variants: [(name: String, tag: String)] = [
-        ("4bit (~1.0 GB, 库不支持)", "CosyVoice3-0.5B-MLX-4bit"),
-        ("8bit (~1.2 GB, 库有兼容问题)", "CosyVoice3-0.5B-MLX-8bit"),
-        ("8bit-full (~1.4 GB)", "CosyVoice3-0.5B-MLX-8bit-full"),
+        ("4bit (~1.0 GB, ❌)", "CosyVoice3-0.5B-MLX-4bit"),
+        ("8bit (~1.2 GB, ⚠️)", "CosyVoice3-0.5B-MLX-8bit"),
+        ("8bit-full (~1.4 GB, ⚠️)", "CosyVoice3-0.5B-MLX-8bit-full"),
         ("bf16 (推荐, ~1.9 GB)", "CosyVoice3-0.5B-MLX-bf16"),
     ]
     /// Download URL (after proxy rewriting).
     nonisolated static var modelDownloadURL: String {
         if DownloadProxy.active == .custom {
-            let tag = releaseTag(forVariant: defaultVariant)
+            let tag = releaseTag(forVariant: activeVariant)
             let prefix = _proxyLock.withLock { _proxyCustomPrefix }
             let base = prefix.hasSuffix("/") ? prefix : "\(prefix)/"
             return "\(base)cosyvoice-\(tag).zip"
         }
-        let raw = rawReleaseURL(forVariant: defaultVariant)
+        let raw = rawReleaseURL(forVariant: activeVariant)
         return DownloadProxy.active.rewrite(raw)
     }
     /// Release page URL.
     nonisolated static var modelPageURL: String {
-        "https://github.com/\(ghOwner)/\(ghRepo)/releases/tag/\(releaseTag(forVariant: defaultVariant))"
+        "https://github.com/\(ghOwner)/\(ghRepo)/releases/tag/\(releaseTag(forVariant: activeVariant))"
     }
     /// Number of concurrent connections for multi-threaded download.
     static let downloadThreads = 4
@@ -273,6 +278,22 @@ actor CosyVoiceService {
         Task { try? await shared.ensureModel() }
     }
 
+    /// Change the active variant and reset the loaded model.
+    func setVariant(_ variant: String) {
+        let old = Self.activeVariant
+        Self.activeVariant = variant
+        UserDefaults.standard.set(variant, forKey: "cosyvoice_active_variant")
+        if variant != old { resetDownload() }
+    }
+
+    init() {
+        let saved = UserDefaults.standard.string(forKey: "cosyvoice_active_variant")
+        if let saved = saved, Self.variants.contains(where: { $0.tag == saved }) {
+            Self.activeVariant = saved
+        }
+        // else: keep the default set in the global var initializer
+    }
+
     /// Cancellable download task (set before download starts, cleared after).
     private var activeDownloadTask: Task<Void, Error>?
     /// Retained to keep download delegate alive across async boundaries.
@@ -337,12 +358,12 @@ actor CosyVoiceService {
             try checkAvailableMemory()
             // Validate model files can be read before calling the library
             try validateModelFiles(at: snapDir)
-            os_log("[TTS] Loading model — cacheDir: %@, snapDir: %@, modelId: %@, defaultVariant: %@",
-                   type: .debug, rootCache.path, snapDir.path, Self.defaultVariant, Self.defaultVariant)
+            os_log("[TTS] Loading model — cacheDir: %@, snapDir: %@, modelId: %@, activeVariant: %@",
+                   type: .debug, rootCache.path, snapDir.path, Self.activeVariant, Self.activeVariant)
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: Self.defaultVariant,
+                modelId: Self.activeVariant,
                 cacheDir: rootCache,
                 offlineMode: false
             )
@@ -357,7 +378,7 @@ actor CosyVoiceService {
             } else {
                 let desc = error.localizedDescription
                 if desc.contains("must be 8-bit quantized") || desc.contains("plain Linear") {
-                    downloadError = "模型格式不兼容，请改用 8bit 或 bf16 变体（当前变体 \(Self.defaultVariant) 不被该库支持）"
+                    downloadError = "模型格式不兼容，请改用 8bit 或 bf16 变体（当前变体 \(Self.activeVariant) 不被该库支持）"
                 } else {
                     downloadError = desc
                 }
@@ -381,7 +402,7 @@ private func modelCacheDirectory() throws -> URL {
 
 /// HF cache directory for the current variant: .../models--<variant>/
 private func hfModelCacheDirectory() throws -> URL {
-    try modelCacheDirectory().appendingPathComponent("models--\(Self.defaultVariant)")
+    try modelCacheDirectory().appendingPathComponent("models--\(Self.activeVariant)")
 }
 
 /// HF snapshot directory: .../models--<variant>/snapshots/downloaded/
@@ -391,7 +412,7 @@ private func hfSnapshotsDirectory() throws -> URL {
 
 /// Temp staging directory for raw extraction.
 private func stagingDirectory() throws -> URL {
-    try modelCacheDirectory().appendingPathComponent(".staging-\(Self.defaultVariant)")
+    try modelCacheDirectory().appendingPathComponent(".staging-\(Self.activeVariant)")
 }
 
 /// Move extracted model files into the HuggingFace cache layout and create refs.
@@ -520,13 +541,13 @@ private func setupHuggingFaceCache(from staging: URL) throws {
         let urlStr: String
         let isZip: Bool
         if DownloadProxy.active == .custom {
-            let tag = releaseTag(forVariant: Self.defaultVariant)
+            let tag = releaseTag(forVariant: Self.activeVariant)
             let prefix = _proxyLock.withLock { _proxyCustomPrefix }
             let base = prefix.hasSuffix("/") ? prefix : "\(prefix)/"
             urlStr = "\(base)cosyvoice-\(tag).zip"
             isZip = true
         } else {
-            let raw = rawReleaseURL(forVariant: Self.defaultVariant)
+            let raw = rawReleaseURL(forVariant: Self.activeVariant)
             urlStr = DownloadProxy.active.rewrite(raw)
             isZip = false
         }
@@ -799,7 +820,7 @@ private func setupHuggingFaceCache(from staging: URL) throws {
         downloadPhase = .warming
         do {
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: Self.defaultVariant,
+                modelId: Self.activeVariant,
                 cacheDir: rootCache,
                 offlineMode: false
             )
