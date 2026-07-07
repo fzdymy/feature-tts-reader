@@ -19,6 +19,7 @@ struct CharacterScanner {
 
     static func scan(text: String, config: Config = Config(), voices: [VoiceItem] = [],
                      defaultSensitivity: Int = 50, bookID: UUID? = nil) async -> Result
+    {
         let analyzer = CharacterAnalyzer()
         let raw = text.replacingOccurrences(of: "\r", with: "\n")
 
