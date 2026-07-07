@@ -375,13 +375,34 @@ actor CosyVoiceService {
             }
             // Validate model files can be read before calling the library
             try validateModelFiles(at: snapDir)
+            // Log all potential cache paths for debugging
+            os_log("[TTS] Calling fromPretrained(cacheDir=%@, modelId=%@, offline=true)", type: .debug,
+                   rootCache.path, Self.activeVariant)
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
-            ttsModel = try await CosyVoiceTTSModel.fromPretrained(
-                modelId: Self.activeVariant,
-                cacheDir: rootCache,
-                offlineMode: true
-            )
+            do {
+                ttsModel = try await CosyVoiceTTSModel.fromPretrained(
+                    modelId: Self.activeVariant,
+                    cacheDir: rootCache,
+                    offlineMode: true
+                )
+            } catch {
+                // Log the actual snapshots directory contents for debugging
+                if let files = try? FileManager.default.contentsOfDirectory(at: snapDir, includingPropertiesForKeys: [.fileSizeKey]) {
+                    let listing = files.map { "\($0.lastPathComponent)(\(($0.fileSize ?? 0))b)" }.joined(separator: ", ")
+                    os_log("[TTS] fromPretrained failed. snapDir contents: %@", type: .error, listing)
+                }
+                // Also check HF Hub default cache paths
+                for path in Self._hfHubCacheCandidates() {
+                    let p = path.appendingPathComponent("models--\(Self.activeVariant)".replacingOccurrences(of: "/", with: "--"))
+                    if FileManager.default.fileExists(atPath: p.path) {
+                        os_log("[TTS]   model EXISTS at default cache: %@", type: .debug, p.path)
+                    } else {
+                        os_log("[TTS]   model NOT at default cache: %@", type: .debug, p.path)
+                    }
+                }
+                throw error
+            }
             ReaderStore.writeCrashMarker("model_load_done")
             ttsModel?.warmUp()
             downloadPhase = .ready
@@ -487,6 +508,48 @@ private func setupHuggingFaceCache(from staging: URL) throws {
     // Write refs/main so the library resolves the snapshot
     let refsFile = refsDir.appendingPathComponent("main")
     try "downloaded".write(to: refsFile, atomically: true, encoding: .utf8)
+
+    // Also copy to standard HuggingFace Hub cache locations (library may ignore our cacheDir)
+    try copyToHuggingFaceHubCache(from: destDir)
+}
+
+/// Libraries like CosyVoiceTTS may ignore the custom cacheDir and use their own default.
+/// Copy our cached model to known standard locations as a fallback.
+private func copyToHuggingFaceHubCache(from snapDir: URL) throws {
+    let modelDirName = "models--\(Self.activeVariant)".replacingOccurrences(of: "/", with: "--")
+    for base in Self._hfHubCacheCandidates() {
+        let dest = base.appendingPathComponent(modelDirName)
+        guard !FileManager.default.fileExists(atPath: dest.path) else {
+            os_log("[TTS] HF Hub cache already exists at %@, skip", type: .debug, dest.path)
+            continue
+        }
+        let destSnap = dest.appendingPathComponent("snapshots/downloaded")
+        let destRefs = dest.appendingPathComponent("refs")
+        try? FileManager.default.createDirectory(at: destSnap, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: destRefs, withIntermediateDirectories: true)
+        let items = try FileManager.default.contentsOfDirectory(at: snapDir, includingPropertiesForKeys: nil)
+        for item in items {
+            let d = destSnap.appendingPathComponent(item.lastPathComponent)
+            try? FileManager.default.copyItem(at: item, to: d)
+        }
+        try "downloaded".write(to: destRefs.appendingPathComponent("main"), atomically: true, encoding: .utf8)
+        os_log("[TTS] Copied model to HF Hub cache: %@", type: .debug, dest.path)
+    }
+}
+
+/// Known default cache paths used by HuggingFace Hub Swift libraries.
+private static func _hfHubCacheCandidates() -> [URL] {
+    let fm = FileManager.default
+    var urls: [URL] = []
+    if let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+        urls.append(caches.appendingPathComponent("huggingface/hub"))
+        urls.append(caches.appendingPathComponent("huggingface/hub/models")) // some older versions
+    }
+    if let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        urls.append(support.appendingPathComponent("huggingface/hub"))
+    }
+    return urls
+}
 }
 
     /// Check whether all expected model files exist and have reasonable sizes.
@@ -1147,6 +1210,10 @@ private extension Int16 {
 // MARK: - Gzip fallback (for iOS < 18 or when built-in gunzipped() unavailable)
 
 private extension URL {
+    var fileSize: Int? {
+        (try? resourceValues(forKeys: [.fileSizeKey]).fileSize)
+    }
+
     /// Decompress a gzip file using zlib.
     func gunzippedFallback() throws -> Data {
         let compressed = try Data(contentsOf: self)
