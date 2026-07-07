@@ -1,4 +1,4 @@
-name: Release All CosyVoice Models
+name: Release All CosyVoice Models Zip
 
 on:
   workflow_dispatch:
