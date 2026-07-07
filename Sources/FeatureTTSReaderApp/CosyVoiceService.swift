@@ -11,7 +11,7 @@ private let _proxyLock = OSAllocatedUnfairLock()
 nonisolated(unsafe) private var _proxyActive: DownloadProxy = .direct
 nonisolated(unsafe) private var _proxyCustomPrefix = ""
 private let _variantLock = OSAllocatedUnfairLock()
-nonisolated(unsafe) private var _activeVariant = "CosyVoice3-0.5B-MLX-bf16"
+nonisolated(unsafe) private var _activeVariant = "aufklarer/CosyVoice3-0.5B-MLX-bf16"
 
 enum DownloadProxy: String, CaseIterable, Sendable {
     case direct = "直连 (GitHub)"
@@ -110,10 +110,10 @@ actor CosyVoiceService {
     }
     /// All available variants (tag name → display name)
     static let variants: [(name: String, tag: String)] = [
-        ("4bit (~1.0 GB, ❌)", "CosyVoice3-0.5B-MLX-4bit"),
-        ("8bit (~1.2 GB, ⚠️)", "CosyVoice3-0.5B-MLX-8bit"),
-        ("8bit-full (~1.4 GB, ⚠️)", "CosyVoice3-0.5B-MLX-8bit-full"),
-        ("bf16 (推荐, ~1.9 GB)", "CosyVoice3-0.5B-MLX-bf16"),
+        ("4bit (~1.0 GB, ❌)", "aufklarer/CosyVoice3-0.5B-MLX-4bit"),
+        ("8bit (~1.2 GB, ⚠️)", "aufklarer/CosyVoice3-0.5B-MLX-8bit"),
+        ("8bit-full (~1.4 GB, ⚠️)", "aufklarer/CosyVoice3-0.5B-MLX-8bit-full"),
+        ("bf16 (推荐, ~1.9 GB)", "aufklarer/CosyVoice3-0.5B-MLX-bf16"),
     ]
     /// Download URL (after proxy rewriting).
     nonisolated static var modelDownloadURL: String {
@@ -285,8 +285,14 @@ actor CosyVoiceService {
 
     init() {
         let saved = UserDefaults.standard.string(forKey: "cosyvoice_active_variant")
-        if let saved = saved, Self.variants.contains(where: { $0.tag == saved }) {
-            Self.activeVariant = saved
+        if let saved = saved {
+            if Self.variants.contains(where: { $0.tag == saved }) {
+                Self.activeVariant = saved
+            } else if let match = Self.variants.first(where: { $0.tag.hasSuffix("/\(saved)") }) {
+                // Migration: old short tag → new full model ID
+                Self.activeVariant = match.tag
+                UserDefaults.standard.set(match.tag, forKey: "cosyvoice_active_variant")
+            }
         }
         // else: keep the default set in the global var initializer
     }
@@ -404,9 +410,10 @@ private func modelCacheDirectory() throws -> URL {
     return caches.appendingPathComponent("com.cosyvoice/models")
 }
 
-/// HF cache directory for the current variant: .../models--<variant>/
+/// HF cache directory for the current variant: .../models--<variant with -- instead of />/
 private func hfModelCacheDirectory() throws -> URL {
-    try modelCacheDirectory().appendingPathComponent("models--\(Self.activeVariant)")
+    let dirName = "models--\(Self.activeVariant)".replacingOccurrences(of: "/", with: "--")
+    return try modelCacheDirectory().appendingPathComponent(dirName)
 }
 
 /// HF snapshot directory: .../models--<variant>/snapshots/downloaded/
