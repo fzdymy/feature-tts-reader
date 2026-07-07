@@ -250,107 +250,61 @@ struct CharacterAssignmentPanel: View {
         let analyzer = CharacterAnalyzer()
 
         Task { @MainActor in
-            // Phase 1: chunked regex on full text
             scanPhase = "正在扫描角色..."
             scanProgress = 0.0
-            var allNames = Set<String>()
-            let nsText = text as NSString
-            let totalLen = nsText.length
-            let chunkSize = 30_000
-            let totalChunks = max(1, (totalLen + chunkSize - 1) / chunkSize)
-            for i in 0..<totalChunks {
-                if Task.isCancelled { isScanning = false; return }
-                let start = i * chunkSize
-                let end = min(start + chunkSize, totalLen)
-                let chunk = nsText.substring(with: NSRange(location: start, length: end - start))
-                let names = await Task.detached(priority: .userInitiated) {
-                    analyzer.extractDialogueNames(from: chunk)
-                }.value
-                for n in names { allNames.insert(n) }
-                let elapsed = Date().timeIntervalSince(startTime)
-                scanProgress = Double(i + 1) / Double(totalChunks) * 0.50
-                elapsedText = formatDuration(elapsed)
-                if i >= 3 {
-                    let perChunk = elapsed / Double(i + 1)
-                    etaText = formatDuration(perChunk * Double(totalChunks - i - 1))
-                }
-                await Task.yield()
-            }
 
-            let elapsed1 = Date().timeIntervalSince(startTime)
-            elapsedText = formatDuration(elapsed1)
-
-            // Phase 1b: filter out non-real names (surname check, reject pronouns/particles)
-            allNames = allNames.filter { CharacterAnalyzer.looksLikeRealName($0) }
-
-            // Phase 2: AC自动机频率统计 (Aho-Corasick 多模匹配)
-            // 用字典树对前 500K 字做 O(n) 扫描，频次低于阈值的丢弃
-            // 阈值按全文长度自适应：短文本从严，长文本从宽
-            scanPhase = "正在统计分析..."
-            etaText = ""
-            let freqLimit = min(500_000, text.count)
-            let freqText = String(text.prefix(freqLimit))
-            let candidateDict = Dictionary(uniqueKeysWithValues: allNames.map { ($0, 0) })
-            let freqResult = await Task.detached(priority: .userInitiated) { [analyzer] in
-                analyzer.countWithAC(text: freqText, candidates: candidateDict)
+            // Phase 1: extractCandidates (paragraph guard → regex → looksLikeRealName → NLTagger + surname)
+            // Runs inline tagger per dialogue paragraph — no separate kill-step for NL validation.
+            let allNames = await Task.detached(priority: .userInitiated) {
+                analyzer.extractCandidates(from: text)
             }.value
-            let minFreq = max(3, freqLimit / 100_000)
-            allNames = Set(freqResult.filter { $0.value >= minFreq }.map(\.key))
-            scanProgress = 0.50
-            elapsedText = formatDuration(Date().timeIntervalSince(startTime))
-            if allNames.isEmpty && !candidateDict.isEmpty {
-                let ranked = freqResult.sorted { $0.value > $1.value }
-                let keepCount = max(5, ranked.count / 5)
-                allNames = Set(ranked.prefix(keepCount).map(\.key))
-            }
-            await Task.yield()
+            scanProgress = 0.35
 
-            // Phase 2b: dedup — remove candidates that are prefixed by a higher-frequency name
+            // Phase 2: AC automaton frequency (build once, scan full text, filter ≤1)
+            scanPhase = "正在统计分析..."
+            let freqResult = await Task.detached(priority: .userInitiated) {
+                analyzer.countCharacterFrequencies(text: text, candidates: allNames)
+            }.value
+            let minFreq: Int
+            if allNames.isEmpty { minFreq = 0 }
+            else if allNames.count <= 10 { minFreq = 1 }
+            else { minFreq = max(2, text.count / 200_000) }
+            let filtered = Set(freqResult.filter { $0.value >= minFreq }.map(\.key))
+            scanProgress = 0.50
+
+            // Dedup — remove candidates prefixed by a higher-frequency name
             let rankedNames = freqResult.sorted { $0.value > $1.value }
             var dedupNames = Set<String>()
             for (name, _) in rankedNames {
-                if !allNames.contains(name) { continue }
+                if !filtered.contains(name) { continue }
                 let isPrefix = dedupNames.contains { $0.count >= 2 && name.hasPrefix($0) && $0 != name }
-                if !isPrefix {
-                    dedupNames.insert(name)
-                }
+                if !isPrefix { dedupNames.insert(name) }
             }
-            allNames = dedupNames
 
             // Phase 2c: cap at top 100 by frequency
             let freqMap = Dictionary(uniqueKeysWithValues: rankedNames.filter { allNames.contains($0.key) })
             let sortedByFreq = allNames.sorted { (freqMap[$0] ?? 0) > (freqMap[$1] ?? 0) }
             allNames = Set(sortedByFreq.prefix(100))
 
-            // Phase 3: attribute analysis (progress 0.50 → 1.0)
+            // Phase 3: multi-paragraph voting for attributes (replaces old first-occurrence truncation)
             scanPhase = "正在提取属性..."
             etaText = ""
             var inferred = [CharacterProfile]()
-            let contextLimit = min(500_000, text.count)
-            let contextText = text.prefix(contextLimit)
-            let uniqueNames = allNames.sorted()
+            let uniqueNames = dedupNames.sorted()
 
             for (idx, name) in uniqueNames.enumerated() {
                 if Task.isCancelled { isScanning = false; return }
-                guard let range = contextText.range(of: name) else {
-                    scanProgress = 0.50 + Double(idx + 1) / Double(uniqueNames.count) * 0.50
-                    await Task.yield()
-                    continue
-                }
                 let attrs = await Task.detached(priority: .userInitiated) { [analyzer] in
-                    let ctxStart = contextText.index(range.lowerBound, offsetBy: -50, limitedBy: contextText.startIndex) ?? contextText.startIndex
-                    let ctxEnd = contextText.index(range.upperBound, offsetBy: 150, limitedBy: contextText.endIndex) ?? contextText.endIndex
-                    let ctx = String(contextText[ctxStart..<ctxEnd])
-                    return analyzer.analyzeAttributes(for: name, context: ctx)
+                    analyzer.estimateAttributes(for: name, in: text)
                 }.value
                 var gender = attrs.gender
                 let age = attrs.age
                 if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
-                let acFreq = freqMap[name] ?? 0
+                let acFreq = freqResult[name] ?? 0
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: [],
-                    gender: gender, age: age, tone: "平稳",
-                    voice: "", rate: 0, pitch: 0, style: "neutral",
+                    gender: gender, age: age, tone: attrs.baseTone,
+                    voice: "", rate: attrs.baseRate, pitch: attrs.basePitch, style: attrs.baseStyle,
                     sensitivity: defaultSensitivity, frequency: acFreq,
                     bookID: book.id
                 ))

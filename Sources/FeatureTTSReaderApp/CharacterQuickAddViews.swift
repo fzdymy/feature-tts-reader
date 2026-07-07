@@ -24,8 +24,11 @@ struct QuickCharacterAddView: View {
         self.existingCharacters = existingCharacters
         self.onAdd = onAdd
         self.onEdit = onEdit
-        let context = bookText.contextAround(candidateName, radius: 120)
-        let attrs = CharacterAnalyzer().analyzeAttributes(for: candidateName, context: context)
+        // Multi-paragraph global voting for attributes, not single truncated context.
+        // Aggregates signals from ALL paragraphs containing the name, producing
+        // more reliable gender/age/tone defaults. Falls to "未知"/"平稳" when weak.
+        let analyzer = CharacterAnalyzer()
+        let attrs = analyzer.estimateAttributes(for: candidateName, in: bookText)
         _gender = State(initialValue: attrs.gender)
         _age = State(initialValue: attrs.age)
         _tone = State(initialValue: attrs.baseTone)

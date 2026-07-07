@@ -251,7 +251,7 @@ final class CharacterAnalyzer: @unchecked Sendable {
         return Set(s.map { String($0) })
     }()
 
-    private static let compoundSurnames: Set<String> = [
+    static let compoundSurnames: Set<String> = [
         "第五", "梁丘", "左丘", "东门", "百里", "东郭", "南门", "呼延",
         "万俟", "南宫", "段干", "西门", "司马", "上官", "欧阳", "夏侯",
         "诸葛", "闻人", "东方", "赫连", "皇甫", "尉迟", "公羊", "澹台",
@@ -263,27 +263,21 @@ final class CharacterAnalyzer: @unchecked Sendable {
     ]
 
     // Pre-compiled regex patterns (compiled once, cached forever)
-    private static let speechVerbPattern = RegexCache.shared.get(
-        "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道)"
+    // Core speaker pattern: name + speech verb, optional colon, before dialogue quote
+    private static let coreSpeakerPattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道)[：:\\s]*[「\\u300c\\u201c『\\u300e\"'\\u2018\\u201c]?"
     )!
+    // Name + colon directly before dialogue quote: "萧炎：\"..."
+    private static let colonBeforeQuotePattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})[：:][\\s]*[「\\u300c\\u201c『\\u300e]"
+    )!
+    // Name followed by comma + dialogue: "无忌，你怎么来了"
+    private static let commaAddressPattern = RegexCache.shared.get(
+        "([\\p{Han}]{2,4})[，,]"
+    )!
+    // Name + title suffix: "林动前辈", "萧炎先生"
     private static let titlePattern = RegexCache.shared.get(
         "([\\p{Han}]{2,4})(?=先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|兄台|贤弟|师妹|师姐|师兄|师弟|掌门|教主|帮主|盟主|庄主|岛主|前辈|婆婆|姥姥|老爷子|老人家)"
-    )!
-    private static let dialogueBeforeQuotePattern = RegexCache.shared.get(
-        "([\\p{Han}]{2,4})[：:\\s]*[「\\u300c\\u201c『\\u300e]"
-    )!
-    // Name followed by comma + dialogue — "无忌，你怎么来了"
-    private static let commaAddressPattern = RegexCache.shared.get(
-        "([\\p{Han}]{2,4})[，,](?:[「\\u300c\\u201c『\\u300e])?"
-    )!
-    // Name + speech verb + punctuation/quote: 无忌说道："...
-    private static let speechVerbQuotePattern = RegexCache.shared.get(
-        "([\\p{Han}]{2,4})(?:说|道|笑道|喊道|问道|怒道)[：:]*[「\\u300c\\u201c『\\u300e\"'\\u2018\\u201c]"
-    )!
-    // Novel action + speech cross pattern: "纳兰嫣然！纳兰桀怒喝道"
-    // Captures both the addressee and the speaker
-    private static let exclamationSpeechPattern = RegexCache.shared.get(
-        "([\\p{Han}]{2,4})[！!][「\\u300c\"'\\u201c]?([\\p{Han}]{2,4})(?:怒道|喝道|冷笑道|沉声道|厉声道|喊道|叫道)"
     )!
     // Name + novel action (no speech verb needed): "林动身形一闪"
     private static let novelActionPattern = RegexCache.shared.get(
@@ -302,7 +296,7 @@ final class CharacterAnalyzer: @unchecked Sendable {
         return singleSurnames.contains(String(first))
     }
 
-    private static func startsWithCompoundSurname(_ token: String) -> Bool {
+    static func startsWithCompoundSurname(_ token: String) -> Bool {
         token.count >= 2 && compoundSurnames.contains(String(token.prefix(2)))
     }
 
@@ -379,29 +373,30 @@ final class CharacterAnalyzer: @unchecked Sendable {
         var colonNames = Set<String>()
         var commaNames = Set<String>()
 
+        // Run core patterns (consolidated from 7 overlapping regexes → 4)
+        // Track which names were captured after colon/comma for filtering.
+        // Pattern order matters for colon/comma filtering index.
         let patterns: [(NSRegularExpression, Int)] = [
-            (Self.speechVerbPattern, 15),
-            (Self.titlePattern, 12),
-            (Self.dialogueBeforeQuotePattern, 12),
-            (Self.commaAddressPattern, 10),
-            (Self.speechVerbQuotePattern, 15),
-            (Self.novelActionPattern, 12),
-            (Self.exclamationSpeechPattern, 14),
+            (Self.coreSpeakerPattern, 0),   // i=0: speech verb + quote
+            (Self.titlePattern, 0),          // i=1: title suffix
+            (Self.colonBeforeQuotePattern, 2), // i=2: colon → colonNames
+            (Self.commaAddressPattern, 3),   // i=3: comma → commaNames
+            (Self.novelActionPattern, 0),    // i=4: novel action
         ]
         for (i, (pattern, _)) in patterns.enumerated() {
             pattern.enumerateMatches(in: chunk, range: nsRange) { match, _, _ in
                 guard let m = match else { return }
-                // Handle both single-capture and double-capture patterns
                 let ranges: [Range<String.Index>] = (1..<m.numberOfRanges).compactMap { ri in
                     Range(m.range(at: ri), in: chunk)
                 }
                 for r in ranges {
                     let name = String(chunk[r])
-                    if name.count >= 2 && name.count <= 4 && name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) && !isStopWord(name) {
-                        found.insert(name)
-                        if i == 2 { colonNames.insert(name) }
-                        if i == 3 { commaNames.insert(name) }
-                    }
+                    guard name.count >= 2 && name.count <= 4 &&
+                          name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) &&
+                          !isStopWord(name) else { continue }
+                    found.insert(name)
+                    if i == 2 { colonNames.insert(name) }
+                    if i == 3 { commaNames.insert(name) }
                 }
             }
         }
@@ -415,75 +410,134 @@ final class CharacterAnalyzer: @unchecked Sendable {
             if commaNames.contains(name) {
                 if name.count >= 3 && !Self.firstCharIsSurname(name) && !Self.startsWithCompoundSurname(name) { return false }
             }
-            // Accept: 3+ chars, or surname-based 2-char, or common prefixes (阿/小/老/大)
             return name.count >= 3 || Self.firstCharIsSurname(name) || Self.commonNamePrefixes.contains(String(name.prefix(1)))
         }
     }
 
-    // MARK: - Phase 2: AC automaton
+    // MARK: - Phase 2: Unified extraction pipeline
 
-    func countWithAC(text: String, candidates: [String: Int]) -> [String: Int] {
-        let ac = ACAutomaton()
-        for name in candidates.keys where !isStopWord(name) && name.count >= 2 {
-            ac.insert(name)
-            // Also insert common substrings for better aliasing
-            if name.count == 3 {
-                let lastTwo = String(name.suffix(2))
-                if Self.firstCharIsSurname(lastTwo) && !isStopWord(lastTwo) { ac.insert(lastTwo) }
+    /// Phase 1: Extract high-confidence character name candidates from dialogue paragraphs.
+    ///
+    /// Pipeline per paragraph:
+    ///   `paragraph guard (has dialogue features?) → regex locate → looksLikeRealName → NLTagger + surname fallback`
+    ///
+    /// This replaces the old extractDialogueNames + validateWithNL + extractNLMissing
+    /// triplicate which had overlapping regex scans and self-cancelling NL logic.
+    func extractCandidates(from text: String) -> Set<String> {
+        var candidates = Set<String>()
+        let tagger = NLTagger(tagSchemes: [.nameType])
+        let paragraphs = text.components(separatedBy: .newlines)
+
+        for para in paragraphs {
+            // Paragraph-level guard: skip if no dialogue/action features (~80% of text)
+            guard para.contains("“") || para.contains("「") || para.contains("道") || para.contains("说") || para.contains("一") else {
+                continue
+            }
+
+            let nsRange = NSRange(para.startIndex..<para.endIndex, in: para)
+
+            for pattern in [Self.coreSpeakerPattern, Self.novelActionPattern, Self.titlePattern] {
+                pattern.enumerateMatches(in: para, range: nsRange) { match, _, _ in
+                    guard let m = match, let r = Range(m.range(at: 1), in: para) else { return }
+                    let nameCandidate = String(para[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    // Static rule chain (looksLikeRealName rejects stop words + non-name chars)
+                    guard Self.looksLikeRealName(nameCandidate) else { return }
+
+                    // Dynamic NL validation: tagger sees the full paragraph as context
+                    tagger.string = para
+                    let tag = tagger.tag(at: r.lowerBound, unit: .word, scheme: .nameType).0
+
+                    // Fusion: NLTagger says personalName, OR surname/compound surname fallback
+                    if tag == .personalName || Self.firstCharIsSurname(nameCandidate) || Self.compoundSurnames.contains(String(nameCandidate.prefix(2))) {
+                        candidates.insert(nameCandidate)
+                    }
+                }
             }
         }
-
-        var scores = candidates
-        let counts = ac.search(text)
-        for (name, total) in counts {
-            if name.count >= 2 && !isStopWord(name) {
-                scores[name, default: 0] += total * 2
-            }
-        }
-        return scores
+        return candidates
     }
 
-    // MARK: - Phase 2c: NL tagger validation
+    /// Phase 2: Given a clean candidate set, build one global AC automaton, scan the full text,
+    /// and filter out names appearing ≤1 time (likely false positives).
+    func countCharacterFrequencies(text: String, candidates: Set<String>) -> [String: Int] {
+        let ac = ACAutomaton()
+        for name in candidates where !isStopWord(name) && name.count >= 2 {
+            ac.insert(name)
+        }
+        let rawCounts = ac.search(text)
+        return rawCounts.filter { $0.value > 1 }
+    }
 
-    /// Validate candidates using Apple's NL tagger.
-    /// For each candidate, check up to 3 context windows.
-    /// A candidate is valid if the NL tagger tags it as `.personalName` in at least 1 window.
-    /// This eliminates common-word false positives (任务/别人/包裹 etc.)
-    func validateWithNL(text: String, candidates: Set<String>) -> Set<String> {
-        let tagger = NLTagger(tagSchemes: [.nameType])
-        var validated = Set<String>()
-        let contextRadius = 80
+    /// Multi-paragraph global voting for gender/age/tone attributes.
+    ///
+    /// Instead of analyzing a single truncated context around the first occurrence,
+    /// aggregate signals from ALL paragraphs containing the character name.
+    func estimateAttributes(for name: String, in fullText: String) -> CharacterAttributes {
+        var maleVotes = 0
+        var femaleVotes = 0
+        var youngVotes = 0
+        var oldVotes = 0
+        var cheerfulVotes = 0
+        var angryVotes = 0
+        var sadVotes = 0
 
-        for name in candidates {
-            var found = false
-            var searchStart = text.startIndex
+        let paragraphs = fullText.components(separatedBy: .newlines).filter { $0.contains(name) }
 
-            for _ in 0..<3 {
-                guard let range = text.range(of: name, range: searchStart..<text.endIndex) else { break }
-                let ws = text.index(range.lowerBound, offsetBy: -contextRadius, limitedBy: text.startIndex) ?? text.startIndex
-                let we = text.index(range.upperBound, offsetBy: contextRadius, limitedBy: text.endIndex) ?? text.endIndex
-                let window = String(text[ws..<we])
-
-                tagger.string = window
-                tagger.enumerateTags(in: window.startIndex..<window.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, tagRange in
-                    if tag == .personalName {
-                        let taggedName = String(window[tagRange])
-                        if taggedName == name {
-                            found = true
-                            return false
-                        }
-                    }
-                    return true
-                }
-
-                if found { break }
-                searchStart = range.upperBound
+        for para in paragraphs {
+            // Strong gender cues: explicit title/address
+            if para.contains("\(name)小姐") || para.contains("\(name)姑娘") || para.contains("\(name)师妹") ||
+               para.contains("\(name)师姐") || para.contains("\(name)奶奶") || para.contains("\(name)娘") ||
+               para.contains("\(name)公主") || para.contains("\(name)女侠") || para.contains("\(name)女士") ||
+               para.contains("\(name)夫人") || para.contains("\(name)太太") || para.contains("\(name)妹妹") {
+                femaleVotes += 3
+            }
+            if para.contains("\(name)先生") || para.contains("\(name)公子") || para.contains("\(name)兄") ||
+               para.contains("\(name)少爷") || para.contains("\(name)师兄") || para.contains("\(name)师弟") ||
+               para.contains("\(name)陛下") || para.contains("\(name)王爷") || para.contains("\(name)将军") ||
+               para.contains("\(name)兄台") || para.contains("\(name)掌门") || para.contains("\(name)教主") ||
+               para.contains("\(name)帮主") || para.contains("\(name)前辈") {
+                maleVotes += 3
             }
 
-            if found { validated.insert(name) }
+            // Pronoun signals immediately after name
+            if let r = para.range(of: name) {
+                let after = String(para[r.upperBound...].prefix(10))
+                if after.contains("她") { femaleVotes += 1 }
+                if after.contains("他") { maleVotes += 1 }
+            }
+
+            // Age cues
+            if para.contains("老") || para.contains("年迈") || para.contains("白发") ||
+               para.contains("老者") || para.contains("老人家") || para.contains("婆婆") ||
+               para.contains("爷爷") || para.contains("姥姥") || para.contains("年长") {
+                oldVotes += 1
+            }
+            if para.contains("年轻") || para.contains("少年") || para.contains("少女") || para.contains("青涩") {
+                youngVotes += 1
+            }
+
+            // Tone cues
+            if para.contains("笑") || para.contains("开心") || para.contains("欢喜") { cheerfulVotes += 1 }
+            if para.contains("怒") || para.contains("吼") || para.contains("骂") || para.contains("愤") { angryVotes += 1 }
+            if para.contains("叹") || para.contains("悲") || para.contains("泣") || para.contains("哭") ||
+               para.contains("哽咽") { sadVotes += 1 }
         }
 
-        return validated
+        let gender = (femaleVotes == 0 && maleVotes == 0) ? "未知" : (femaleVotes > maleVotes ? "女性" : "男性")
+        let age = (youngVotes == 0 && oldVotes == 0) ? "青年" : (youngVotes > oldVotes ? "少年" : "年长")
+
+        let maxTone = max(cheerfulVotes, angryVotes, sadVotes)
+        let tone: String
+        if maxTone == 0 { tone = "平稳" }
+        else if maxTone == cheerfulVotes { tone = "轻松" }
+        else if maxTone == angryVotes { tone = "激昂" }
+        else { tone = "温柔" }
+
+        let style = tone == "激昂" ? "angry" : tone == "温柔" ? "sad" : tone == "轻松" ? "cheerful" : "neutral"
+        let rate = tone == "激昂" ? 15 : tone == "温柔" ? -10 : tone == "轻松" ? 5 : 0
+        let pitch = tone == "激昂" ? 10 : tone == "温柔" ? -5 : tone == "疑问" ? 5 : 0
+        return CharacterAttributes(gender: gender, age: age, baseTone: tone, baseStyle: style, baseRate: rate, basePitch: pitch)
     }
 
     // MARK: - Phase 3: NL NER on dialogue paragraphs (limited to first 500 dialogue paragraphs)

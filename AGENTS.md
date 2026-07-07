@@ -10,6 +10,8 @@
 
 ## 架构数据流
 
+### 朗读管线（TTS 播放）
+
 ```
 小说文本
   → extractChapters → [BookChapter]
@@ -20,6 +22,33 @@
             → [角色名: CAM++192维嵌入]
             → DialogueSynthesizer → [Float] → WAV
               → AVPlayer 播放 + paragraphIndex 高亮同步
+```
+
+### 角色提取管线（Character Scanning Pipeline）
+
+三阶段流水线，各级各司其职、不再相互阻塞：
+
+```
+全文文本
+  │
+  ├─ Phase 1: extractCandidates ──────────────────────────────────────
+  │   段落级粗筛 (guard: 含说/道/"／「 等对话特征)
+  │     → 3个合并正则定位 (speakerPattern / titlePattern / actionPattern)
+  │     → looksLikeRealName 静态规则链
+  │     → NLTagger + 百家姓/复姓兜底 (放行萧炎/林动等网文名)
+  │  输出: Set<String> 高置信度候选人
+  │
+  ├─ Phase 2: countCharacterFrequencies ──────────────────────────────
+  │   一次建树 → AC 自动机 O(n) 全文扫描 → filter (≤1次丢弃)
+  │  输出: [String: Int] 清洗后角色频次表
+  │
+  ├─ 去重 & 别名解析 (prefix dedup + resolveAliases)
+  │
+  └─ Phase 3: estimateAttributes ────────────────────────────────────
+      多段落全局投票 (所有含该角色名的段落)
+        → 显式称谓权重 +3, 代词信号 +1, 年龄/语气关键词
+      输出: CharacterAttributes(gender/age/tone/style/rate/pitch)
+      弱信号时返回 "未知"/"平稳", 不盲猜
 ```
 
 ## 已修复的关键 Bug (2026-07-07 全面审计)
@@ -71,6 +100,18 @@
 | #E6 | `defaultVoice` / `defaultMaleVoiceID` / `defaultFemaleVoiceID` 使用 Azure ID | 对 CosyVoice 无效, 需后续替换 |
 | #E7 | `VoiceCatalog` / `VoiceItem` / `VoiceCatalogSource` 仍被引用但 Azure 音色无意义 | 需后续清理 |
 | #E8 | `extractZip` 第一遍 subslice 缺少显式越界检查 | 加入 `tempOff + 30 + nameLen <= data.count` |
+
+### Parch fix: 角色提取管线重构 (2026-07-08)
+
+| # | 问题 | 修复 |
+|---|------|------|
+| #P1 | `validateWithNL` 字符串强匹配 (`taggedName == name`) 误杀网文人名 | 改为 `extractCandidates`: NLTagger 段落上下文验证 + 百家姓/复姓兜底 |
+| #P2 | 7 个正则轮询扫描全文本, CPU 浪费 | 合并为 3 个核心正则 (speakerPattern / titlePattern / actionPattern) + 段落级 guard 粗筛 |
+| #P3 | AC 自动机每 Chunk 重建, 未发挥 O(n) 优势 | 改为 `countCharacterFrequencies`: 一次性建树扫描全文本, filter ≤1 |
+| #P4 | 属性分析取第一次出现 ±150 字, 无法推断 | 改为 `estimateAttributes`: 多段落全局投票 (称谓 +3, 代词 +1, 关键词) |
+| #P5 | QuickCharacterAddView 闭眼硬猜属性 | 使用 `estimateAttributes`, 弱信号返回 "未知"/"平稳" |
+| #P6 | CharacterAssignmentView 复用旧 pipeline | 同步迁移到 extractCandidates + countCharacterFrequencies + estimateAttributes |
+| #P7 | H4: 角色扫描 dedup 两处不一致 | CharacterScanner 和 CharacterAssignmentView 统一使用 prefix-dedup + resolveAliases |
 
 ## 已知待优化问题 (按优先级)
 
@@ -150,7 +191,6 @@
 9. **G8: 引号类型扩展** — 支持更多 CJK 引号字符
 10. **H1: Concurrency 安全** — `@MainActor` 标注所有 UI 相关类
 11. **G3: 缓存清理机制** — 测试并启用 evictDiskLRU
-12. **H4: 角色扫描统一** — 合并 Store 和 CharacterAssignmentView 的实现
 
 ## iOS 18+ / Xcode 26.3+ 注意事项
 

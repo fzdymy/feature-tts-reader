@@ -4,6 +4,7 @@ import AVFoundation
 import SwiftUI
 import MediaPlayer
 import NaturalLanguage
+import os
 
 @MainActor
 struct ChapterNavigate: Equatable {
@@ -11,7 +12,8 @@ struct ChapterNavigate: Equatable {
     let chapterIndex: Int
 }
 
-final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
+@MainActor
+final class ReaderStore: NSObject, ObservableObject {
     @Published var navigationPath: NavigationPath = NavigationPath()
     @Published var bookText: String = ""
     @Published var chapters: [BookChapter] = []
@@ -50,44 +52,52 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
     @Published var isTestingServer: Bool = false
 
     private var playbackTask: Task<Void, Never>?
+    private var isStateLoaded = false
 
     // Lazy singleton for on-device BERT speaker detection
-    nonisolated private static let bertLock = NSLock()
+    nonisolated private static let bertLock = OSAllocatedUnfairLock()
     nonisolated(unsafe) private static var _bertDetector: BertSpeakerDetector?
     nonisolated static var bertDetector: BertSpeakerDetector? {
-        bertLock.lock()
-        defer { bertLock.unlock() }
-        if _bertDetector == nil {
-            let d = BertSpeakerDetector()
-            if d.isAvailable { _bertDetector = d }
+        bertLock.withLock {
+            if _bertDetector == nil {
+                let d = BertSpeakerDetector()
+                if d.isAvailable { _bertDetector = d }
+            }
+            return _bertDetector
         }
-        return _bertDetector
     }
 
     /// 测试 CosyVoice 模型是否可用
     func testActiveServer() async {
-        await MainActor.run {
-            isTestingServer = true
-            activeServerTestResult = "测试中..."
-        }
+        guard !isTestingServer else { return }
+        isTestingServer = true
+        activeServerTestResult = "测试中..."
         do {
             try await CosyVoiceService.shared.ensureModel()
-            await MainActor.run { activeServerTestResult = "CosyVoice 就绪" }
+            activeServerTestResult = "CosyVoice 就绪"
         } catch {
-            await MainActor.run { activeServerTestResult = "失败: \(error.localizedDescription)" }
+            activeServerTestResult = "失败: \(error.localizedDescription)"
         }
-        await MainActor.run { isTestingServer = false }
+        isTestingServer = false
     }
 
     // Chapter parse cache keyed by book ID
     var bookChaptersCache: [UUID: [BookChapter]] = [:]
+    private static let maxCachedBooks = 20
+
+    private func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID) {
+        if bookChaptersCache.count >= Self.maxCachedBooks {
+            bookChaptersCache.removeValue(forKey: bookChaptersCache.keys.first!)
+        }
+        bookChaptersCache[bookID] = chapters
+    }
 
     func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
         if let cached = bookChaptersCache[bookID] { return cached }
         guard !text.isEmpty else { return [] }
         let parsed = Self.extractChapters(from: text)
         if !parsed.isEmpty {
-            bookChaptersCache[bookID] = parsed
+            setCachedChapters(parsed, for: bookID)
         }
         return parsed
     }
@@ -155,8 +165,8 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         Self.writeCrashMarker("init_observe_done")
         audioController.restorePlaybackState()
         Self.writeCrashMarker("init_restore_playback_done")
-        startAutoSaveTimer()
-        Self.writeCrashMarker("init_timer_done")
+        // autoSaveTimer started after loadStateAsync completes to avoid race
+        Self.writeCrashMarker("init_timer_deferred")
 
         // Restore reading position from UserDefaults (tiny, <1KB) so "继续阅读" works immediately
         if let data = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
@@ -336,10 +346,15 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         await MainActor.run {
             guard let state = decoded else {
                 loadPersistentLibrary()
+                isStateLoaded = true
+                startAutoSaveTimer()
                 return
             }
             books = state.books
             chapters = state.chapters
+            if let bid = UUID(uuidString: state.currentBookID) {
+                bookChaptersCache[bid] = state.chapters
+            }
             bookIDForChapters = UUID(uuidString: state.currentBookID)
             selectedChapterID = state.selectedChapterID
             bookProgressByChapter = state.bookProgressByChapter
@@ -403,6 +418,8 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
                 }
             }
 
+            isStateLoaded = true
+            startAutoSaveTimer()
         }
     }
 
@@ -413,6 +430,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
     func restoreState(_ state: ReaderState) {
         saveAllTextsToFiles()
         chapters = state.chapters
+        if let bid = UUID(uuidString: state.currentBookID) {
+            setCachedChapters(state.chapters, for: bid)
+        }
         characters = state.characters
         scriptSegments = state.scriptSegments
         selectedChapterID = state.selectedChapterID
@@ -505,6 +525,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
     }
 
     func saveState() {
+        guard isStateLoaded else { return }
         saveAllTextsToFiles()
         let state = ReaderState(
             bookText: "",
@@ -758,6 +779,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         }.value
         await MainActor.run {
             chapters = extracted
+            if let currentBookID = UUID(uuidString: currentBookID) {
+                setCachedChapters(extracted, for: currentBookID)
+            }
             bookIDForChapters = UUID(uuidString: currentBookID)
             selectedChapterID = chapters.first?.id
             statusMessage = "已导入：\(title)，共 \(chapters.count) 章。"
@@ -913,6 +937,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             let bookID = UUID()
             currentBookID = bookID.uuidString
             chapters = extracted
+            setCachedChapters(extracted, for: bookID)
             bookIDForChapters = bookID
             selectedChapterID = chapters.first?.id
             characters = []
@@ -954,6 +979,9 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         }.value
         await MainActor.run {
             chapters = extracted
+            if let currentBookID = UUID(uuidString: currentBookID) {
+                setCachedChapters(extracted, for: currentBookID)
+            }
             bookIDForChapters = UUID(uuidString: currentBookID)
             selectedChapterID = chapters.first?.id
             statusMessage = "已扫描 \(chapters.count) 个章节。"
@@ -1036,8 +1064,7 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         if wholeBook {
             targetText = bookText
         } else if let bookID = UUID(uuidString: currentBookID),
-                  let cached = bookChaptersCache[bookID],
-                  let chapter = cached.first(where: { $0.id == selectedChapterID }) {
+                  let chapter = (bookChaptersCache[bookID] ?? chapters).first(where: { $0.id == selectedChapterID }) {
             targetText = chapter.text
         } else {
             targetText = bookText
@@ -1142,9 +1169,12 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
             return
         }
         guard let chapterID = selectedChapterID,
-              let bookID = UUID(uuidString: currentBookID),
-              let chapters = bookChaptersCache[bookID],
-              let chapter = chapters.first(where: { $0.id == chapterID }) else {
+              let bookID = UUID(uuidString: currentBookID) else {
+            await MainActor.run { statusMessage = "未找到当前章节。" }
+            return
+        }
+        let chapterList = bookChaptersCache[bookID] ?? chapters
+        guard let chapter = chapterList.first(where: { $0.id == chapterID }) else {
             await MainActor.run { statusMessage = "未找到当前章节。" }
             return
         }
@@ -1167,12 +1197,12 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         if characters.isEmpty || lastScannedBookText != bookText {
             await scanCharacters()
         }
-        let chapters = UUID(uuidString: currentBookID).flatMap { bookChaptersCache[$0] } ?? []
-        guard !chapters.isEmpty else {
+        let chapterList = UUID(uuidString: currentBookID).flatMap { bookChaptersCache[$0] } ?? chapters
+        guard !chapterList.isEmpty else {
             await MainActor.run { statusMessage = "未找到章节。" }
             return
         }
-        for chapter in chapters {
+        for chapter in chapterList {
             if Task.isCancelled { break }
             do {
                 try await playChapterStreaming(chapter: chapter)
@@ -1839,8 +1869,13 @@ final class ReaderStore: NSObject, ObservableObject, @unchecked Sendable {
         if characters.isEmpty || lastScannedBookText != bookText {
             await scanCharacters()
         }
-        let chapters = UUID(uuidString: currentBookID).flatMap { bookChaptersCache[$0] } ?? []
-        guard let chapter = chapters.first(where: { $0.id == selectedChapterID }) else {
+        guard let bookID = UUID(uuidString: currentBookID),
+              let chapterID = selectedChapterID else {
+            await MainActor.run { statusMessage = "未找到当前章节。" }
+            return
+        }
+        let chapterList = bookChaptersCache[bookID] ?? chapters
+        guard let chapter = chapterList.first(where: { $0.id == chapterID }) else {
             await MainActor.run { statusMessage = "未找到当前章节。" }
             return
         }
