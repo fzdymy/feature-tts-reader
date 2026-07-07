@@ -337,12 +337,14 @@ actor CosyVoiceService {
             try checkAvailableMemory()
             // Validate model files can be read before calling the library
             try validateModelFiles(at: snapDir)
+            os_log("[TTS] Loading model — cacheDir: %@, snapDir: %@, modelId: %@, defaultVariant: %@",
+                   type: .debug, rootCache.path, snapDir.path, Self.defaultVariant, Self.defaultVariant)
             ReaderStore.writeCrashMarker("model_warm_start")
             downloadPhase = .warming
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
                 modelId: Self.defaultVariant,
                 cacheDir: rootCache,
-                offlineMode: true
+                offlineMode: false
             )
             ReaderStore.writeCrashMarker("model_load_done")
             ttsModel?.warmUp()
@@ -799,7 +801,7 @@ private func setupHuggingFaceCache(from staging: URL) throws {
             ttsModel = try await CosyVoiceTTSModel.fromPretrained(
                 modelId: Self.defaultVariant,
                 cacheDir: rootCache,
-                offlineMode: true
+                offlineMode: false
             )
             ReaderStore.writeCrashMarker("importModel_load_done")
             ttsModel?.warmUp()
