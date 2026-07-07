@@ -550,7 +550,6 @@ private static func _hfHubCacheCandidates() -> [URL] {
     }
     return urls
 }
-}
 
     /// Check whether all expected model files exist and have reasonable sizes.
     /// Also searches one level of subdirectories (zip may unpack to a top-level dir).
