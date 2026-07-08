@@ -23,8 +23,11 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private var activeNode: AVAudioPlayerNode { isUsingNodeA ? playerNodeA : playerNodeB }
     private var upcomingNode: AVAudioPlayerNode { isUsingNodeA ? playerNodeB : playerNodeA }
 
-    private var queue: [TTSQueueItem] = []
-    private let queueLock = OSAllocatedUnfairLock()
+    private let queueLock = OSAllocatedUnfairLock(initialState: QueueState())
+
+    private struct QueueState {
+        var items: [TTSQueueItem] = []
+    }
 
     // Continuation for playFilesAndWait compatibility
     private var playbackContinuation: CheckedContinuation<Void, Never>?
@@ -132,22 +135,22 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     // MARK: - Queue management (F3: multi-item continuous queue)
     func playQueue(_ items: [TTSQueueItem], startingAt index: Int = 0) {
         flushPlayback()
-        queueLock.withLock { queue = items }
+        queueLock.withLock { $0.items = items }
         let startIdx = min(index, max(0, items.count - 1))
         queueCount = items.count
         if startIdx > 0 {
-            queueLock.withLock { queue.removeFirst(startIdx) }
+            queueLock.withLock { $0.items.removeFirst(startIdx) }
         }
         playNextSeamlessly(isFirst: true)
     }
 
     func appendToQueue(_ items: [TTSQueueItem]) {
         let wasEmpty: Bool = queueLock.withLock {
-            let empty = queue.isEmpty
-            queue.append(contentsOf: items)
+            let empty = $0.items.isEmpty
+            $0.items.append(contentsOf: items)
             return empty
         }
-        queueCount = queueLock.withLock { queue.count }
+        queueCount = queueLock.withLock { $0.items.count }
         if wasEmpty && queueCount > 0 {
             playNextSeamlessly(isFirst: true)
         }
@@ -174,10 +177,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     // MARK: - Playback core (dual-node crossfade)
     private func playNextSeamlessly(isFirst: Bool = false) {
-        let itemOpt: TTSQueueItem? = queueLock.withLock { () -> TTSQueueItem? in
-            guard !queue.isEmpty else { return nil }
-            return queue.removeFirst()
-        }
+        let itemOpt: TTSQueueItem? = queueLock.withLock { $0.items.isEmpty ? nil : $0.items.removeFirst() }
         guard let item = itemOpt else {
             finishPlayback()
             return
@@ -185,7 +185,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
         currentAnchor = item.anchor
         isPlaying = true
-        queueCount = queueLock.withLock { queue.count }
+        queueCount = queueLock.withLock { $0.items.count }
 
         // Update NowPlaying metadata
         updateNowPlayingInfo(for: item)
@@ -267,8 +267,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         isUsingNodeA = true
 
         let staleURLs: [URL] = queueLock.withLock {
-            let urls = queue.map(\.audioURL)
-            queue.removeAll()
+            let urls = $0.items.map(\.audioURL)
+            $0.items.removeAll()
             return urls
         }
         queueCount = 0

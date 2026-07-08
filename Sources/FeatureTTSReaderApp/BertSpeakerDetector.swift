@@ -4,7 +4,7 @@ import Accelerate
 
 // MARK: - BERT-based speaker detector
 
-final class BertSpeakerDetector {
+final class BertSpeakerDetector: @unchecked Sendable {
     struct Config {
         static let maxLength = 128
         static let embeddingDim = 768

@@ -1229,7 +1229,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     private static let dialogueOpenQuotes: Set<Character> = ["\u{201C}", "\u{300C}", "\u{300E}", "\u{2018}"]
 
-    private static func hasDialogueQuote(_ s: String) -> Bool {
+    private nonisolated static func hasDialogueQuote(_ s: String) -> Bool {
         dialogueOpenQuotes.contains(where: s.contains)
     }
 
@@ -1693,7 +1693,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let emotionTag: String?  // CosyVoice emotion tag, nil for narration
     }
 
-    private static let quotePairs: [(open: Character, close: Character)] = [
+    nonisolated private static let quotePairs: [(open: Character, close: Character)] = [
         ("\u{300C}", "\u{300D}"),
         ("\u{201C}", "\u{201D}"),
         ("\u{2018}", "\u{2019}"),
@@ -1840,7 +1840,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     /// Find the first occurrence of a character starting from a position.
-    private static func findChar(_ chars: [Character], _ ch: Character, from: Int) -> Int? {
+    nonisolated private static func findChar(_ chars: [Character], _ ch: Character, from: Int) -> Int? {
         for i in from..<chars.count {
             if chars[i] == ch { return i }
         }
@@ -1848,7 +1848,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     /// Find the matching closing quote, handling nesting of the same quote type.
-    private static func findQuoteClose(_ chars: [Character], openChar: Character, closeChar: Character, from: Int) -> Int? {
+    nonisolated private static func findQuoteClose(_ chars: [Character], openChar: Character, closeChar: Character, from: Int) -> Int? {
         // Simple approach: find the next closing char. In practice, Chinese web novels
         // rarely nest quotes of the same type, so linear search is sufficient.
         for i in from..<chars.count {
@@ -1859,7 +1859,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     /// Detect speaker from context BEFORE a quote (e.g. "陈煜笑道：「...").
     /// 按照文章顺序：优先从最近的上文中匹配角色名。
-    private static func detectSpeakerInContext(_ context: String, characters: [CharacterProfile]) -> String? {
+    nonisolated private static func detectSpeakerInContext(_ context: String, characters: [CharacterProfile]) -> String? {
         let speechVerbs = "说|道|笑道|说道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
         // 1. Name + speech verb (+ optional colon) at end — highest confidence
         if let groups = context.firstMatch(regex: "([\\p{Han}]{2,4})(?:\(speechVerbs))[：:\\s]*$"), groups.count > 1 {
@@ -1898,7 +1898,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     /// Detect speaker from context AFTER a quote (e.g. "「...」陈煜笑道").
-    private static func detectSpeakerAfterQuote(_ context: String, characters: [CharacterProfile]) -> String? {
+    nonisolated private static func detectSpeakerAfterQuote(_ context: String, characters: [CharacterProfile]) -> String? {
         let speechVerbs = "说|道|笑道|说道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|正色说|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥|呵道"
         // 1. Speech verb + name at start
         if let groups = context.firstMatch(regex: "^(?:\(speechVerbs))([\\p{Han}]{2,4})"), groups.count > 1 {

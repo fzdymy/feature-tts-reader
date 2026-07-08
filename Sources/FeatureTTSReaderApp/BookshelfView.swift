@@ -247,22 +247,17 @@ struct BookshelfView: View {
 }
 
 func loadChapterCount(for book: Book, store: ReaderStore, chapterCount: Binding<Int>) async {
-    if let cached = store.bookChaptersCache[book.id] {
-        chapterCount.wrappedValue = cached.count
-        return
-    }
-    let text: String
-    if !book.text.isEmpty {
-        text = book.text
-    } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
-        text = store.bookText
-    } else {
-        let bookID = book.id
-        text = await Task.detached(priority: .background) {
-            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
-            return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        }.value
+    var text: String = ""
+    await MainActor.run {
+        if let cached = store.bookChaptersCache[book.id] {
+            chapterCount.wrappedValue = cached.count
+            return
+        }
+        if !book.text.isEmpty {
+            text = book.text
+        } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
+            text = store.bookText
+        }
     }
     guard !text.isEmpty else { return }
     let parsed = await Task.detached(priority: .background) { [text] in

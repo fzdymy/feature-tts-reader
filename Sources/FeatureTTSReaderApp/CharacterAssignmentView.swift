@@ -255,7 +255,7 @@ struct CharacterAssignmentPanel: View {
 
             // Phase 1: extractCandidates (paragraph guard → regex → looksLikeRealName → NLTagger + surname)
             // Runs inline tagger per dialogue paragraph — no separate kill-step for NL validation.
-            let allNames = await Task.detached(priority: .userInitiated) {
+            var allNames = await Task.detached(priority: .userInitiated) {
                 analyzer.extractCandidates(from: text)
             }.value
             scanProgress = 0.35
