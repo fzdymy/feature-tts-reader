@@ -12,20 +12,9 @@ struct FeatureTTSReaderApp: App {
     var body: some Scene {
         ReaderStore.writeCrashMarker("app_body_start")
         return WindowGroup {
-            TabView {
-                BookshelfView()
-                    .environmentObject(store)
-                    .onAppear { ReaderStore.writeCrashMarker("bookshelf_onAppear") }
-                    .tabItem { Label("书架", systemImage: "books.vertical") }
-
-                TTSView()
-                    .environmentObject(store)
-                    .tabItem { Label("TTS", systemImage: "waveform") }
-
-                SettingsView()
-                    .environmentObject(store)
-                    .tabItem { Label("设置", systemImage: "gearshape") }
-            }
+            BookshelfView()
+                .environmentObject(store)
+                .onAppear { ReaderStore.writeCrashMarker("bookshelf_onAppear") }
         }
     }
 }
