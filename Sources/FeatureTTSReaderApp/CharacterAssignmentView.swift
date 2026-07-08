@@ -262,8 +262,9 @@ struct CharacterAssignmentPanel: View {
 
             // Phase 2: AC automaton frequency (build once, scan full text, filter ≤1)
             scanPhase = "正在统计分析..."
+            let capturedNames = allNames
             let freqResult = await Task.detached(priority: .userInitiated) {
-                analyzer.countCharacterFrequencies(text: text, candidates: allNames)
+                analyzer.countCharacterFrequencies(text: text, candidates: capturedNames)
             }.value
             let minFreq: Int
             if allNames.isEmpty { minFreq = 0 }
