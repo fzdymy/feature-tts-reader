@@ -175,11 +175,7 @@ final class ReaderStore: NSObject, ObservableObject {
         Self.writeCrashMarker("init_userdefaults_done")
 
         // Full state loaded async to avoid blocking UI with ~40MB JSON decode
-        Task {
-            Self.writeCrashMarker("task_loadState_start")
-            await loadStateAsync()
-            Self.writeCrashMarker("task_loadState_done")
-        }
+        // loadStateAsync moved to BookshelfView.onAppear to avoid races during init
 
         // CosyVoice model will be downloaded on first use (not at launch)
         // to avoid crashes from CosyVoiceTTSModel.fromPretrained() internal fatalError.
@@ -268,7 +264,7 @@ final class ReaderStore: NSObject, ObservableObject {
         restartAutoSaveTimer()
     }
 
-    private func loadStateAsync() async {
+    func loadStateAsync() async {
         Self.writeCrashMarker("load_state_url")
         let url = stateFileURL()
         Self.writeCrashMarker("load_state_detached1")
