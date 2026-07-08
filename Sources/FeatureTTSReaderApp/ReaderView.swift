@@ -1242,10 +1242,6 @@ struct ReaderView: View {
     private func isParagraphReading(pi: Int, isCurrentChapter: Bool) -> Bool {
         guard let paraIdx = store.currentParagraphIndex, isCurrentChapter else { return false }
         return paraIdx == pi
-        } else if isCurrentChapter {
-            return store.currentParagraphIndex.map { $0 == pi } ?? false
-        }
-        return false
     }
 }
 

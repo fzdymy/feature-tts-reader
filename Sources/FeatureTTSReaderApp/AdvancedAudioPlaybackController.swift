@@ -48,6 +48,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     /// Compatibility stub — new controller starts fresh.
     func restorePlaybackState() {}
+
+    private func setupAudioEngine() {
         let format = audioEngine.outputNode.outputFormat(forBus: 0)
 
         audioEngine.attach(playerNodeA)
