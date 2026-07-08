@@ -1234,10 +1234,10 @@ final class ReaderStore: NSObject, ObservableObject {
             if let embData = char.voiceSampleEmbedding,
                let floats = try? JSONDecoder().decode([Float].self, from: embData),
                floats.count >= 192 {
-                speakerEmbeddings[char.name] = floats
+                _speakerEmbeddings[char.name] = floats
                 await registry.register(canonicalName: char.name, embedding: floats, sampleRate: 16000, source: .preset)
             } else if let url = char.voiceSampleURL {
-                speakerSamples[char.name] = url
+                _speakerSamples[char.name] = url
             }
             if !char.aliases.isEmpty {
                 await registry.registerAliases(char.aliases, for: char.name)
