@@ -83,15 +83,18 @@ final class AdvancedAudioPlaybackController: ObservableObject {
 
         engine.prepare()
 
+        setupRemoteCommands()
+        installRMSTap()
+    }
+
+    func ensureEngineStarted() {
+        guard enginePrepared, let engine = audioEngine, !engine.isRunning else { return }
         do {
             try engine.start()
         } catch {
-            Logger.log(error: error)
+            Logger.log(error: error, message: "engine.start")
         }
-
-        // remote commands only after engine is fully started
-        setupRemoteCommands()
-        installRMSTap()
+    }
     }
 
     nonisolated static func writeAudioMarker(_ marker: String) {

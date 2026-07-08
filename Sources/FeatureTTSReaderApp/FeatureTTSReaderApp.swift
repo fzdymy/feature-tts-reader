@@ -16,11 +16,14 @@ struct FeatureTTSReaderApp: App {
                 .environmentObject(store)
                 .onAppear {
                     ReaderStore.writeCrashMarker("bookshelf_onAppear")
+                    // Create engine nodes & connect (no start → no audio thread)
+                    store.audioController.ensureEngineSetup()
+                    ReaderStore.writeCrashMarker("bookshelf_engine_setup")
+                    // Start engine in background after view is settled
                     Task.detached(priority: .background) {
-                        ReaderStore.writeCrashMarker("bookshelf_task_setup")
                         await MainActor.run {
-                            store.audioController.ensureEngineSetup()
-                            ReaderStore.writeCrashMarker("bookshelf_engine_done")
+                            store.audioController.ensureEngineStarted()
+                            ReaderStore.writeCrashMarker("bookshelf_engine_started")
                         }
                         await store.loadStateAsync()
                         ReaderStore.writeCrashMarker("bookshelf_task_done")
