@@ -9,6 +9,7 @@ concurrency:
 
 jobs:
   upload-models:
+    if: false
     runs-on: macos-15
     timeout-minutes: 300
     permissions:

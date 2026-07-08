@@ -4,6 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       variant:
+        description: Model variant (DISABLED — use release-all-cosyvoice-zip.yml instead)
+        required: true
+        default: aufklarer/CosyVoice3-0.5B-MLX-4bit
+        type: choice
+    inputs:
+      variant:
         description: Model variant
         required: true
         default: aufklarer/CosyVoice3-0.5B-MLX-4bit
@@ -20,6 +26,7 @@ concurrency:
 
 jobs:
   upload-model:
+    if: false
     runs-on: macos-15
     timeout-minutes: 180
     permissions:

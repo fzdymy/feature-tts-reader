@@ -332,6 +332,8 @@ actor CosyVoiceService {
         do {
             let rootCache = try modelCacheDirectory()
             let stagingDir = try stagingDirectory()
+            // Clean any stale staging files from a previous crashed extraction
+            try? FileManager.default.removeItem(at: stagingDir)
             try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
 
             if !isModelCached(at: try hfSnapshotsDirectory()) {
@@ -387,7 +389,7 @@ actor CosyVoiceService {
             } catch {
                 // Log the actual snapshots directory contents for debugging
                 if let files = try? FileManager.default.contentsOfDirectory(at: snapDir, includingPropertiesForKeys: [.fileSizeKey]) {
-                    let listing = files.map { "\($0.lastPathComponent)(\(($0.fileSize ?? 0))b)" }.joined(separator: ", ")
+                    let listing = files.map { "\($0.lastPathComponent)(\((try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { "\($0)b" } ?? "?"))" }.joined(separator: ", ")
                     os_log("[TTS] fromPretrained failed. snapDir contents: %@", type: .error, listing)
                 }
                 // Also check HF Hub default cache paths
@@ -406,6 +408,13 @@ actor CosyVoiceService {
             downloadPhase = .ready
             ReaderStore.writeCrashMarker("model_warm_done")
         } catch {
+            // Clean corrupted cache so retry triggers fresh download
+            if let snapDir = try? hfSnapshotsDirectory() {
+                try? FileManager.default.removeItem(at: snapDir)
+            }
+            if let staging = try? stagingDirectory() {
+                try? FileManager.default.removeItem(at: staging)
+            }
             downloadPhase = .failed
             if error is CancellationError || (error as NSError).code == URLError.cancelled.rawValue {
                 downloadError = "用户取消了下载"
@@ -445,9 +454,11 @@ private func hfSnapshotsDirectory() throws -> URL {
     try hfModelCacheDirectory().appendingPathComponent("snapshots/downloaded")
 }
 
-/// Temp staging directory for raw extraction.
+/// Temp staging directory for raw extraction (outside model cache, no "/" in path).
 private func stagingDirectory() throws -> URL {
-    try modelCacheDirectory().appendingPathComponent(".staging-\(Self.activeVariant)")
+    let dirName = "cosyvoice-staging-\(Self.activeVariant)".replacingOccurrences(of: "/", with: "--")
+    let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+    return caches.appendingPathComponent(dirName, isDirectory: true)
 }
 
 /// If the model is bundled inside the .app bundle (at cosyvoice-model/),
@@ -517,9 +528,9 @@ private func copyToHuggingFaceHubCache(from snapDir: URL) throws {
     let modelDirName = "models--\(Self.activeVariant)".replacingOccurrences(of: "/", with: "--")
     for base in Self._hfHubCacheCandidates() {
         let dest = base.appendingPathComponent(modelDirName)
-        guard !FileManager.default.fileExists(atPath: dest.path) else {
-            os_log("[TTS] HF Hub cache already exists at %@, skip", type: .debug, dest.path)
-            continue
+        // Always overwrite to prevent stale copies surviving resetDownload
+        if FileManager.default.fileExists(atPath: dest.path) {
+            try? FileManager.default.removeItem(at: dest)
         }
         let destSnap = dest.appendingPathComponent("snapshots/downloaded")
         let destRefs = dest.appendingPathComponent("refs")
@@ -711,54 +722,6 @@ private static func _hfHubCacheCandidates() -> [URL] {
         }
     }
 
-    private func extract(tarball: URL, to dstDir: URL) throws {
-        let gunzipped = try tarball.gunzippedFallback()
-        try extractTar(data: gunzipped, to: dstDir)
-    }
-
-    /// Minimal tar extractor (header + content split).
-    private func extractTar(data: Data, to dstDir: URL) throws {
-        var offset = 0
-        let count = data.count
-        while offset + 512 <= count {
-            let block = data[offset..<offset+512]
-            offset += 512
-            if block.allSatisfy({ $0 == 0 }) { break }
-
-            let name = String(data: block[0..<100], encoding: .utf8)?
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\0 ")) ?? ""
-            let sizeStr = String(data: block[124..<136], encoding: .utf8)?
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\0 ")) ?? ""
-            let typeFlag = block[156]
-
-            guard !name.isEmpty, let fileSize = Int(sizeStr, radix: 8) else {
-                continue
-            }
-
-            let paddedSize = (511 + fileSize) / 512 * 512
-            guard offset + paddedSize <= count else { break }
-
-            let fileData = data[offset..<offset + paddedSize]
-            offset += paddedSize
-
-            let destPath = name.hasPrefix("./") ? String(name.dropFirst(2)) : name
-            guard !destPath.isEmpty else { continue }
-
-            let dest = dstDir.appendingPathComponent(destPath)
-            let parent = dest.deletingLastPathComponent()
-
-            switch typeFlag {
-            case 53: // directory
-                try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
-            case 48, 0: // regular file
-                try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-                try fileData.prefix(fileSize).write(to: dest, options: .atomic)
-            default:
-                break
-            }
-        }
-    }
-
     /// Extract a .zip archive using zlib raw inflate.
     /// Uses memory-mapped file (`mappedIfSafe`) to avoid loading the entire ~1.2 GB zip into RAM.
     private func extractZip(archive: URL, to dstDir: URL) throws {
@@ -862,9 +825,14 @@ private static func _hfHubCacheCandidates() -> [URL] {
         downloadProgress = 0
         downloadSpeed = 0
         speedSamples.removeAll()
-        // Also wipe cached model files
-        if let dir = try? hfModelCacheDirectory(), FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.removeItem(at: dir)
+        // Wipe all cache directories for the current variant (custom + standard HF)
+        let variantDirName = "models--\(Self.activeVariant)".replacingOccurrences(of: "/", with: "--")
+        let dirsToClean = [try? hfModelCacheDirectory()] + Self._hfHubCacheCandidates().map {
+            $0.appendingPathComponent(variantDirName)
+        }
+        for dir in dirsToClean {
+            guard let d = dir, FileManager.default.fileExists(atPath: d.path) else { continue }
+            try? FileManager.default.removeItem(at: d)
         }
         // Also clean up any staging dir
         if let staging = try? stagingDirectory(), FileManager.default.fileExists(atPath: staging.path) {
@@ -879,6 +847,7 @@ private static func _hfHubCacheCandidates() -> [URL] {
         ReaderStore.writeCrashMarker("importModel_start")
         let rootCache = try modelCacheDirectory()
         let stagingDir = try stagingDirectory()
+        try? FileManager.default.removeItem(at: stagingDir)
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
 
         var sourceDir = sourceURL
@@ -1192,63 +1161,6 @@ private extension UInt32 {
 private extension Int16 {
     var littleEndianBytes: [UInt8] {
         [UInt8(self & 0xFF), UInt8((self >> 8) & 0xFF)]
-    }
-}
-
-// MARK: - Gzip fallback (for iOS < 18 or when built-in gunzipped() unavailable)
-
-private extension URL {
-    var fileSize: Int? {
-        (try? resourceValues(forKeys: [.fileSizeKey]).fileSize)
-    }
-
-    /// Decompress a gzip file using zlib.
-    func gunzippedFallback() throws -> Data {
-        let compressed = try Data(contentsOf: self)
-        // Skip 10-byte gzip header and check magic bytes
-        guard compressed.count > 18, compressed[0] == 0x1F, compressed[1] == 0x8B else {
-            throw TTSError.extractionFailed("not a gzip file")
-        }
-        // Read original file size from last 4 bytes (little-endian)
-        let originalSize: Int = Int(compressed.suffix(4).withUnsafeBytes { $0.load(as: UInt32.self) })
-        guard originalSize > 0, originalSize < 2_000_000_000 else {
-            throw TTSError.extractionFailed("invalid original size in gzip trailer")
-        }
-
-        // Skip gzip header (10 bytes) + optional extra fields
-        var offset = 10
-        let flags = compressed[3]
-        if flags & 0x04 != 0 { // FEXTRA
-            let xlen = Int(compressed[offset]) | (Int(compressed[offset+1]) << 8)
-            offset += 2 + xlen
-        }
-        if flags & 0x08 != 0 { // FNAME
-            while offset < compressed.count, compressed[offset] != 0 { offset += 1 }
-            offset += 1
-        }
-        if flags & 0x10 != 0 { // FCOMMENT
-            while offset < compressed.count, compressed[offset] != 0 { offset += 1 }
-            offset += 1
-        }
-        if flags & 0x02 != 0 { // FHCRC
-            offset += 2
-        }
-
-        let deflated = compressed[offset..<compressed.count-8]
-        var result = Data(count: originalSize)
-        var destLen = uLongf(originalSize)
-        let ret = result.withUnsafeMutableBytes { destPtr in
-            deflated.withUnsafeBytes { srcPtr in
-                uncompress(destPtr.bindMemory(to: UInt8.self).baseAddress,
-                           &destLen,
-                           srcPtr.bindMemory(to: UInt8.self).baseAddress,
-                           uLong(deflated.count))
-            }
-        }
-        guard ret == Z_OK else {
-            throw TTSError.extractionFailed("zlib uncompress error \(ret)")
-        }
-        return result
     }
 }
 

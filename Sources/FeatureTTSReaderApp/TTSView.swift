@@ -230,7 +230,7 @@ struct TTSView: View {
                             let prefix = customProxyURL.hasSuffix("/") ? customProxyURL : "\(customProxyURL)/"
                             raw = "\(prefix)cosyvoice-\(tag).zip"
                         } else {
-                            raw = "https://github.com/fzdymy/feature-tts-reader/releases/download/\(tag)/cosyvoice-\(tag).tar.gz"
+                            raw = "https://github.com/fzdymy/feature-tts-reader/releases/download/\(tag)/cosyvoice-\(tag).zip"
                         }
                         UIPasteboard.general.string = raw
                         showCopied = true
@@ -269,9 +269,7 @@ struct TTSView: View {
         .fileImporter(
             isPresented: $showManualImport,
             allowedContentTypes: {
-                let gz = UTType(filenameExtension: "gz") ?? .gzip
-                let tgz = UTType(filenameExtension: "tar.gz") ?? gz
-                return [.folder, gz, tgz]
+                [.folder, .zip]
             }()
         ) { result in
             handleModelImport(result)
