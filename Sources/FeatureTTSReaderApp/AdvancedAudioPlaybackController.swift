@@ -68,7 +68,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         audioEngine.attach(noiseNode)
         audioEngine.connect(noiseNode, to: audioEngine.mainMixerNode, format: format)
         noiseNode.volume = 0
-        noiseNode.play()
         comfortNoiseNode = noiseNode
 
         audioEngine.prepare()
