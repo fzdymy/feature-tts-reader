@@ -31,7 +31,6 @@ struct BookshelfView: View {
     }
 
     var body: some View {
-        ReaderStore.writeCrashMarker("bookshelf_body_start")
         if !store.isStateLoaded {
             ProgressView("正在同步书库...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
