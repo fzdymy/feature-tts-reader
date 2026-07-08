@@ -95,7 +95,6 @@ final class AdvancedAudioPlaybackController: ObservableObject {
             Logger.log(error: error, message: "engine.start")
         }
     }
-    }
 
     nonisolated static func writeAudioMarker(_ marker: String) {
         UserDefaults.standard.set(marker, forKey: "last_audio_marker")
