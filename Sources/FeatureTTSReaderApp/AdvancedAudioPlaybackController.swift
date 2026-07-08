@@ -18,7 +18,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private var rmsTimer: Timer?
     private var rmsInstallRequested = false
 
-    init() {}
+    override init() {}
 
     func restorePlaybackState() {}
 
