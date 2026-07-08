@@ -84,7 +84,7 @@ final class AdvancedAudioPlaybackController: ObservableObject {
         engine.prepare()
 
         setupRemoteCommands()
-        installRMSTap()
+        // RMS tap installed lazily on first playback, not at setup
     }
 
     func ensureEngineStarted() {
@@ -177,6 +177,7 @@ final class AdvancedAudioPlaybackController: ObservableObject {
 
     // MARK: - Queue management
     func playQueue(_ items: [TTSQueueItem], startingAt index: Int = 0) {
+        installRMSTap()
         flushPlayback()
         queueLock.withLock { $0.items = items }
         let startIdx = min(index, max(0, items.count - 1))
