@@ -16,6 +16,9 @@ final class DramaDirector {
         let speakerID: UUID?
         let emotionTag: String
         let isNarrator: Bool
+        let speed: Float
+        let pitch: Float
+        let paragraphIndex: Int
     }
 
     struct CosyVoiceConfig: Sendable {

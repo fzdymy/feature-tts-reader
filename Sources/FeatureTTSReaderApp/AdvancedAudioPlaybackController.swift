@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import MediaPlayer
 import Combine
+import os
 
 @MainActor
 final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
@@ -173,7 +174,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     // MARK: - Playback core (dual-node crossfade)
     private func playNextSeamlessly(isFirst: Bool = false) {
-        let itemOpt: TTSQueueItem? = queueLock.withLock {
+        let itemOpt: TTSQueueItem? = queueLock.withLock { () -> TTSQueueItem? in
             guard !queue.isEmpty else { return nil }
             return queue.removeFirst()
         }

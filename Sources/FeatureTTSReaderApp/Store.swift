@@ -1250,7 +1250,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     /// Group paragraphs into dialogue blocks: merge consecutive paragraphs containing quotes,
     /// splitting only after 2 consecutive non-quote paragraphs.
-    private static func buildDialogueBlocks(_ paragraphs: [String]) -> [(texts: [String], globalStart: Int)] {
+    nonisolated private static func buildDialogueBlocks(_ paragraphs: [String]) -> [(texts: [String], globalStart: Int)] {
         var blocks: [(texts: [String], globalStart: Int)] = []
         var i = 0
         while i < paragraphs.count {
