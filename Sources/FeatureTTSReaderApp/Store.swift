@@ -1227,7 +1227,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    private static let dialogueOpenQuotes: Set<Character> = ["\u{201C}", "\u{300C}", "\u{300E}", "\u{2018}"]
+    nonisolated private static let dialogueOpenQuotes: Set<Character> = ["\u{201C}", "\u{300C}", "\u{300E}", "\u{2018}"]
 
     private nonisolated static func hasDialogueQuote(_ s: String) -> Bool {
         dialogueOpenQuotes.contains(where: s.contains)
