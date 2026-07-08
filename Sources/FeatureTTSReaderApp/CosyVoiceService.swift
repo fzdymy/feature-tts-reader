@@ -57,11 +57,9 @@ private func releaseTag(forVariant variant: String) -> String {
     return variant
 }
 
-/// e.g. "cosyvoice-CosyVoice3-0.5B-MLX-4bit.tar.gz"
 private func assetName(forVariant variant: String) -> String {
     let tag = releaseTag(forVariant: variant)
-    let ext = DownloadProxy.active == .custom ? "zip" : "tar.gz"
-    return "cosyvoice-\(tag).\(ext)"
+    return "cosyvoice-\(tag).zip"
 }
 
 /// Raw GitHub release download URL (before proxy rewriting).
@@ -649,17 +647,14 @@ private static func _hfHubCacheCandidates() -> [URL] {
     /// Download the archive → extract → clean up.
     private func downloadAndExtract(to dstDir: URL) async throws {
         let urlStr: String
-        let isZip: Bool
         if DownloadProxy.active == .custom {
             let tag = releaseTag(forVariant: Self.activeVariant)
             let prefix = _proxyLock.withLock { _proxyCustomPrefix }
             let base = prefix.hasSuffix("/") ? prefix : "\(prefix)/"
             urlStr = "\(base)cosyvoice-\(tag).zip"
-            isZip = true
         } else {
             let raw = rawReleaseURL(forVariant: Self.activeVariant)
             urlStr = DownloadProxy.active.rewrite(raw)
-            isZip = false
         }
         guard let url = URL(string: urlStr) else { throw TTSError.invalidURL(urlStr) }
 
@@ -668,16 +663,12 @@ private static func _hfHubCacheCandidates() -> [URL] {
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-        let archiveFile = tmpDir.appendingPathComponent("model.\(isZip ? "zip" : "tar.gz")")
+        let archiveFile = tmpDir.appendingPathComponent("model.zip")
 
         reportProgress(0)
         let tempFile = try await downloadStreaming(url: url)
         try FileManager.default.moveItem(at: tempFile, to: archiveFile)
-        if isZip {
-            try extractZip(archive: archiveFile, to: dstDir)
-        } else {
-            try extract(tarball: archiveFile, to: dstDir)
-        }
+        try extractZip(archive: archiveFile, to: dstDir)
         guard isModelCached(at: dstDir) else {
             throw TTSError.extractionFailed("解压后缺少必要文件，请重新下载")
         }
@@ -881,7 +872,7 @@ private static func _hfHubCacheCandidates() -> [URL] {
         }
     }
 
-    /// Import a pre-downloaded model from a local folder or .tar.gz archive selected by the user.
+    /// Import a pre-downloaded model from a local folder selected by the user.
     /// Copies model files into the cache directory and loads the model.
     func importModel(from sourceURL: URL) async throws {
         guard ttsModel == nil else { return }
@@ -892,16 +883,14 @@ private static func _hfHubCacheCandidates() -> [URL] {
 
         var sourceDir = sourceURL
 
-        // If the selected URL is a .tar.gz archive, extract it first
-        if sourceURL.lastPathComponent.hasSuffix(".tar.gz") || sourceURL.pathExtension == "gz" {
+        // If the selected URL is a .zip archive, extract it first
+        if sourceURL.pathExtension == "zip" {
             let tmpDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cosyvoice-import-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tmpDir) }
 
-            let localArchive = tmpDir.appendingPathComponent("model.tar.gz")
-            try FileManager.default.copyItem(at: sourceURL, to: localArchive)
-            try extract(tarball: localArchive, to: tmpDir)
+            try extractZip(archive: sourceURL, to: tmpDir)
             sourceDir = tmpDir
         }
 

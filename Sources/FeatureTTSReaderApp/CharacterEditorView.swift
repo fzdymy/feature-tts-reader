@@ -46,32 +46,22 @@ struct CharacterEditorView: View {
                     }
                     TextField("语气", text: $profile.tone)
                 }
-                Section(header: Text("音色与参数")) {
-                    Picker("音色", selection: $profile.voice) {
-                        ForEach(voices) { voice in
-                            Text(voice.name).tag(voice.id)
-                        }
-                    }
-                    Stepper("语速：\(profile.rate)", value: $profile.rate, in: -100...100, step: 5)
-                    Stepper("音调：\(profile.pitch)", value: $profile.pitch, in: -100...100, step: 5)
-                    Picker("风格", selection: $profile.style) {
-                        ForEach(["neutral", "cheerful", "sad", "angry"], id: \.self) { style in
-                            Text(style).tag(style)
+                Section(header: Text("音色与声纹")) {
+                    HStack {
+                        Text("声纹状态")
+                        Spacer()
+                        if profile.hasVoiceSample {
+                            Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                            Text("已克隆").font(.subheadline).foregroundColor(.secondary)
+                        } else {
+                            Image(systemName: "circle.dashed").foregroundColor(.orange)
+                            Text("未克隆").font(.subheadline).foregroundColor(.secondary)
                         }
                     }
                     HStack {
                         Text("语气敏感度")
                         Slider(value: Binding(get: { Double(profile.sensitivity) }, set: { profile.sensitivity = Int($0) }), in: 0...100)
                         Text("\(profile.sensitivity)")
-                    }
-                    Button(action: {
-                        if let rec = store.recommendations.first(where: { $0.profile.id == profile.id }) {
-                            if let v = rec.suggestedVoices.first?.id {
-                                profile.voice = v
-                            }
-                        }
-                    }) {
-                        Text("应用推荐音色")
                     }
                 }
                 Section(header: Text("声纹样本")) {

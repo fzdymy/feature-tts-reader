@@ -208,8 +208,8 @@ struct ReaderView: View {
             .onChange(of: chaptersList.count) { _, _ in
                 chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
             }
-            .onChange(of: store.ttsCurrentIndex) { _, _ in
-                if !scrolledAway, let offset = autoScrollOffset(for: currentSegmentText) {
+            .onChange(of: store.currentParagraphIndex) { _, newIndex in
+                if !scrolledAway, let idx = newIndex, let offset = autoScrollOffset(for: idx) {
                     lastAutoScrollTime = Date()
                     scrollCoordinator.scrollTo(offset: offset, animated: true)
                     segmentStartOffset = offset
@@ -435,9 +435,15 @@ struct ReaderView: View {
 
     // MARK: - Chapter Content
 
-    private var currentSegmentText: String? {
-        guard store.ttsCurrentIndex < store.ttsQueue.count else { return nil }
-        return store.ttsQueue[store.ttsCurrentIndex].segment.text
+    private var currentSegmentParagraphs: [String]? {
+        guard let pi = store.currentParagraphIndex, currentChapterIndex < chaptersList.count else { return nil }
+        let ch = chaptersList[currentChapterIndex]
+        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard pi < paragraphs.count else { return nil }
+        // Return the paragraph(s) at the current anchor for auto-scroll
+        let blockStart = max(0, pi - 1)
+        let blockEnd = min(paragraphs.count, pi + 2)
+        return Array(paragraphs[blockStart..<blockEnd])
     }
 
     @ViewBuilder
@@ -1111,6 +1117,11 @@ struct ReaderView: View {
 
 
     private func segmentTextForCurrentPosition() -> String? {
+        if let pi = store.currentParagraphIndex, currentChapterIndex < chaptersList.count {
+            let ch = chaptersList[currentChapterIndex]
+            let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            if pi < paragraphs.count { return paragraphs[pi] }
+        }
         guard currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
         let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -1138,14 +1149,12 @@ struct ReaderView: View {
         return nil
     }
 
-    /// Compute scroll offset to bring the paragraph containing `segmentText` into view.
-    /// Returns the target content offset, or nil if the segment text cannot be located.
-    private func autoScrollOffset(for segmentText: String?) -> CGFloat? {
-        guard let segText = segmentText, !segText.isEmpty else { return nil }
+    /// Compute scroll offset to bring the paragraph at `paragraphIndex` into view.
+    private func autoScrollOffset(for paragraphIndex: Int) -> CGFloat? {
         guard currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
         let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard let paraIndex = paragraphs.firstIndex(where: { $0.contains(segText) || segText.contains($0) }) else { return nil }
+        guard paragraphIndex >= 0, paragraphIndex < paragraphs.count else { return nil }
         let cached = chapterHeights
         let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
         let titleHeight: CGFloat = 58
@@ -1157,7 +1166,7 @@ struct ReaderView: View {
         let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
         var y: CGFloat = titleHeight
-        for i in 0..<paraIndex {
+        for i in 0..<paragraphIndex {
             let trimmed = paragraphs[i].trimmingCharacters(in: .whitespacesAndNewlines)
             let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
             y += CGFloat(paraLineCount) * lineHeight + 8
@@ -1231,12 +1240,8 @@ struct ReaderView: View {
     }
 
     private func isParagraphReading(pi: Int, isCurrentChapter: Bool) -> Bool {
-        let paraIdx = store.ttsCurrentIndex < store.ttsQueue.count
-            ? (store.ttsQueue[store.ttsCurrentIndex].paragraphIndex
-               ?? store.ttsQueue[store.ttsCurrentIndex].segment.paragraphIndex)
-            : nil
-        if let paraIdx, isCurrentChapter {
-            return paraIdx == pi
+        guard let paraIdx = store.currentParagraphIndex, isCurrentChapter else { return false }
+        return paraIdx == pi
         } else if isCurrentChapter {
             return store.currentParagraphIndex.map { $0 == pi } ?? false
         }

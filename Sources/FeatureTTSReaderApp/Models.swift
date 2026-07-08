@@ -238,9 +238,11 @@ struct TTSQueueItem: Identifiable, Codable, Hashable {
     let segmentIndex: Int
     let totalSegments: Int
     let paragraphIndex: Int?  // index into chapter paragraphs for highlight sync
+    let sentenceIndex: Int?   // index within paragraph sentences
+    let anchor: PlaybackAnchor?  // unified cross-stack sync anchor
 
     enum CodingKeys: String, CodingKey {
-        case segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments, paragraphIndex
+        case segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments, paragraphIndex, sentenceIndex, anchor
     }
 }
 

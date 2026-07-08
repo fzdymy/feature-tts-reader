@@ -199,3 +199,46 @@
 - `ForEach` inside `@ViewBuilder` — 无法推断 `indices` 类型, 需用 `Array(0..<count)`
 - `@ViewBuilder` 中复杂控制流 — 提取到独立 `func` 返回 `some View`
 - `OSAllocatedUnfairLock` — iOS 16+, 本项目可用; `import os` 后使用
+
+---
+
+# 2026-07-08 重构完成审计
+
+## 已实现
+
+### 新文件
+
+| 文件 | 说明 |
+|------|------|
+| `AdvancedAudioPlaybackController.swift` | `@MainActor` AVAudioEngine 双节点 crossfade + RMS tap + comfort noise + 远程控制，取代旧 `AudioPlaybackController` (Services.swift 成为死代码) |
+| `PlaybackAnchor.swift` | 跨栈同步锚点: `bookID/chapterIndex/paragraphIndex/sentenceIndex/speakerID/uiIdentifier` |
+| `VoiceEmbeddingRegistry.swift` | actor 隔离声纹注册表，SHA256 hash 做 cache key，自动绑定 embedding 变化 |
+| `DramaDirector.swift` | `@MainActor` 上下文情绪平滑 (旁白继承 30%、同 speaker 插值、高潮预判)，含 `SentenceUnit` 定义 |
+
+### 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `Models.swift` | `TTSQueueItem` 新增 `sentenceIndex: Int?` + `anchor: PlaybackAnchor?`，CodingKeys 同步更新 |
+| `Store.swift` | `audioController` 类型改为 `AdvancedAudioPlaybackController`；observers 迁移到 `currentAnchor`/`queueCount`；新增 `splitBlockIntoSentences()`；`playChapterStreaming` 重写为句级分组合成 + PlaybackAnchor 生成 + 批量入队，而非逐 block 阻塞 |
+| `ReaderView.swift` | 高亮驱动从 `ttsQueue[ttsCurrentIndex]` 迁移到 `store.currentParagraphIndex`（来自 PlaybackAnchor）；`autoScrollOffset` 接受 paragraphIndex 而非 segmentText |
+| `CharacterEditorView.swift` | 移除 Azure rate/pitch/style 控件(已对 CosyVoice 无效)；替换为声纹克隆状态显示 |
+| `CosyVoiceService.swift` | `assetName` 始终返回 `.zip`；`downloadAndExtract`/`importModel` 移除 tar.gz 分支；简化 |
+| `Logger.swift` | 新增 `log(error:message:)` 重载 |
+| `AGENTS.md` | 本审计追加于此 |
+
+### 架构变更总结
+
+```
+旧: block → 1 WAV → 1 TTSQueueItem → 播放 → 等待完成 → 下一个block
+新: block → sentences → 按说话者分组 → 每组 1 WAV → N TTSQueueItems(含PlaybackAnchor) → 批量入队 → AdvancedAudioPlaybackController 顺序播放
+
+高亮同步: currentAnchor.paragraphIndex → Store.currentParagraphIndex → ReaderView.isParagraphReading
+```
+
+### 遗留
+
+- `Services.swift` 中的旧 `AudioPlaybackController` 未删除(死代码，可后续清理)
+- 逐句跳过(F2)、多 block 预加载队列(F3) 尚未实现，仍为 block 级合成
+- DramaDirector 已创建但尚未集成到合成管线(需后续接入 SentenceUnit)
+- VoiceEmbeddingRegistry 已创建但尚未替换 CosyVoiceService 中的 embedding 缓存逻辑

@@ -31,6 +31,10 @@ struct Logger {
         log("ERROR: \(error.localizedDescription)")
     }
 
+    static func log(error: Error, message: String) {
+        log("ERROR [\(message)]: \(error.localizedDescription)")
+    }
+
     static func log(fileURL: URL) {
         log("FILE: \(fileURL.path)")
     }
