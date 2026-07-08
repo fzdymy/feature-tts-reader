@@ -241,17 +241,19 @@
 
 ### 📋 本周 (按顺序)
 
-4. **F2: 逐句合成** — 拆分 `SpeechBlock` 为单句, 合成单个 WAV 入队列
-5. **F3: 多 block 连续队列** — 支持预加载+缓冲
-6. **F1: fromParagraph 精确跳转** — 使用 `paragraphIndex` 而非文本匹配
-7. **H2: 主线程阻塞** — `playFilesAndWait` 改 detached task
+4. **F2: 逐句合成 + 逐句跳过** — 拆分 `SpeechBlock` 为单句，合成单个 WAV 入队列，支持跳过
+5. **F3: 多 block 连续队列预加载** — 支持批量预加载 + 缓冲连续播放
+6. **集成 DramaDirector** — 将 `SentenceUnit` + `contextualize` 注入合成管线
+7. **集成 VoiceEmbeddingRegistry** — 替换 CosyVoiceService 本地 `[:]` 缓存为 actor 注册表 + SHA256 hash key
+8. **F1: fromParagraph 精确跳转** — 使用 `paragraphIndex` 而非文本匹配
+9. **H2: 主线程阻塞** — `playFilesAndWait` 改 detached task
 
 ### 🔧 后续
 
-8. **G2: CharacterEditorView UI 清理** — 移除 Azure 控件, 显示声纹状态
-9. **G8: 引号类型扩展** — 支持更多 CJK 引号字符
-10. **H1: Concurrency 安全** — `@MainActor` 标注所有 UI 相关类
-11. **G3: 缓存清理机制** — 测试并启用 evictDiskLRU
+10. **G2: CharacterEditorView UI 清理** — 移除 Azure 控件, 显示声纹状态 (已部分完成)
+11. **G8: 引号类型扩展** — 支持更多 CJK 引号字符 (已部分完成, splitBlockIntoSentences 已支持)
+12. **H1: Concurrency 安全** — `@MainActor` 标注所有 UI 相关类
+13. **G3: 缓存清理机制** — 测试并启用 evictDiskLRU
 
 ## iOS 18+ / Xcode 26.3+ 注意事项
 
@@ -297,8 +299,12 @@
 高亮同步: currentAnchor.paragraphIndex → Store.currentParagraphIndex
 ```
 
-### 已知死代码（不影响运行，可后续清理）
+### 待完成
 
-- `Services.swift` 中的旧 `AudioPlaybackController` — 未使用，保留兼容
-- DramaDirector 尚未集成到合成管线 — 保留框架
-- VoiceEmbeddingRegistry 尚未替换 CosyVoiceService 中的 embedding 缓存 — 保留框架
+| 优先级 | 任务 | 说明 |
+|--------|------|------|
+| P1 | **F2: 逐句跳过** | 当前 block 级合成 → 需拆为单句合成，支持逐句跳过 |
+| P1 | **F3: 多 block 预加载队列** | 当前队列仅 1 item → 需批量预加载 + 缓冲连续播放 |
+| P1 | **集成 DramaDirector** | DramaDirector 已创建但尚未接入合成管线，需将 `SentenceUnit` 注入 `playChapterStreaming` |
+| P1 | **集成 VoiceEmbeddingRegistry** | Registry actor 已创建但 CosyVoiceService 仍用本地 `[:]` 缓存，需替换为注册表 + SHA256 hash key |
+| P3 | Services.swift 旧 AudioPlaybackController 清理 | 死代码，保留兼容即可，后续删除 |
