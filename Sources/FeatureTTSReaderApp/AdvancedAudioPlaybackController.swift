@@ -3,7 +3,7 @@ import AVFoundation
 import Combine
 
 @MainActor
-final class AdvancedAudioPlaybackController: ObservableObject {
+final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentAnchor: PlaybackAnchor?
     @Published private(set) var audioVolumeRMS: Float = 0.0
@@ -101,7 +101,21 @@ final class AdvancedAudioPlaybackController: ObservableObject {
     }
 
     func playFilesAndWait(_ urls: [URL]) async {
-        let items = urls.map { TTSQueueItem(audioURL: $0, text: "", characterName: "旁白") }
+        let items = urls.enumerated().map { (i, url) in
+            TTSQueueItem(
+                segment: ScriptSegment(id: UUID(), characterName: "旁白", voice: "", rate: 0, pitch: 0, style: "neutral", text: "", emotionTag: nil),
+                audioURL: url,
+                chapterTitle: "",
+                bookTitle: "",
+                bookID: "",
+                chapterIndex: 0,
+                segmentIndex: i,
+                totalSegments: urls.count,
+                paragraphIndex: nil,
+                sentenceIndex: nil,
+                anchor: nil
+            )
+        }
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             playbackContinuation = cont
             playQueue(items)
