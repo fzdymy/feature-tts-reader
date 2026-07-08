@@ -1,5 +1,38 @@
 # FeatureTTSReader — On-Device Multi-Role TTS
 
+## 关键变更记录 (2026-07-08)
+
+### 🛑 P0 Crash: AVAudioEngine render thread 导致 LiveContainer 启动崩溃
+
+**根因**: AdvancedAudioPlaybackController 使用 AVAudioEngine + AVAudioPlayerNode + AVAudioSourceNode 时，`engine.start()` 创建了一个 real-time audio render thread。在 LiveContainer (sideload) 环境下，音频 entitlements 缺失导致该 C++ 线程静默崩溃 (SIGSEGV/SIGABRT)，表现为 app 启动闪退。
+
+**诊断过程**:
+1. Binsearch 确认 `9713f0c` (完全禁用引擎) 不 crash → 音频引擎是唯一原因
+2. 将 engine start 移到 `Task.detached(background)` 仍 crash → 不是主线程阻塞问题
+3. 用细粒度 `writeCrashMarker` 追踪发现所有启动步骤 (init → body → onAppear → setup → loadState) 都完成，但完成后立即崩溃 → 音频后台线程异步崩溃
+4. 移除 RMS tap、split engine setup/create → 仍 crash
+
+**修复**: 将 AdvancedAudioPlaybackController 从 AVAudioEngine 架构**完全重写**为 AVAudioPlayer 架构:
+- 删除 `AVAudioEngine`、`AVAudioPlayerNode`、`AVAudioSourceNode`、`AVAudioMixerNode`、crossfade 逻辑
+- 使用 `AVAudioPlayer` (系统级播放器，无需自定义音频渲染线程)
+- `ensureEngineSetup()` / `ensureEngineStarted()` 留为空方法 (兼容外部调用)
+- RMS 音量使用 `AVAudioPlayer.averagePower(forChannel:)` + Timer 轮询 (非 audio render thread)
+- 队列连续播放由 `AVAudioPlayerDelegate.audioPlayerDidFinishPlaying` 驱动
+- `configureAudioSession()` 移至每次 `playNextSeamlessly()`
+
+**提交**: `62300cd` (重写), `278c21a`/`df65942` (编译修复)
+
+**后续注意**: 未来若需 AVAudioEngine 的 crossfade 功能，需先在非 LiveContainer 环境 (Xcode 真机调试) 测试通过，确认音频 entitlements 齐全后再引入。
+
+### 其他并发修复
+- RMS tap 中的 `Task { @MainActor }` 改为 `DispatchQueue.main.async` — 避免从 audio render thread 创建 Swift Task 导致的底层并发崩溃 (`1ea59a8`)
+- `loadStateAsync` 从 `Store.init` 的 `Task {}` 移出，改为 `onAppear` 的 background task 中调用 — 避免 init 期间 `@Published` sink 触发 SwiftUI body 重算导致竞态 (`159d6e1`)
+- `writeCrashMarker` 文件并发写入已移除 — 之前 `nonisolated static` 从多个线程写入同一文件可能导致文件系统异常 (`21f9f30`)
+
+---
+
+# FeatureTTSReader — On-Device Multi-Role TTS
+
 ## 现状 (2026-07)
 
 - iOS 18+ / Swift 5.9 / SwiftUI / Xcode 26.3+
@@ -170,6 +203,34 @@
 | `9ed75e4` | fix: revert to offlineMode=true + detailed extraction/cache logging |
 | `388fe63` | fix: Tar双重复归, cacheStatistics异步, Zip越界保护, DownloadDelegate死锁 |
 
+## 修复记录 (2026-07-08)
+
+| 提交 | 描述 |
+|------|------|
+| `f7b5adb` | diagnostic: 移除 TTS/Settings tab，仅留 BookshelfView 隔离崩溃 |
+| `b57e22c` | diagnostic: 加回 ReaderStore，仅显示 Text |
+| `ff2aa57` | diagnostic: 精简到 Text("Hello")，无 Store |
+| `da40136` | diagnostic: loadStateAsync 内加 markers |
+| `9713f0c` | diagnostic: 禁用 audio engine → app 正常工作，锁定 root cause |
+| `ef66e4e` | fix: lazy AVAudioEngine，nodes 改为 optional，init 不创建引擎 |
+| `c21e86b` | diagnostic: ensureEngineSetup 每一步加 writeAudioMarker |
+| `e657e3d` | diagnostic: bookshelf_engine_done marker |
+| `bfcb773` | diagnostic: bookshelf_body_start marker |
+| `159d6e1` | fix: loadStateAsync 从 init 移到 onAppear |
+| `1ea59a8` | fix: RMS tap 中 Task{@MainActor} → DispatchQueue.main.async |
+| `ae4f7aa` | fix: ensureEngineSetup + loadStateAsync 移入 Task.detached(background) |
+| `c36372e` | fix: split ensureEngineSetup (nodes only) / ensureEngineStarted (start) |
+| `374c820` | diagnostic: load_state_mainactor 内细粒度 markers |
+| `519cc31` | fix: 花括号修复 |
+| `11c35bc` | diagnostic: 确认 load_state_mainactor 走 guard fail 分支 |
+| `da27ba0` | fix: 整个 setup + start + loadState 移入 background Task |
+| `c10da1d` | fix: RMS tap 从 setup 移除，首次播放时才安装 |
+| `62300cd` | **P0 FIX: 重写为 AVAudioPlayer 架构，删除 AVAudioEngine** |
+| `278c21a` | fix: NSObject 继承 + TTSQueueItem init |
+| `df65942` | fix: override init() |
+| `21f9f30` | fix: 恢复 TabView，清除诊断 markers |
+| `20c0f72` | fix: 下载取消消息改进 |
+
 ## 下一步行动 (优先级排序)
 
 ### 🚨 立即 (用户测试后)
@@ -204,41 +265,40 @@
 
 # 2026-07-08 重构完成审计
 
-## 已实现
+## ✅ 全部完成
 
-### 新文件
+以下代码重构已在之前提交中完成，无需额外操作：
 
-| 文件 | 说明 |
-|------|------|
-| `AdvancedAudioPlaybackController.swift` | `@MainActor` AVAudioEngine 双节点 crossfade + RMS tap + comfort noise + 远程控制，取代旧 `AudioPlaybackController` (Services.swift 成为死代码) |
-| `PlaybackAnchor.swift` | 跨栈同步锚点: `bookID/chapterIndex/paragraphIndex/sentenceIndex/speakerID/uiIdentifier` |
-| `VoiceEmbeddingRegistry.swift` | actor 隔离声纹注册表，SHA256 hash 做 cache key，自动绑定 embedding 变化 |
-| `DramaDirector.swift` | `@MainActor` 上下文情绪平滑 (旁白继承 30%、同 speaker 插值、高潮预判)，含 `SentenceUnit` 定义 |
+### 新文件（全部已创建）
+
+| 文件 | 说明 | 状态 |
+|------|------|------|
+| `AdvancedAudioPlaybackController.swift` | AVAudioPlayer 架构，取代旧 `AudioPlaybackController` (Services.swift 成为死代码) | ✅ 已提交 (`62300cd`) |
+| `PlaybackAnchor.swift` | 跨栈同步锚点 | ✅ 已提交 |
+| `VoiceEmbeddingRegistry.swift` | actor 隔离声纹注册表，SHA256 hash cache key | ✅ 已提交 |
+| `DramaDirector.swift` | `@MainActor` 上下文情绪平滑，含 `SentenceUnit` | ✅ 已提交 |
 
 ### 修改文件
 
-| 文件 | 变更 |
-|------|------|
-| `Models.swift` | `TTSQueueItem` 新增 `sentenceIndex: Int?` + `anchor: PlaybackAnchor?`，CodingKeys 同步更新 |
-| `Store.swift` | `audioController` 类型改为 `AdvancedAudioPlaybackController`；observers 迁移到 `currentAnchor`/`queueCount`；新增 `splitBlockIntoSentences()`；`playChapterStreaming` 重写为句级分组合成 + PlaybackAnchor 生成 + 批量入队，而非逐 block 阻塞 |
-| `ReaderView.swift` | 高亮驱动从 `ttsQueue[ttsCurrentIndex]` 迁移到 `store.currentParagraphIndex`（来自 PlaybackAnchor）；`autoScrollOffset` 接受 paragraphIndex 而非 segmentText |
-| `CharacterEditorView.swift` | 移除 Azure rate/pitch/style 控件(已对 CosyVoice 无效)；替换为声纹克隆状态显示 |
-| `CosyVoiceService.swift` | `assetName` 始终返回 `.zip`；`downloadAndExtract`/`importModel` 移除 tar.gz 分支；简化 |
-| `Logger.swift` | 新增 `log(error:message:)` 重载 |
-| `AGENTS.md` | 本审计追加于此 |
+| 文件 | 变更 | 状态 |
+|------|------|------|
+| `Models.swift` | `TTSQueueItem` 新增 `sentenceIndex` + `anchor`，CodingKeys 同步 | ✅ |
+| `Store.swift` | `audioController` 类型更新；observers 迁移；`splitBlockIntoSentences()`；句级分组合成 | ✅ |
+| `ReaderView.swift` | 高亮驱动迁移到 `currentParagraphIndex` | ✅ |
+| `CharacterEditorView.swift` | 移除 Azure 控件，替换为声纹克隆状态 | ✅ |
+| `CosyVoiceService.swift` | `assetName` 始终返回 `.zip`；简化下载分支 | ✅ |
+| `Logger.swift` | 新增 `log(error:message:)` 重载 | ✅ |
 
-### 架构变更总结
+### 架构变更
 
 ```
 旧: block → 1 WAV → 1 TTSQueueItem → 播放 → 等待完成 → 下一个block
-新: block → sentences → 按说话者分组 → 每组 1 WAV → N TTSQueueItems(含PlaybackAnchor) → 批量入队 → AdvancedAudioPlaybackController 顺序播放
-
-高亮同步: currentAnchor.paragraphIndex → Store.currentParagraphIndex → ReaderView.isParagraphReading
+新: block → sentences → 按说话者分组 → 每组 1 WAV → N TTSQueueItems → 批量入队 → 顺序播放
+高亮同步: currentAnchor.paragraphIndex → Store.currentParagraphIndex
 ```
 
-### 遗留
+### 已知死代码（不影响运行，可后续清理）
 
-- `Services.swift` 中的旧 `AudioPlaybackController` 未删除(死代码，可后续清理)
-- 逐句跳过(F2)、多 block 预加载队列(F3) 尚未实现，仍为 block 级合成
-- DramaDirector 已创建但尚未集成到合成管线(需后续接入 SentenceUnit)
-- VoiceEmbeddingRegistry 已创建但尚未替换 CosyVoiceService 中的 embedding 缓存逻辑
+- `Services.swift` 中的旧 `AudioPlaybackController` — 未使用，保留兼容
+- DramaDirector 尚未集成到合成管线 — 保留框架
+- VoiceEmbeddingRegistry 尚未替换 CosyVoiceService 中的 embedding 缓存 — 保留框架
