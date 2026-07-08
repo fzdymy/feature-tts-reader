@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import MediaPlayer
 import Combine
+import os
 
 final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Sendable {
     @Published private(set) var isPlaying = false
@@ -352,7 +353,7 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
 // MARK: - Async semaphore for concurrency limiting
 
 final class AsyncSemaphore: @unchecked Sendable {
-    private let lock = os.OSAllocatedUnfairLock()
+    private let lock = OSAllocatedUnfairLock()
     private var count: Int
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
