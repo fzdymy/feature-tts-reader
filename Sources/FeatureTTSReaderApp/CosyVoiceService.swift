@@ -384,7 +384,7 @@ actor CosyVoiceService {
                 ttsModel = try await CosyVoiceTTSModel.fromPretrained(
                     modelId: Self.activeVariant,
                     cacheDir: rootCache,
-                    offlineMode: true
+offlineMode: true
                 )
             } catch {
                 // Log the actual snapshots directory contents for debugging
@@ -417,7 +417,7 @@ actor CosyVoiceService {
             }
             downloadPhase = .failed
             if error is CancellationError || (error as NSError).code == URLError.cancelled.rawValue {
-                downloadError = "用户取消了下载"
+downloadError = "下载已取消"
             } else {
                 let desc = error.localizedDescription
                 if desc.contains("must be 8-bit quantized") || desc.contains("plain Linear") {
