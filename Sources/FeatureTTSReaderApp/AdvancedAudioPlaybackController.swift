@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import MediaPlayer
 import Combine
 
 @MainActor
@@ -13,17 +14,67 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private var player: AVAudioPlayer?
     private var queue: [TTSQueueItem] = []
     private var currentIndex = 0
+    private var currentItem: TTSQueueItem?
     private var playbackContinuation: CheckedContinuation<Void, Never>?
     private let rmsQueue = DispatchQueue(label: "rms", qos: .background)
     private var rmsTimer: Timer?
     private var rmsInstallRequested = false
+    private var remoteCommandCenter = MPRemoteCommandCenter.shared()
 
-    override init() {}
+    override init() {
+        super.init()
+        setupRemoteCommands()
+    }
 
     func restorePlaybackState() {}
 
     func ensureEngineSetup() {}
     func ensureEngineStarted() {}
+
+    private func setupRemoteCommands() {
+        remoteCommandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.resume() }
+            return .success
+        }
+        remoteCommandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.pause() }
+            return .success
+        }
+        remoteCommandCenter.stopCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.stop() }
+            return .success
+        }
+        remoteCommandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.playNext() }
+            return .success
+        }
+        remoteCommandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.playPrevious() }
+            return .success
+        }
+        remoteCommandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            Task { @MainActor in self.seek(to: event.positionTime) }
+            return .success
+        }
+        remoteCommandCenter.skipForwardCommand.preferredIntervals = [15]
+        remoteCommandCenter.skipForwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.seekForward(15) }
+            return .success
+        }
+        remoteCommandCenter.skipBackwardCommand.preferredIntervals = [15]
+        remoteCommandCenter.skipBackwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.seekBackward(15) }
+            return .success
+        }
+    }
 
     func playQueue(_ items: [TTSQueueItem], startingAt index: Int = 0) {
         flushPlayback()
@@ -43,12 +94,16 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private func playNextSeamlessly(isFirst: Bool = false) {
         guard !queue.isEmpty else {
             isPlaying = false
+            currentAnchor = nil
+            currentItem = nil
             queueCount = 0
+            updateNowPlaying()
             playbackContinuation?.resume()
             playbackContinuation = nil
             return
         }
         let item = queue.removeFirst()
+        currentItem = item
         currentIndex += 1
         queueCount = queue.count
         currentAnchor = item.anchor
@@ -65,6 +120,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             if player?.play() == true {
                 isPlaying = true
                 startRMS()
+                updateNowPlaying()
             }
         } catch {
             Logger.log(error: error, message: "playNext")
@@ -81,18 +137,24 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     func pause() {
         player?.pause()
         isPlaying = false
+        updateNowPlaying()
     }
 
     func resume() {
         player?.play()
         isPlaying = true
+        updateNowPlaying()
     }
 
     func playNext() { playNextSeamlessly() }
     func playPrevious() { flushPlayback() }
     func skipForward() { playNextSeamlessly() }
     func skipBackward() { flushPlayback() }
-    func seek(to time: TimeInterval) { player?.currentTime = time }
+    func seek(to time: TimeInterval) {
+        player?.currentTime = time
+        updateNowPlaying()
+    }
+
     func seekForward(_ seconds: TimeInterval) {
         if let p = player { p.currentTime = min(p.currentTime + seconds, p.duration) }
     }
@@ -127,9 +189,11 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         player = nil
         isPlaying = false
         currentAnchor = nil
+        currentItem = nil
         queue.removeAll()
         queueCount = 0
         stopRMS()
+        updateNowPlaying()
     }
 
     private func startRMS() {
@@ -150,7 +214,21 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         audioVolumeRMS = 0
     }
 
-    private func updateNowPlaying() {}
+    private func updateNowPlaying() {
+        guard let player, let item = currentItem else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        let segment = item.segment
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+            MPMediaItemPropertyTitle: "\(segment.characterName)：\(segment.text.prefix(30))",
+            MPMediaItemPropertyArtist: item.chapterTitle,
+            MPMediaItemPropertyPlaybackDuration: player.duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: player.currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(playbackRate) : 0.0,
+        ]
+    }
+
     private func installRMSTap() {}
     private func removeRMSTap() {}
 

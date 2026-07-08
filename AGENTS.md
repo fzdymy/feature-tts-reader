@@ -156,7 +156,7 @@
 | F2 | 每个 block 合成一个 WAV, 无法逐句跳过 | `Store.swift:1339-1375` | 需拆分 block 为单句合成, 支持逐句跳过 |
 | F3 | 播放队列仅 1 个 item | `Store.swift:1395` | 需支持多 block 连续队列预加载 |
 | F4 | 下载进度仅显示 0.5→1.0(无中间态) | `CosyVoiceService.swift:341-364` | 需 `URLSessionDownloadDelegate` 流式进度 |
-| F5 | 文件导入器 .tar.gz 选取可能无效(iOS) | `TTSView.swift:253-257` | 需用户测试; 备选 `.data` + 手动检测 |
+| F5 | 文件导入器 .tar.gz 选取可能无效(iOS) | `TTSView.swift:253-257` | 需用户测试; 备选 `.data` + 手动检测 |已经全面改为Zip
 | F6 | 连续合成效率低 (串行等待) | `Store.swift:1373-1381` | 需并行合成 + 队列缓冲 |
 | F7 | importModel 路径与 HF cache 不一致 | `CosyVoiceService.swift:~475` | 需统一 cache 目录 |
 
@@ -185,6 +185,31 @@
 | H3 | synthesizer cache 键不含实际 embedding 值 | 只含 speaker 名不含 embedding hash → stale cache |
 | H4 | 角色扫描 dedup 在两处实现不一致 | Store vs CharacterAssignmentView, 需统一 |
 | H5 | `Book.text` 空时从文件读取但不更新字段 | 每次重新读取, 缓存失效 |
+
+## 2026-07-08 重构: DramaDirector + VoiceEmbeddingRegistry 集成 + F2/F3
+
+### 变更概要
+
+**VoiceEmbeddingRegistry 集成:**
+- `Store.playChapterStreaming()` 启动时将所有角色声纹通过 `registry.register()` 注册, 别名通过 `registry.registerAliases()` 注册
+- `CosyVoiceService.synthesizeDialogueWithEmbeddings()` 新增 `registry` 参数, 使用 `registry.cacheKey(for:)` 替换原 embedKeys 计算缓存键
+- URL-based 声纹克隆结果也注册到 registry, 确保后续使用一致的 hash 键
+
+**DramaDirector 集成:**
+- `Store.playChapterStreaming()` 两遍扫描: 第一遍构建 `allUpcomingSentenceContexts` (跨 block 前瞻窗口), 第二遍在每组合成前调用 `director.contextualize()` 优化 emotionTag
+- 连续说话者情绪平滑, 叙述者情绪继承, 高潮预判逻辑均已接入
+
+**F2: 逐句跳过:**
+- 每个 block 内先 `splitBlockIntoSentences`, 再按说话者分组合成
+- 每组对应一个 `TTSQueueItem`, 播放器逐组跳过 (playNext/skipForward)
+
+**F3: 多 block 预加载队列:**
+- 首个 block 合成后立即 `playQueue()` 启动播放
+- 后续 block 合成后通过 `appendToQueue()` 追加, 无需等待全部合成
+
+### 待解决问题
+- F1 (fromParagraph 精确跳转), F4 (下载进度), F5 (tar.gz 导入), F6 (并行合成), G1 (VoiceCatalog 清理)
+- H3 (cache key 不含 embedding hash) 已有 VoiceEmbeddingRegistry SHA256, 但旧 CosyVoiceService 本地缓存仍用旧 key
 
 ## 修复记录 (2026-07-07)
 
@@ -231,29 +256,37 @@
 | `21f9f30` | fix: 恢复 TabView，清除诊断 markers |
 | `20c0f72` | fix: 下载取消消息改进 |
 
-## 下一步行动 (优先级排序)
+## 下一步行动 (优先级排序) — 基于 ux-07-07 蓝图差距分析
 
-### 🚨 立即 (用户测试后)
+完整差距审计报告详见 `Docs/ux-gap-analysis-2026-07-08.md`。
 
-1. **F5: 文件导入 .tar.gz** — 需要用户真机测试 `UTType(filenameExtension:"tar.gz")` 是否工作
-2. **F4: 下载进度中间态** — 实现 `URLSessionDownloadDelegate` 流式进度
-3. **G1: VoiceCatalog 清理** — 移除 Azure 音色目录/推荐, 替换为 CosyVoice 嵌入状态显示
+### P0 — 必须立即修复
 
-### 📋 本周 (按顺序)
+1. **N: MPRemoteCommandCenter / NowPlaying 集成** — 当前 `updateNowPlaying()` 是空方法, 锁屏/CarPlay 播放控制完全损坏。需从旧 `Services.swift` 蓝图代码恢复 `MPRemoteCommandCenter` + `MPNowPlayingInfoCenter`。⚠️ LiveContainer 下 MPRemoteCommandCenter 可能也不完整工作, 需非 LiveContainer 真机验证。
+2. **S: G4 BERT 错误处理** — `detectSpeaker()` 调用无 `try-catch` 包装。如果 BERT 抛出, 会崩溃。需添加 `do-catch` + 回退到正则检测。
 
-4. **F2: 逐句合成 + 逐句跳过** — 拆分 `SpeechBlock` 为单句，合成单个 WAV 入队列，支持跳过
-5. **F3: 多 block 连续队列预加载** — 支持批量预加载 + 缓冲连续播放
-6. **集成 DramaDirector** — 将 `SentenceUnit` + `contextualize` 注入合成管线
-7. **集成 VoiceEmbeddingRegistry** — 替换 CosyVoiceService 本地 `[:]` 缓存为 actor 注册表 + SHA256 hash key
-8. **F1: fromParagraph 精确跳转** — 使用 `paragraphIndex` 而非文本匹配
-9. **H2: 主线程阻塞** — `playFilesAndWait` 改 detached task
+### P1 — 高影响 (本周)
 
-### 🔧 后续
+3. **F2: 逐句跳过** — 当前同说话者 5 句合并为 1 个 WAV, 跳过时 5 句一起跳。需每句独立合成 + 独立 `TTSQueueItem` + `sentenceIndex` 跳转。
+4. **F3 + F6: 并行合成 + 多 block 预加载** — 当前串行 `for block in blocks`, 无后台预合成。用 `TaskGroup` + `AsyncSemaphore(maxConcurrent: 3)` 实现并行, 首个 block 开播后后台预合成后续 block。
+5. **F1: 段落索引跳转** — `fromParagraph` 当前用文本匹配 (脆弱/歧义)。改为 `paragraphIndex` 队列搜索 + `skipToSegment()`。
+6. **U: AsyncStream 生产者-消费者管线** — 替换同步 for 循环为 `AsyncStream<TTSQueueItem>` 流式管道, 第一句开播, 后续流式追加。
 
-10. **G2: CharacterEditorView UI 清理** — 移除 Azure 控件, 显示声纹状态 (已部分完成)
-11. **G8: 引号类型扩展** — 支持更多 CJK 引号字符 (已部分完成, splitBlockIntoSentences 已支持)
-12. **H1: Concurrency 安全** — `@MainActor` 标注所有 UI 相关类
-13. **G3: 缓存清理机制** — 测试并启用 evictDiskLRU
+### P2 — 架构债务
+
+7. **G1: VoiceCatalog / VoiceItem 清理** — 移除所有 Azure 遗留死代码 (VoiceItem, VoiceCatalogSource, defaultMaleVoiceID, defaultFemaleVoiceID, defaultRate, defaultPitch, defaultStyle, refreshVoices)。替换为 CosyVoice 声纹克隆状态显示。
+8. **O: ReaderView 句级高亮** — 段落拆分为 `ForEach(sentences)` 逐句着色, `.onTapGesture` 点击跳转 + 触觉反馈。
+9. **T: Hard Reset & Flush** — `immediateInterruptAndSeek()` 实现: `stop()` → 清空队列 → `synthesizeFromParagraph()` → `playQueue()`。
+10. **H2: playFilesAndWait 主线程阻塞** — 改 detached task。
+
+### P3 — 打磨
+
+11. **P: RMS 视觉反馈** — `audioVolumeRMS` 已发布但 ReaderView 未读取。添加音频电平指示器。
+12. **Q: DramaStageRadarView** — 角色声场雷达 UI 组件, 显示当前说话者 + 音频振幅动画。
+13. **C: DramaDirector 增强** — `CosyVoiceConfig` 死代码激活, `blendEmotionTags`/`interpolateEmotionTag` 改为真实 embedding 插值, 添加英文关键词。
+14. **B: 缓存键统一** — `CosyVoiceService.cacheKey(text:embedding:)` 改为使用 `VoiceEmbeddingRegistry.cacheKey(for:text:emotionTag:)`。
+15. **V: 添加 BookCharacter 模型** — 或给 `CharacterProfile` 添加类型化的 `voiceEmbedding: [Float]` 字段代替当前脆弱的 `Data?` + JSON 编解码。
+16. **G8: 引号类型扩展** — 支持更多 CJK 引号 (splitBlockIntoSentences 已支持)。
 
 ## iOS 18+ / Xcode 26.3+ 注意事项
 

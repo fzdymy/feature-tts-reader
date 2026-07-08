@@ -922,15 +922,27 @@ private static func _hfHubCacheCandidates() -> [URL] {
     func synthesizeDialogueWithEmbeddings(
         segments: [(speaker: String, text: String, emotion: String?)],
         speakerEmbeddings: [String: [Float]],
-        speakerSamples: [String: URL]
+        speakerSamples: [String: URL],
+        registry: VoiceEmbeddingRegistry? = nil
     ) async throws -> Data {
         try await ensureModel()
         guard let model = ttsModel else { throw TTSError.modelNotAvailable }
 
-        // 1. Compute cache key
+        // 1. Compute cache key using registry if available
         let segmentText = segments.map { "\($0.speaker)|\($0.emotion ?? "")|\($0.text)" }.joined(separator: "\n")
-        let embedKeys = Array(speakerEmbeddings.keys).sorted().joined(separator: ",") + "|" + Array(speakerSamples.keys).sorted().joined(separator: ",")
-        let key = cacheKey(text: "dialogue:\(segmentText)|samples:\(embedKeys)", embedding: nil)
+        let key: String
+        if let registry {
+            var speakerParts: [String] = []
+            for (spk, _, emotion) in segments {
+                let emotionTag = emotion.flatMap { Self.cosyEmotionTag($0) } ?? "neutral"
+                let part = await registry.cacheKey(for: spk, text: "", emotionTag: emotionTag)
+                speakerParts.append(part)
+            }
+            key = cacheKey(text: "dialogue:\(segmentText)|registry:\(speakerParts.joined(separator: ","))", embedding: nil)
+        } else {
+            let embedKeys = Array(speakerEmbeddings.keys).sorted().joined(separator: ",") + "|" + Array(speakerSamples.keys).sorted().joined(separator: ",")
+            key = cacheKey(text: "dialogue:\(segmentText)|samples:\(embedKeys)", embedding: nil)
+        }
         if let cached = cachedAudio(key: key) { return cached }
 
         // 2. Merge pre-computed embeddings with URL-based enrollments
@@ -938,6 +950,8 @@ private static func _hfHubCacheCandidates() -> [URL] {
         for (name, url) in speakerSamples where embeddings[name] == nil {
             if let emb = try? await enrollSpeaker(name: name, audioURL: url) {
                 embeddings[name] = emb
+                let reg = registry ?? VoiceEmbeddingRegistry.shared
+                await reg.register(canonicalName: name, embedding: emb, sampleRate: 16000, source: .cloned)
             }
         }
 
