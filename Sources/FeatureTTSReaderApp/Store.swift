@@ -1220,14 +1220,6 @@ final class ReaderStore: NSObject, ObservableObject {
 
         let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
         let bookUUID = UUID(uuidString: currentBookID) ?? UUID()
-        let speakerEmbeddings = _speakerEmbeddings
-        let speakerSamples = _speakerSamples
-        // Sendable wrapper to satisfy Swift 6 concurrency checking in TaskGroup closure
-        struct EmbeddingPayload: @unchecked Sendable {
-            let dict: [String: [Float]]
-            let samples: [String: URL]
-        }
-        let embedPayload = EmbeddingPayload(dict: speakerEmbeddings, samples: speakerSamples)
         let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
         let blocks = Self.buildDialogueBlocks(paragraphs)
 
@@ -1251,6 +1243,13 @@ final class ReaderStore: NSObject, ObservableObject {
                 await registry.registerAliases(char.aliases, for: char.name)
             }
         }
+
+        // Sendable wrapper to satisfy Swift 6 concurrency checking in TaskGroup closure
+        struct EmbeddingPayload: @unchecked Sendable {
+            let dict: [String: [Float]]
+            let samples: [String: URL]
+        }
+        let embedPayload = EmbeddingPayload(dict: _speakerEmbeddings, samples: _speakerSamples)
 
         let director = DramaDirector()
         var lastSpeakerID: UUID?
