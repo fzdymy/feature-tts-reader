@@ -138,7 +138,7 @@ final class AdvancedAudioPlaybackController: ObservableObject {
             var sum: Float = 0
             for i in 0..<Int(frameLength) { sum += channelData[i] * channelData[i] }
             let rms = sqrt(sum / Float(frameLength))
-            Task { @MainActor [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 self?.audioVolumeRMS = self?.isPlaying == true ? rms : 0
             }
         }
