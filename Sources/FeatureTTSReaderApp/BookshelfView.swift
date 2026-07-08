@@ -35,9 +35,6 @@ struct BookshelfView: View {
             ZStack {
                 Color(UIColor.systemGroupedBackground).ignoresSafeArea()
 
-                if !store.isStateLoaded {
-                    ProgressView("正在同步书库...")
-                } else {
                 VStack(spacing: 0) {
                     searchAndSortBar
                         .padding(.horizontal)
