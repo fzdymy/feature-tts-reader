@@ -55,8 +55,10 @@ final class AdvancedAudioPlaybackController: ObservableObject {
         playerNodeB = nodeB
         crossfadeMixer = mixer
 
+        Self.writeAudioMarker("engine_session")
         configureAudioSession()
 
+        Self.writeAudioMarker("engine_format")
         let format = engine.outputNode.outputFormat(forBus: 0)
         engine.attach(nodeA)
         engine.attach(nodeB)
@@ -65,6 +67,7 @@ final class AdvancedAudioPlaybackController: ObservableObject {
         engine.connect(nodeB, to: mixer, format: format)
         engine.connect(mixer, to: engine.mainMixerNode, format: format)
 
+        Self.writeAudioMarker("engine_noise")
         let noiseNode = AVAudioSourceNode(format: format) { _, _, frameLength, audioBufferList in
             let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
             for i in 0..<abl.count {
@@ -77,15 +80,44 @@ final class AdvancedAudioPlaybackController: ObservableObject {
         engine.connect(noiseNode, to: engine.mainMixerNode, format: format)
         noiseNode.volume = 0
 
+        Self.writeAudioMarker("engine_prepare")
         engine.prepare()
+
+        Self.writeAudioMarker("engine_start")
         do {
             try engine.start()
+            Self.writeAudioMarker("engine_started")
         } catch {
             Logger.log(error: error)
+            Self.writeAudioMarker("engine_start_failed")
         }
 
+        Self.writeAudioMarker("engine_remote")
         setupRemoteCommands()
+        Self.writeAudioMarker("engine_remote_done")
+
+        Self.writeAudioMarker("engine_tap")
         installRMSTap()
+        Self.writeAudioMarker("engine_tap_done")
+    }
+
+    nonisolated static func writeAudioMarker(_ marker: String) {
+        UserDefaults.standard.set(marker, forKey: "last_audio_marker")
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        if let url = docs?.appendingPathComponent("audio_marker.txt") {
+            let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            let line = "\(ts) \(marker)\n"
+            if let data = line.data(using: .utf8) {
+                if let handle = try? FileHandle(forWritingTo: url) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    try? handle.synchronize()
+                    handle.closeFile()
+                } else {
+                    try? data.write(to: url)
+                }
+            }
+        }
     }
 
     private func configureAudioSession() {
