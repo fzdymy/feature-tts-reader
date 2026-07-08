@@ -71,7 +71,8 @@ final class AdvancedAudioPlaybackController: ObservableObject {
         let noiseNode = AVAudioSourceNode(format: format) { _, _, frameLength, audioBufferList in
             let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
             for i in 0..<abl.count {
-                memset(abl[i].mData, 0, Int(frameLength) * MemoryLayout<Float>.size)
+                guard let mData = abl[i].mData else { continue }
+                memset(mData, 0, Int(frameLength) * MemoryLayout<Float>.size)
             }
             return noErr
         }

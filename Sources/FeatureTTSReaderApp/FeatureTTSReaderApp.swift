@@ -17,6 +17,7 @@ struct FeatureTTSReaderApp: App {
                 .onAppear {
                     ReaderStore.writeCrashMarker("bookshelf_onAppear")
                     store.audioController.ensureEngineSetup()
+                    ReaderStore.writeCrashMarker("bookshelf_engine_done")
                 }
         }
     }
