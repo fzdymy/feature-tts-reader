@@ -81,25 +81,17 @@ final class AdvancedAudioPlaybackController: ObservableObject {
         engine.connect(noiseNode, to: engine.mainMixerNode, format: format)
         noiseNode.volume = 0
 
-        Self.writeAudioMarker("engine_prepare")
         engine.prepare()
 
-        Self.writeAudioMarker("engine_start")
         do {
             try engine.start()
-            Self.writeAudioMarker("engine_started")
         } catch {
             Logger.log(error: error)
-            Self.writeAudioMarker("engine_start_failed")
         }
 
-        Self.writeAudioMarker("engine_remote")
+        // remote commands only after engine is fully started
         setupRemoteCommands()
-        Self.writeAudioMarker("engine_remote_done")
-
-        Self.writeAudioMarker("engine_tap")
         installRMSTap()
-        Self.writeAudioMarker("engine_tap_done")
     }
 
     nonisolated static func writeAudioMarker(_ marker: String) {

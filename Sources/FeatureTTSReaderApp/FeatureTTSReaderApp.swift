@@ -16,10 +16,12 @@ struct FeatureTTSReaderApp: App {
                 .environmentObject(store)
                 .onAppear {
                     ReaderStore.writeCrashMarker("bookshelf_onAppear")
-                    store.audioController.ensureEngineSetup()
-                    ReaderStore.writeCrashMarker("bookshelf_engine_done")
-                    Task {
-                        ReaderStore.writeCrashMarker("bookshelf_task_start")
+                    Task.detached(priority: .background) {
+                        ReaderStore.writeCrashMarker("bookshelf_task_setup")
+                        await MainActor.run {
+                            store.audioController.ensureEngineSetup()
+                            ReaderStore.writeCrashMarker("bookshelf_engine_done")
+                        }
                         await store.loadStateAsync()
                         ReaderStore.writeCrashMarker("bookshelf_task_done")
                     }
