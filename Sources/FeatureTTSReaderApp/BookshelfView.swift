@@ -31,8 +31,7 @@ struct BookshelfView: View {
     }
 
     var body: some View {
-        let _ = ReaderStore.writeCrashMarker("bookshelf_body_start")
-        return NavigationStack(path: $store.navigationPath) {
+        NavigationStack(path: $store.navigationPath) {
             ZStack {
                 Color(UIColor.systemGroupedBackground).ignoresSafeArea()
 

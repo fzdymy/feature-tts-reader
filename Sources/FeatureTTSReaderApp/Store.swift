@@ -150,62 +150,21 @@ final class ReaderStore: NSObject, ObservableObject {
     private var autoSaveTimer: Timer?
 
     override init() {
-        Self.writeCrashMarker("init_start")
         super.init()
-        Self.writeCrashMarker("init_super_done")
         speechSynthesizer.delegate = speechDelegate
-        Self.writeCrashMarker("init_speech_delegate_done")
         voices = []
-        Self.writeCrashMarker("init_voices_done")
-        Self.writeCrashMarker("init_audio_session_done")
-        // Remote commands handled by AdvancedAudioPlaybackController.setupRemoteCommands()
-        Self.writeCrashMarker("init_remote_commands_done")
         observeAudioController()
-        Self.writeCrashMarker("init_observe_done")
         audioController.restorePlaybackState()
-        Self.writeCrashMarker("init_restore_playback_done")
-        // autoSaveTimer started after loadStateAsync completes to avoid race
-        Self.writeCrashMarker("init_timer_deferred")
 
-        // Restore reading position from UserDefaults (tiny, <1KB) so "继续阅读" works immediately
         if let data = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
            let map = try? JSONDecoder().decode([UUID: Int].self, from: data) {
             lastReadChapterIndexByBook = map
         }
-        Self.writeCrashMarker("init_userdefaults_done")
-
-        // Full state loaded async to avoid blocking UI with ~40MB JSON decode
-        // loadStateAsync moved to BookshelfView.onAppear to avoid races during init
-
-        // CosyVoice model will be downloaded on first use (not at launch)
-        // to avoid crashes from CosyVoiceTTSModel.fromPretrained() internal fatalError.
-        Self.writeCrashMarker("init_skip_prewarm")
-        Self.writeCrashMarker("init_all_done")
     }
 
     /// Write a crash marker to a file in Documents directory + UserDefaults.
     /// The last written marker before the crash pinpoints the culprit.
-    nonisolated static func writeCrashMarker(_ marker: String) {
-        // UserDefaults (fast, survives most crashes)
-        UserDefaults.standard.set(marker, forKey: "last_crash_marker")
-
-        // File in Documents (accessible via file browser for self-signed installs)
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        if let url = docs?.appendingPathComponent("crash_marker.txt") {
-            let ts = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-            let line = "\(ts) \(marker)\n"
-            if let data = line.data(using: .utf8) {
-                if let handle = try? FileHandle(forWritingTo: url) {
-                    handle.seekToEndOfFile()
-                    handle.write(data)
-                    try? handle.synchronize()  // Force fsync
-                    handle.closeFile()
-                } else {
-                    try? data.write(to: url)
-                }
-            }
-        }
-    }
+    nonisolated static func writeCrashMarker(_: String) {}
 
     // Remote commands handled by AdvancedAudioPlaybackController.setupRemoteCommands()
 
@@ -265,17 +224,12 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func loadStateAsync() async {
-        Self.writeCrashMarker("load_state_url")
         let url = stateFileURL()
-        Self.writeCrashMarker("load_state_detached1")
         let decoded: ReaderState? = await Task.detached {
             guard let data = try? Data(contentsOf: url),
                   let state = try? JSONDecoder().decode(ReaderState.self, from: data) else { return nil }
             return state
         }.value
-        Self.writeCrashMarker("load_state_detached1_done")
-
-        Self.writeCrashMarker("load_state_detached2")
         let loadedTexts: [(UUID, String)]? = await Task.detached {
             guard let state = decoded else { return nil }
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
@@ -290,21 +244,14 @@ final class ReaderStore: NSObject, ObservableObject {
             }
             return results
         }.value
-        Self.writeCrashMarker("load_state_detached2_done")
-
-        Self.writeCrashMarker("load_state_mainactor")
         await MainActor.run {
             guard let state = decoded else {
-                Self.writeCrashMarker("ls_ma_guard_fail")
                 loadPersistentLibrary()
                 isStateLoaded = true
                 startAutoSaveTimer()
                 return
             }
-            Self.writeCrashMarker("ls_ma_guard_ok")
-            Self.writeCrashMarker("ls_ma_books")
             books = state.books
-            Self.writeCrashMarker("ls_ma_chapters")
             chapters = state.chapters
             if let bid = UUID(uuidString: state.currentBookID) {
                 bookChaptersCache[bid] = state.chapters
@@ -325,21 +272,16 @@ final class ReaderStore: NSObject, ObservableObject {
             showBattery = state.showBattery
             showBookCover = state.showBookCover
             showReadingProgress = state.showReadingProgress
-            Self.writeCrashMarker("ls_ma_bookmarks")
             bookmarks = state.bookmarks
             currentBookTitle = state.currentBookTitle
             currentBookID = state.currentBookID
             currentBookProgress = state.currentBookProgress
             defaultSensitivity = state.defaultSensitivity
             playTimeoutSeconds = state.playTimeoutSeconds
-            Self.writeCrashMarker("ls_ma_chars")
             characters = state.characters
             scriptSegments = state.scriptSegments
-            Self.writeCrashMarker("ls_ma_ttsqueue")
             ttsQueue = state.ttsQueue ?? []
-            Self.writeCrashMarker("ls_ma_ttsidx")
             ttsCurrentIndex = state.ttsCurrentIndex ?? 0
-            Self.writeCrashMarker("ls_ma_ttsplay")
             ttsIsPlaying = state.ttsIsPlaying ?? false
             ttsChapterTitle = state.ttsChapterTitle ?? ""
             ttsSegmentTitle = state.ttsSegmentTitle ?? ""
@@ -376,8 +318,6 @@ final class ReaderStore: NSObject, ObservableObject {
                     books = snapshot
                 }
             }
-
-            Self.writeCrashMarker("ls_ma_loaded")
             isStateLoaded = true
             startAutoSaveTimer()
         }
