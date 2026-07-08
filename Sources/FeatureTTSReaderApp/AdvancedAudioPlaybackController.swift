@@ -17,7 +17,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private let playerNodeA = AVAudioPlayerNode()
     private let playerNodeB = AVAudioPlayerNode()
     private let crossfadeMixer = AVAudioMixerNode()
-    private let comfortNoiseNode: AVAudioSourceNode
+    private var comfortNoiseNode: AVAudioSourceNode?
 
     private var isUsingNodeA = true
     private var activeNode: AVAudioPlayerNode { isUsingNodeA ? playerNodeA : playerNodeB }
@@ -35,16 +35,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     // MARK: - Init
     override init() {
-        comfortNoiseNode = AVAudioSourceNode { _, _, frameCount, audioBufferList in
-            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            for buffer in buffers {
-                guard let pointer = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
-                for frame in 0..<Int(frameCount) {
-                    pointer[frame] = Float.random(in: -0.00005...0.00005)
-                }
-            }
-            return noErr
-        }
         super.init()
         setupAudioEngine()
         setupRemoteCommands()
@@ -61,15 +51,31 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         audioEngine.attach(playerNodeA)
         audioEngine.attach(playerNodeB)
         audioEngine.attach(crossfadeMixer)
-        audioEngine.attach(comfortNoiseNode)
+
+        // Create comfort noise node with explicit format (iOS 15+ API)
+        comfortNoiseNode = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList in
+            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            for buffer in buffers {
+                guard let pointer = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                for frame in 0..<Int(frameCount) {
+                    pointer[frame] = Float.random(in: -0.00005...0.00005)
+                }
+            }
+            return noErr
+        }
+        if let noise = comfortNoiseNode {
+            audioEngine.attach(noise)
+        }
 
         // Dual nodes → crossfade mixer → main mixer
         audioEngine.connect(playerNodeA, to: crossfadeMixer, format: format)
         audioEngine.connect(playerNodeB, to: crossfadeMixer, format: format)
         audioEngine.connect(crossfadeMixer, to: audioEngine.mainMixerNode, format: format)
 
-        // Comfort noise injected at main mixer level
-        audioEngine.connect(comfortNoiseNode, to: audioEngine.mainMixerNode, format: format)
+        // Comfort noise injected at main mixer level (if available)
+        if let noise = comfortNoiseNode {
+            audioEngine.connect(noise, to: audioEngine.mainMixerNode, format: format)
+        }
 
         audioEngine.prepare()
 
