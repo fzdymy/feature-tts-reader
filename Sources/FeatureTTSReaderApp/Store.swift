@@ -295,11 +295,13 @@ final class ReaderStore: NSObject, ObservableObject {
         Self.writeCrashMarker("load_state_mainactor")
         await MainActor.run {
             guard let state = decoded else {
+                Self.writeCrashMarker("ls_ma_guard_fail")
                 loadPersistentLibrary()
                 isStateLoaded = true
                 startAutoSaveTimer()
                 return
             }
+            Self.writeCrashMarker("ls_ma_guard_ok")
             Self.writeCrashMarker("ls_ma_books")
             books = state.books
             Self.writeCrashMarker("ls_ma_chapters")
