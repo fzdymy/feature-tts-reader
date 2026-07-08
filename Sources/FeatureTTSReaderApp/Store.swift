@@ -269,13 +269,17 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     private func loadStateAsync() async {
+        Self.writeCrashMarker("load_state_url")
         let url = stateFileURL()
+        Self.writeCrashMarker("load_state_detached1")
         let decoded: ReaderState? = await Task.detached {
             guard let data = try? Data(contentsOf: url),
                   let state = try? JSONDecoder().decode(ReaderState.self, from: data) else { return nil }
             return state
         }.value
+        Self.writeCrashMarker("load_state_detached1_done")
 
+        Self.writeCrashMarker("load_state_detached2")
         let loadedTexts: [(UUID, String)]? = await Task.detached {
             guard let state = decoded else { return nil }
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
@@ -290,7 +294,9 @@ final class ReaderStore: NSObject, ObservableObject {
             }
             return results
         }.value
+        Self.writeCrashMarker("load_state_detached2_done")
 
+        Self.writeCrashMarker("load_state_mainactor")
         await MainActor.run {
             guard let state = decoded else {
                 loadPersistentLibrary()
