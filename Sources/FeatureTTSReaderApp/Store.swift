@@ -1220,6 +1220,14 @@ final class ReaderStore: NSObject, ObservableObject {
 
         let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
         let bookUUID = UUID(uuidString: currentBookID) ?? UUID()
+        let speakerEmbeddings = _speakerEmbeddings
+        let speakerSamples = _speakerSamples
+        // Sendable wrapper to satisfy Swift 6 concurrency checking in TaskGroup closure
+        struct EmbeddingPayload: @unchecked Sendable {
+            let dict: [String: [Float]]
+            let samples: [String: URL]
+        }
+        let embedPayload = EmbeddingPayload(dict: speakerEmbeddings, samples: speakerSamples)
         let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
         let blocks = Self.buildDialogueBlocks(paragraphs)
 
@@ -1228,8 +1236,8 @@ final class ReaderStore: NSObject, ObservableObject {
         try? FileManager.default.createDirectory(at: cosyDir, withIntermediateDirectories: true)
 
         let registry = VoiceEmbeddingRegistry.shared
-        var speakerEmbeddings: [String: [Float]] = [:]
-        var speakerSamples: [String: URL] = [:]
+        var _speakerEmbeddings: [String: [Float]] = [:]
+        var _speakerSamples: [String: URL] = [:]
         for char in characters {
             if let embData = char.voiceSampleEmbedding,
                let floats = try? JSONDecoder().decode([Float].self, from: embData),
@@ -1332,6 +1340,8 @@ final class ReaderStore: NSObject, ObservableObject {
                             let cosySegments: [(String, String, String?)] = [(canonical, sentence, refined.emotionTag)]
 
                             group.addTask {
+                                let emb = embedPayload.dict
+                                let samples = embedPayload.samples
                                 await semaphore.wait()
                                 defer { semaphore.signal() }
 
@@ -1341,8 +1351,8 @@ final class ReaderStore: NSObject, ObservableObject {
                                 do {
                                     audioData = try await CosyVoiceService.shared.synthesizeDialogueWithEmbeddings(
                                         segments: cosySegments,
-                                        speakerEmbeddings: speakerEmbeddings,
-                                        speakerSamples: speakerSamples,
+                                        speakerEmbeddings: emb,
+                                        speakerSamples: samples,
                                         registry: registry
                                     )
                                 } catch {
