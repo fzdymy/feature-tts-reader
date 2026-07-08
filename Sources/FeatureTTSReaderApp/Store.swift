@@ -158,7 +158,7 @@ final class ReaderStore: NSObject, ObservableObject {
         voices = []
         Self.writeCrashMarker("init_voices_done")
         Self.writeCrashMarker("init_audio_session_done")
-        setupRemoteCommands()
+        // Remote commands handled by AdvancedAudioPlaybackController.setupRemoteCommands()
         Self.writeCrashMarker("init_remote_commands_done")
         observeAudioController()
         Self.writeCrashMarker("init_observe_done")
@@ -211,44 +211,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    private func setupRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-        center.playCommand.addTarget { [weak self] _ in
-            self?.audioController.resume()
-            return .success
-        }
-        center.pauseCommand.addTarget { [weak self] _ in
-            self?.audioController.pause()
-            return .success
-        }
-        center.stopCommand.addTarget { [weak self] _ in
-            self?.audioController.stop()
-            return .success
-        }
-        center.nextTrackCommand.addTarget { [weak self] _ in
-            self?.audioController.playNext()
-            return .success
-        }
-        center.previousTrackCommand.addTarget { [weak self] _ in
-            self?.audioController.playPrevious()
-            return .success
-        }
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            self?.audioController.seek(to: event.positionTime)
-            return .success
-        }
-        center.skipForwardCommand.preferredIntervals = [15]
-        center.skipForwardCommand.addTarget { [weak self] _ in
-            self?.audioController.seekForward(15)
-            return .success
-        }
-        center.skipBackwardCommand.preferredIntervals = [15]
-        center.skipBackwardCommand.addTarget { [weak self] _ in
-            self?.audioController.seekBackward(15)
-            return .success
-        }
-    }
+    // Remote commands handled by AdvancedAudioPlaybackController.setupRemoteCommands()
 
     private func observeAudioController() {
         // Observe audio controller state changes and sync with published properties

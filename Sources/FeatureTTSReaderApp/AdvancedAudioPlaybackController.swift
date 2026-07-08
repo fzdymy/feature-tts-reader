@@ -84,7 +84,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     /// Configure audio session BEFORE engine activation to avoid ObjC exception on iOS 18.
     private func configureAudioSession() {
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.allowBluetooth, .allowAirPlay, .mixWithOthers])
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: .mixWithOthers)
         } catch {
             Logger.log(error: error, message: "configureAudioSession")
         }
