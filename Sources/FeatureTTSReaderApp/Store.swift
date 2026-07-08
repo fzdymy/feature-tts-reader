@@ -300,7 +300,9 @@ final class ReaderStore: NSObject, ObservableObject {
                 startAutoSaveTimer()
                 return
             }
+            Self.writeCrashMarker("ls_ma_books")
             books = state.books
+            Self.writeCrashMarker("ls_ma_chapters")
             chapters = state.chapters
             if let bid = UUID(uuidString: state.currentBookID) {
                 bookChaptersCache[bid] = state.chapters
@@ -321,16 +323,21 @@ final class ReaderStore: NSObject, ObservableObject {
             showBattery = state.showBattery
             showBookCover = state.showBookCover
             showReadingProgress = state.showReadingProgress
+            Self.writeCrashMarker("ls_ma_bookmarks")
             bookmarks = state.bookmarks
             currentBookTitle = state.currentBookTitle
             currentBookID = state.currentBookID
             currentBookProgress = state.currentBookProgress
             defaultSensitivity = state.defaultSensitivity
             playTimeoutSeconds = state.playTimeoutSeconds
+            Self.writeCrashMarker("ls_ma_chars")
             characters = state.characters
             scriptSegments = state.scriptSegments
+            Self.writeCrashMarker("ls_ma_ttsqueue")
             ttsQueue = state.ttsQueue ?? []
+            Self.writeCrashMarker("ls_ma_ttsidx")
             ttsCurrentIndex = state.ttsCurrentIndex ?? 0
+            Self.writeCrashMarker("ls_ma_ttsplay")
             ttsIsPlaying = state.ttsIsPlaying ?? false
             ttsChapterTitle = state.ttsChapterTitle ?? ""
             ttsSegmentTitle = state.ttsSegmentTitle ?? ""
@@ -343,9 +350,9 @@ final class ReaderStore: NSObject, ObservableObject {
 
             if let udData = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
                let udMap = try? JSONDecoder().decode([UUID: Int].self, from: udData) {
-                lastReadChapterIndexByBook = udMap
+                self.lastReadChapterIndexByBook = udMap
             } else if !state.lastReadChapterIndexByBook.isEmpty {
-                lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
+                self.lastReadChapterIndexByBook = state.lastReadChapterIndexByBook
             }
 
             if let loadedTexts {
@@ -368,6 +375,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
             }
 
+            Self.writeCrashMarker("ls_ma_loaded")
             isStateLoaded = true
             startAutoSaveTimer()
         }
