@@ -32,9 +32,14 @@ struct BookshelfView: View {
 
     var body: some View {
         ReaderStore.writeCrashMarker("bookshelf_body_start")
-        return NavigationStack(path: $store.navigationPath) {
-            ZStack {
-                Color(UIColor.systemGroupedBackground).ignoresSafeArea()
+        if !store.isStateLoaded {
+            ProgressView("正在同步书库...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(UIColor.systemGroupedBackground))
+        } else {
+            NavigationStack(path: $store.navigationPath) {
+                ZStack {
+                    Color(UIColor.systemGroupedBackground).ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     searchAndSortBar
@@ -107,6 +112,7 @@ struct BookshelfView: View {
             .navigationDestination(for: Book.self) { book in
                 BookDetailView(book: book)
                     .environmentObject(store)
+            }
             }
         }
     }

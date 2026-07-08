@@ -52,7 +52,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var isTestingServer: Bool = false
 
     private var playbackTask: Task<Void, Never>?
-    private var isStateLoaded = false
+    @Published private(set) var isStateLoaded = false
 
     // Lazy singleton for on-device BERT speaker detection
     nonisolated private static let bertLock = OSAllocatedUnfairLock()
