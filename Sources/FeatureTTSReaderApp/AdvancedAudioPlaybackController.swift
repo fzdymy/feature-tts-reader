@@ -36,8 +36,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     // MARK: - Init
     override init() {
         super.init()
-        setupAudioEngine()
-        setupRemoteCommands()
+        // setupAudioEngine() — disabled for diagnostic: check if audio engine causes startup crash on LiveContainer
+        // setupRemoteCommands()
     }
 
     /// Compatibility stub — new controller starts fresh.
