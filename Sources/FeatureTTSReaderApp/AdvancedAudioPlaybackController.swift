@@ -17,7 +17,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private let playerNodeA = AVAudioPlayerNode()
     private let playerNodeB = AVAudioPlayerNode()
     private let crossfadeMixer = AVAudioMixerNode()
-    // comfortNoiseNode removed — diagnostic: check if AVAudioSourceNode causes iOS 18 crash
+    private var comfortNoiseNode: AVAudioSourceNode?
 
     private var isUsingNodeA = true
     private var activeNode: AVAudioPlayerNode { isUsingNodeA ? playerNodeA : playerNodeB }
@@ -56,6 +56,20 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         audioEngine.connect(playerNodeA, to: crossfadeMixer, format: format)
         audioEngine.connect(playerNodeB, to: crossfadeMixer, format: format)
         audioEngine.connect(crossfadeMixer, to: audioEngine.mainMixerNode, format: format)
+
+        // Comfort noise: silent source to keep audio pipeline active
+        let noiseNode = AVAudioSourceNode(format: format) { _, _, frameLength, audioBufferList in
+            let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            for i in 0..<abl.count {
+                memset(abl[i].mData, 0, Int(frameLength) * MemoryLayout<Float>.size)
+            }
+            return noErr
+        }
+        audioEngine.attach(noiseNode)
+        audioEngine.connect(noiseNode, to: audioEngine.mainMixerNode, format: format)
+        noiseNode.volume = 0
+        noiseNode.play()
+        comfortNoiseNode = noiseNode
 
         audioEngine.prepare()
 
