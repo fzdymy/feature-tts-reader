@@ -157,7 +157,6 @@ final class ReaderStore: NSObject, ObservableObject {
         Self.writeCrashMarker("init_speech_delegate_done")
         voices = []
         Self.writeCrashMarker("init_voices_done")
-        setupAudioSession()
         Self.writeCrashMarker("init_audio_session_done")
         setupRemoteCommands()
         Self.writeCrashMarker("init_remote_commands_done")
@@ -208,15 +207,6 @@ final class ReaderStore: NSObject, ObservableObject {
                     try? data.write(to: url)
                 }
             }
-        }
-    }
-
-    private func setupAudioSession() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.allowBluetooth, .allowAirPlay, .mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            Logger.log(error: error)
         }
     }
 

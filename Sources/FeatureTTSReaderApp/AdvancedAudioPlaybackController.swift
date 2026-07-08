@@ -54,6 +54,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     func restorePlaybackState() {}
 
     private func setupAudioEngine() {
+        configureAudioSession()
+
         let format = audioEngine.outputNode.outputFormat(forBus: 0)
 
         audioEngine.attach(playerNodeA)
@@ -78,6 +80,15 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
 
         installRMSTap()
+    }
+
+    /// Configure audio session BEFORE engine activation to avoid ObjC exception on iOS 18.
+    private func configureAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.allowBluetooth, .allowAirPlay, .mixWithOthers])
+        } catch {
+            Logger.log(error: error, message: "configureAudioSession")
+        }
     }
 
     private func installRMSTap() {
