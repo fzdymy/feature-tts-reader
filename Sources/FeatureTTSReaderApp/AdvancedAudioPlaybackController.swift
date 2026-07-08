@@ -5,59 +5,66 @@ import Combine
 import os
 
 @MainActor
-final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
+final class AdvancedAudioPlaybackController: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentAnchor: PlaybackAnchor?
     @Published private(set) var audioVolumeRMS: Float = 0.0
     @Published private(set) var queueCount: Int = 0
     var playbackRate: Float = 1.0
 
-    // MARK: - Audio engine
-    private let audioEngine = AVAudioEngine()
-    private let playerNodeA = AVAudioPlayerNode()
-    private let playerNodeB = AVAudioPlayerNode()
-    private let crossfadeMixer = AVAudioMixerNode()
+    // MARK: - Audio engine (lazy — avoid AVAudioEngine C++ init deadlock during SwiftUI first frame)
+    private var audioEngine: AVAudioEngine?
+    private var playerNodeA: AVAudioPlayerNode?
+    private var playerNodeB: AVAudioPlayerNode?
+    private var crossfadeMixer: AVAudioMixerNode?
     private var comfortNoiseNode: AVAudioSourceNode?
 
     private var isUsingNodeA = true
-    private var activeNode: AVAudioPlayerNode { isUsingNodeA ? playerNodeA : playerNodeB }
-    private var upcomingNode: AVAudioPlayerNode { isUsingNodeA ? playerNodeB : playerNodeA }
+    private var activeNode: AVAudioPlayerNode? { isUsingNodeA ? playerNodeA : playerNodeB }
+    private var upcomingNode: AVAudioPlayerNode? { isUsingNodeA ? playerNodeB : playerNodeA }
 
-    private let queueLock = OSAllocatedUnfairLock(initialState: QueueState())
+    private lazy var queueLock = OSAllocatedUnfairLock(initialState: QueueState())
 
     private struct QueueState {
         var items: [TTSQueueItem] = []
     }
 
-    // Continuation for playFilesAndWait compatibility
     private var playbackContinuation: CheckedContinuation<Void, Never>?
     private var rmsTapInstalled = false
+    private var enginePrepared = false
 
     // MARK: - Init
-    override init() {
-        super.init()
-        // setupAudioEngine() — disabled for diagnostic: check if audio engine causes startup crash on LiveContainer
-        // setupRemoteCommands()
+    init() {
+        // Pure — no AVAudioEngine/AVAudioPlayerNode allocations here
     }
 
-    /// Compatibility stub — new controller starts fresh.
     func restorePlaybackState() {}
 
-    private func setupAudioEngine() {
+    /// Must be called once before any playback, ideally from BookshelfView.onAppear
+    func ensureEngineSetup() {
+        guard !enginePrepared else { return }
+        enginePrepared = true
+
+        let engine = AVAudioEngine()
+        let nodeA = AVAudioPlayerNode()
+        let nodeB = AVAudioPlayerNode()
+        let mixer = AVAudioMixerNode()
+
+        audioEngine = engine
+        playerNodeA = nodeA
+        playerNodeB = nodeB
+        crossfadeMixer = mixer
+
         configureAudioSession()
 
-        let format = audioEngine.outputNode.outputFormat(forBus: 0)
+        let format = engine.outputNode.outputFormat(forBus: 0)
+        engine.attach(nodeA)
+        engine.attach(nodeB)
+        engine.attach(mixer)
+        engine.connect(nodeA, to: mixer, format: format)
+        engine.connect(nodeB, to: mixer, format: format)
+        engine.connect(mixer, to: engine.mainMixerNode, format: format)
 
-        audioEngine.attach(playerNodeA)
-        audioEngine.attach(playerNodeB)
-        audioEngine.attach(crossfadeMixer)
-
-        // Dual nodes → crossfade mixer → main mixer
-        audioEngine.connect(playerNodeA, to: crossfadeMixer, format: format)
-        audioEngine.connect(playerNodeB, to: crossfadeMixer, format: format)
-        audioEngine.connect(crossfadeMixer, to: audioEngine.mainMixerNode, format: format)
-
-        // Comfort noise: silent source to keep audio pipeline active
         let noiseNode = AVAudioSourceNode(format: format) { _, _, frameLength, audioBufferList in
             let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
             for i in 0..<abl.count {
@@ -65,23 +72,22 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             }
             return noErr
         }
-        audioEngine.attach(noiseNode)
-        audioEngine.connect(noiseNode, to: audioEngine.mainMixerNode, format: format)
-        noiseNode.volume = 0
         comfortNoiseNode = noiseNode
+        engine.attach(noiseNode)
+        engine.connect(noiseNode, to: engine.mainMixerNode, format: format)
+        noiseNode.volume = 0
 
-        audioEngine.prepare()
-
+        engine.prepare()
         do {
-            try audioEngine.start()
+            try engine.start()
         } catch {
             Logger.log(error: error)
         }
 
+        setupRemoteCommands()
         installRMSTap()
     }
 
-    /// Configure audio session BEFORE engine activation to avoid ObjC exception on iOS 18.
     private func configureAudioSession() {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: .mixWithOthers)
@@ -91,9 +97,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     private func installRMSTap() {
-        guard !rmsTapInstalled else { return }
+        guard !rmsTapInstalled, let engine = audioEngine else { return }
         rmsTapInstalled = true
-        audioEngine.mainMixerNode.installTap(onBus: 0, bufferSize: 512, format: nil) { [weak self] buffer, _ in
+        engine.mainMixerNode.installTap(onBus: 0, bufferSize: 512, format: nil) { [weak self] buffer, _ in
             guard let channelData = buffer.floatChannelData?[0] else { return }
             let frameLength = UInt32(buffer.frameLength)
             var sum: Float = 0
@@ -106,11 +112,11 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     private func removeRMSTap() {
-        audioEngine.mainMixerNode.removeTap(onBus: 0)
+        guard rmsTapInstalled, let engine = audioEngine else { return }
+        engine.mainMixerNode.removeTap(onBus: 0)
         rmsTapInstalled = false
     }
 
-    // MARK: - Remote commands
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
@@ -142,7 +148,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Queue management (F3: multi-item continuous queue)
+    // MARK: - Queue management
     func playQueue(_ items: [TTSQueueItem], startingAt index: Int = 0) {
         flushPlayback()
         queueLock.withLock { $0.items = items }
@@ -170,7 +176,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         appendToQueue([item])
     }
 
-    /// playFilesAndWait-compatible async method for previews/e2e tests
     func playFilesAndWait(_ urls: [URL]) async {
         let items = urls.map {
             TTSQueueItem(
@@ -185,7 +190,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Playback core (dual-node crossfade)
+    // MARK: - Playback core
     private func playNextSeamlessly(isFirst: Bool = false) {
         let itemOpt: TTSQueueItem? = queueLock.withLock { $0.items.isEmpty ? nil : $0.items.removeFirst() }
         guard let item = itemOpt else {
@@ -196,16 +201,15 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentAnchor = item.anchor
         isPlaying = true
         queueCount = queueLock.withLock { $0.items.count }
-
-        // Update NowPlaying metadata
         updateNowPlayingInfo(for: item)
 
-        guard let file = try? AVAudioFile(forReading: item.audioURL) else {
+        guard let file = try? AVAudioFile(forReading: item.audioURL),
+              let upcoming = upcomingNode else {
             playNextSeamlessly()
             return
         }
 
-        upcomingNode.scheduleFile(file, at: nil) { [weak self] in
+        upcoming.scheduleFile(file, at: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.cleanupAudioFile(item.audioURL)
                 self?.playNextSeamlessly()
@@ -213,9 +217,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
 
         if isFirst {
-            upcomingNode.volume = 1.0
-            activeNode.volume = 0.0
-            upcomingNode.play()
+            upcoming.volume = 1.0
+            activeNode?.volume = 0.0
+            upcoming.play()
             isUsingNodeA.toggle()
         } else {
             Task {
@@ -227,20 +231,20 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     private func performCrossfade(fileDuration: Double) async {
-        upcomingNode.volume = 0.0
-        upcomingNode.play()
+        upcomingNode?.volume = 0.0
+        upcomingNode?.play()
 
         let crossfadeMs: Int = 50
         let stepMs: Int = 10
-        let totalSteps = crossfadeMs / stepMs  // 5 steps → 50ms
+        let totalSteps = crossfadeMs / stepMs
         for step in 0...totalSteps {
             try? await Task.sleep(nanoseconds: UInt64(stepMs) * 1_000_000)
             let progress = Float(step) / Float(totalSteps)
-            activeNode.volume = cos(progress * .pi / 2)
-            upcomingNode.volume = sin(progress * .pi / 2)
+            activeNode?.volume = cos(progress * .pi / 2)
+            upcomingNode?.volume = sin(progress * .pi / 2)
         }
 
-        activeNode.stop()
+        activeNode?.stop()
         isUsingNodeA.toggle()
     }
 
@@ -252,15 +256,15 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     // MARK: - Control
     func pause() {
-        playerNodeA.pause()
-        playerNodeB.pause()
+        playerNodeA?.pause()
+        playerNodeB?.pause()
         isPlaying = false
     }
 
     func resume() {
         guard isPlaying == false else { return }
         isPlaying = true
-        activeNode.play()
+        activeNode?.play()
     }
 
     func stop() {
@@ -270,10 +274,10 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     private func flushPlayback() {
-        playerNodeA.stop()
-        playerNodeB.stop()
-        playerNodeA.volume = 1.0
-        playerNodeB.volume = 0.0
+        playerNodeA?.stop()
+        playerNodeB?.stop()
+        playerNodeA?.volume = 1.0
+        playerNodeB?.volume = 0.0
         isUsingNodeA = true
 
         let staleURLs: [URL] = queueLock.withLock {
@@ -282,7 +286,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             return urls
         }
         queueCount = 0
-
         isPlaying = false
         currentAnchor = nil
         audioVolumeRMS = 0
@@ -293,34 +296,30 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
-    /// Hard reset & flush — for high-frequency user seeking (G6)
     func immediateInterrupt() {
         flushPlayback()
     }
 
     func skipForward() {
-        // Skip current file, move to next
-        activeNode.stop()
-        activeNode.volume = 1.0
-        upcomingNode.volume = 0.0
+        activeNode?.stop()
+        activeNode?.volume = 1.0
+        upcomingNode?.volume = 0.0
         isUsingNodeA = true
         playNextSeamlessly(isFirst: true)
     }
 
     func skipBackward() {
-        // Simplification: go back to start of current; full backward queue reload is handled externally
-        activeNode.stop()
-        activeNode.volume = 1.0
-        upcomingNode.volume = 0.0
+        activeNode?.stop()
+        activeNode?.volume = 1.0
+        upcomingNode?.volume = 0.0
         isUsingNodeA = true
         playNextSeamlessly(isFirst: true)
     }
 
-    func seek(to time: TimeInterval) { /* not meaningful for streaming node model */ }
+    func seek(to time: TimeInterval) {}
     func seekForward(_ seconds: TimeInterval) { skipForward() }
     func seekBackward(_ seconds: TimeInterval) { skipForward() }
 
-    /// Compatibility aliases for callers expecting the old AudioPlaybackController API.
     func playNext() { skipForward() }
     func playPrevious() { skipBackward() }
 

@@ -12,8 +12,12 @@ struct FeatureTTSReaderApp: App {
     var body: some Scene {
         ReaderStore.writeCrashMarker("app_body_start")
         return WindowGroup {
-            Text("Hello \(store.isStateLoaded ? "loaded" : "loading")")
-                .onAppear { ReaderStore.writeCrashMarker("hello_onAppear") }
+            BookshelfView()
+                .environmentObject(store)
+                .onAppear {
+                    ReaderStore.writeCrashMarker("bookshelf_onAppear")
+                    store.audioController.ensureEngineSetup()
+                }
         }
     }
 }
