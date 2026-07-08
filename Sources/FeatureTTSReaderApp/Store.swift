@@ -216,28 +216,35 @@ final class ReaderStore: NSObject, ObservableObject {
     private func observeAudioController() {
         // Observe audio controller state changes and sync with published properties
         audioController.$isPlaying
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] isPlaying in
-                self?.ttsIsPlaying = isPlaying
-                self?.isSpeaking = isPlaying
+                Task { @MainActor [weak self] in
+                    self?.ttsIsPlaying = isPlaying
+                    self?.isSpeaking = isPlaying
+                }
             }
             .store(in: &cancellables)
 
         audioController.$currentAnchor
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] anchor in
-                self?.currentParagraphIndex = anchor?.paragraphIndex
-                self?.ttsCurrentIndex = anchor.map { $0.paragraphIndex } ?? 0
-                self?.ttsSegmentTitle = anchor.map { "段 \($0.paragraphIndex):句 \($0.sentenceIndex)" } ?? ""
+                Task { @MainActor [weak self] in
+                    self?.currentParagraphIndex = anchor?.paragraphIndex
+                    self?.ttsCurrentIndex = anchor.map { $0.paragraphIndex } ?? 0
+                    self?.ttsSegmentTitle = anchor.map { "段 \($0.paragraphIndex):句 \($0.sentenceIndex)" } ?? ""
+                }
             }
             .store(in: &cancellables)
 
         audioController.$queueCount
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] count in
-                self?.ttsIsPlaying = count > 0
+                Task { @MainActor [weak self] in
+                    self?.ttsIsPlaying = count > 0
+                }
             }
             .store(in: &cancellables)
-}
+    }
 
     private var cancellables = Set<AnyCancellable>()
     private var playbackContinuationCancellable: AnyCancellable?
