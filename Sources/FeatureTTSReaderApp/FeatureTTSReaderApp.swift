@@ -4,11 +4,14 @@ import SwiftUI
 struct FeatureTTSReaderApp: App {
     @StateObject private var store: ReaderStore = {
         ReaderStore.writeCrashMarker("app_init_start")
-        return ReaderStore()
+        let s = ReaderStore()
+        ReaderStore.writeCrashMarker("app_init_done")
+        return s
     }()
 
     var body: some Scene {
-        WindowGroup {
+        ReaderStore.writeCrashMarker("app_body_start")
+        return WindowGroup {
             TabView {
                 BookshelfView()
                     .environmentObject(store)

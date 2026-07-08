@@ -184,6 +184,7 @@ final class ReaderStore: NSObject, ObservableObject {
         // CosyVoice model will be downloaded on first use (not at launch)
         // to avoid crashes from CosyVoiceTTSModel.fromPretrained() internal fatalError.
         Self.writeCrashMarker("init_skip_prewarm")
+        Self.writeCrashMarker("init_all_done")
     }
 
     /// Write a crash marker to a file in Documents directory + UserDefaults.
