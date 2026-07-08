@@ -351,7 +351,8 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
 
 // MARK: - Async semaphore for concurrency limiting
 
-actor AsyncSemaphore {
+final class AsyncSemaphore: @unchecked Sendable {
+    private let lock = os.OSAllocatedUnfairLock()
     private var count: Int
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
@@ -360,17 +361,26 @@ actor AsyncSemaphore {
     }
 
     func wait() async {
-        if count > 0 { count -= 1; return }
-        await withCheckedContinuation { waiters.append($0) }
+        let shouldWait = lock.withLock {
+            if count > 0 { count -= 1; return false }
+            return true
+        }
+        if !shouldWait { return }
+        await withCheckedContinuation { continuation in
+            lock.withLock { waiters.append(continuation) }
+        }
     }
 
     func signal() {
-        if let waiter = waiters.first {
-            waiters.removeFirst()
-            waiter.resume()
-        } else {
+        let waiter = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            if let w = waiters.first {
+                waiters.removeFirst()
+                return w
+            }
             count += 1
+            return nil
         }
+        waiter?.resume()
     }
 }
 
