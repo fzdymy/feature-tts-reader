@@ -94,10 +94,7 @@ actor EdgeTTSService {
         }
         set {
             UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Self.apiKeyKey)
-            let updated = configuredServers.map { EdgeTTSServerConfig(id: $0.id, name: $0.name, url: $0.url, apiKey: newValue) }
-            if !updated.isEmpty {
-                setServers(updated)
-            }
+            // 不再覆盖各服务器的独立 apiKey（由 TTSView 逐服务器管理）
         }
     }
 
@@ -214,7 +211,7 @@ actor EdgeTTSService {
         return results.joined(separator: "  ")
     }
 
-    private func setServers(_ servers: [EdgeTTSServerConfig]) {
+    func setServers(_ servers: [EdgeTTSServerConfig]) {
         let trimmed = servers.map { EdgeTTSServerConfig(id: $0.id, name: $0.name, url: $0.url, apiKey: $0.apiKey) }.filter { !$0.url.isEmpty }
         if let data = try? JSONEncoder().encode(trimmed) {
             UserDefaults.standard.set(data, forKey: Self.serverListKey)

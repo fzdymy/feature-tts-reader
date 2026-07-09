@@ -341,3 +341,31 @@
 | P1 | **集成 DramaDirector** | DramaDirector 已创建但尚未接入合成管线，需将 `SentenceUnit` 注入 `playChapterStreaming` |
 | P1 | **集成 VoiceEmbeddingRegistry** | Registry actor 已创建但 CosyVoiceService 仍用本地 `[:]` 缓存，需替换为注册表 + SHA256 hash key |
 | P3 | Services.swift 旧 AudioPlaybackController 清理 | 死代码，保留兼容即可，后续删除 |
+
+---
+
+# 2026-07-09 Bug 修复会话
+
+## 修复的 4 个 P0 回归 Bug
+
+| # | Bug | 文件 | 根因 | 修复 |
+|---|-----|------|------|------|
+| B1 | TTS 服务器 URL 与 API Key 未配对 | `TTSView.swift`, `EdgeTTSService.swift` | TTSView 用独立 TextField 存 `apiKey`，`EdgeTTSService.apiKey` setter 覆盖所有服务器密钥 | TTSView 改为逐服务器 `{url, apiKey}` 列表；`setServers` 保持 per-server apiKey；全局 `apiKey` setter 不再覆盖 |
+| B2 | 书籍二次打开丢失文本 | `Store.swift:loadStateAsync()` | `loadedTexts` 只加载 `state.books`（JSON 状态文件）的文本；从 Core Data persistence 合并的书籍不加载文件 | 新增 `for i in books.indices where books[i].text.isEmpty` 循环加载缺失文本；`bookText` 空时也从文件加载 |
+| B3 | 区域单击手势消失 | `ReaderView.swift` | S5 删除 triple-tap gesture 时未替换为 zone-based single-tap | 增加 `SpatialTapGesture` 在 ZStack：上 1/4 翻页下滚（保留末 2 行），中 1/2 沉浸切换，下 1/4 翻页上滚；250ms 延迟避免双击冲突 |
+| B4 | 语音设置测试功能消失 | `TTSView.swift` | S13 精简 TTSView 时删除 `testSection` | 恢复 testSection：自定义文本输入 + 试听按钮 + 结果显示 |
+
+## `SpatialTapGesture` 250ms 延迟机制
+
+```
+用户单击 (t=0ms)
+  → SpatialTapGesture.onEnded 触发
+  → DispatchWorkItem 延迟 250ms 执行 zone action
+  → 若 250ms 内发生双击 (sentenceView.onTapGesture(count:2))
+    → pendingTapWorkItem?.cancel() 取消 zone action
+    → playback action 正常执行
+  → 若 250ms 内无双击
+    → zone action (翻页/沉浸切换) 执行
+
+手势优先级: sentenceView 内置 ⌃ 双击 > ZStack 单击
+```

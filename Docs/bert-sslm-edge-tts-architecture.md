@@ -368,3 +368,14 @@ func playData(_ data: Data, ...) {
 | 首句出声 | ~210ms | ~210ms | **~50ms** | S14+S15 |
 | 300 句总耗时 | ~90s | ~90s | **~25s** | S15+S16+S17 |
 | TTSView 加载 | ~500ms | ~50ms | ~50ms | S13: 删 4 section |
+
+---
+
+## Bug 修复记录 (2026-07-09)
+
+| # | Bug | 根因 | 修复 | 文件 |
+|---|-----|------|------|------|
+| B1 | TTS 服务器 URL 与 API Key 未配对 | TTSView 用独立 TextField 存 `apiKey`，`EdgeTTSService.apiKey` setter 覆盖所有服务器密钥 | TTSView 改为逐服务器 `{url, apiKey}` 列表；`setServers` 保持 per-server apiKey；全局 `apiKey` setter 不再覆盖 | `TTSView.swift`, `EdgeTTSService.swift` |
+| B2 | 书籍二次打开丢失文本 | `loadStateAsync()` 中 `loadedTexts` 只加载 `state.books`（JSON 状态文件）的文本；从 Core Data persistence 合并的书籍不加载文件 | 新增 `for i in books.indices where books[i].text.isEmpty` 循环加载缺失文本；`bookText` 空时也从文件加载 | `Store.swift` |
+| B3 | 区域单击手势消失 | S5 删除 triple-tap gesture 时未替换为 zone-based single-tap | 增加 `SpatialTapGesture` 在 ZStack：上 1/4 翻页下滚（保留末 2 行），中 1/2 沉浸切换，下 1/4 翻页上滚；250ms 延迟避免双击冲突 | `ReaderView.swift` |
+| B4 | 语音设置测试功能消失 | S13 精简 TTSView 时删除 `testSection` | 恢复 testSection：自定义文本输入 + 试听按钮 + 结果显示 | `TTSView.swift` |

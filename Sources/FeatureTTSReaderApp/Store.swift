@@ -321,6 +321,15 @@ final class ReaderStore: NSObject, ObservableObject {
                     books = snapshot
                 }
             }
+            for i in books.indices where books[i].text.isEmpty {
+                if let text = loadBookTextFromFile(bookID: books[i].id), !text.isEmpty {
+                    books[i].text = text
+                }
+            }
+            if bookText.isEmpty, let id = UUID(uuidString: currentBookID) {
+                bookText = loadBookTextFromFile(bookID: id) ?? ""
+                lastScannedBookText = bookText
+            }
             isStateLoaded = true
             startAutoSaveTimer()
         }

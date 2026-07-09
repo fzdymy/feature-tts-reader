@@ -61,6 +61,7 @@ struct ReaderView: View {
     @State private var lastAutoScrollTime: Date = .distantPast
     @State private var chapterHeights: [CGFloat] = []  // cached heights
     @State private var cachedParagraphs: [UUID: [String]] = [:]
+    @State private var pendingTapWorkItem: DispatchWorkItem?
     @StateObject private var scrollCoordinator = ScrollCoordinator()
 
     private func navigateToChapter(_ target: Int) {
@@ -141,9 +142,6 @@ struct ReaderView: View {
                     }
                 }
                 .scrollTargetLayout()
-                .simultaneousGesture(
-                    TapGesture(count: 3).onEnded { toggleImmersiveMode() }
-                )
             }
             .scrollPosition(id: $scrollPositionID)
             .background(ScrollViewAccessor(coordinator: scrollCoordinator))
@@ -222,6 +220,15 @@ struct ReaderView: View {
                 }
             )
         }
+        .gesture(
+            SpatialTapGesture()
+                .onEnded { value in
+                    pendingTapWorkItem?.cancel()
+                    let item = DispatchWorkItem { handleZoneTap(at: value.location) }
+                    pendingTapWorkItem = item
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+                }
+        )
         .sheet(isPresented: $showCharacterPanel) {
             characterPanelSheet
                 .presentationDetents([.medium, .large])
@@ -744,6 +751,33 @@ struct ReaderView: View {
         scrollToSentenceCenter(paragraphIndex: paragraphIndex, sentenceIndex: sentenceIndex)
     }
 
+    private func handleZoneTap(at location: CGPoint) {
+        let screenH = UIScreen.main.bounds.height
+        let yRatio = location.y / screenH
+        if yRatio < 0.25 {
+            scrollPageDown()
+        } else if yRatio > 0.75 {
+            scrollPageUp()
+        } else {
+            toggleImmersiveMode()
+        }
+    }
+
+    private func scrollPageDown() {
+        let screenH = UIScreen.main.bounds.height
+        let currentOffset = scrollCoordinator.scrollView?.contentOffset.y ?? 0
+        let maxOffset = max(0, (scrollCoordinator.scrollView?.contentSize.height ?? 0) - screenH)
+        let target = min(currentOffset + screenH * 0.8, maxOffset)
+        scrollCoordinator.scrollTo(offset: target, animated: true)
+    }
+
+    private func scrollPageUp() {
+        let screenH = UIScreen.main.bounds.height
+        let currentOffset = scrollCoordinator.scrollView?.contentOffset.y ?? 0
+        let target = max(0, currentOffset - screenH * 0.8)
+        scrollCoordinator.scrollTo(offset: target, animated: true)
+    }
+
     private func toggleImmersiveMode() {
         withAnimation(.easeInOut(duration: 0.25)) {
             isImmersive.toggle()
@@ -937,6 +971,7 @@ struct ReaderView: View {
                 .cornerRadius(6)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
+                    pendingTapWorkItem?.cancel()
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                     onSentenceTap(pi, si, sentenceText)
