@@ -50,8 +50,8 @@ struct SettingsView: View {
     @State var enableHaptics = true
     @State var autoSaveInterval: Double = 30
     @State var maxCacheSize: Double = 500
-    @State private var cosyStatus: String = "检查中..."
-    @State private var isTestingCosy: Bool = false
+    @State private var edgeStatus: String = "检查中..."
+    @State private var isTestingEdge: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -150,24 +150,24 @@ struct SettingsView: View {
                 // MARK: - 语音引擎
                 Section(header: Label("语音引擎", systemImage: "waveform")) {
                     HStack {
-                        Text("CosyVoice 3")
+                        Text("Edge TTS")
                         Spacer()
                         Circle()
-                            .fill(cosyStatus == "就绪" ? Color.green : Color.gray)
+                            .fill(edgeStatus.contains("就绪") || edgeStatus.contains("服务") ? Color.green : Color.gray)
                             .frame(width: 8, height: 8)
-                        Text(cosyStatus)
+                        Text(edgeStatus)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     Button("测试语音合成") {
                         Task {
-                            isTestingCosy = true
+                            isTestingEdge = true
                             let result = await store.testTTSSynthesize()
                             store.statusMessage = result
-                            isTestingCosy = false
+                            isTestingEdge = false
                         }
                     }
-                    .disabled(isTestingCosy)
+                    .disabled(isTestingEdge)
                 }
 
                 // MARK: - 书架设置
@@ -313,7 +313,8 @@ struct SettingsView: View {
                 loadAppSettings()
                 Task {
                     await calculateCacheSize()
-                    cosyStatus = await CosyVoiceService.shared.isAvailable ? "就绪" : "未就绪"
+                    let health = await EdgeTTSService.shared.healthCheck()
+                    edgeStatus = health.contains("就绪") || health.contains("服务") ? health : "未就绪"
                 }
             }
         }

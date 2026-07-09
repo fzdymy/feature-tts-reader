@@ -998,12 +998,12 @@ struct ReaderView: View {
         HStack(spacing: 10) {
             Image(systemName: "waveform.circle")
                 .foregroundColor(.accentColor)
-            Text("声纹克隆")
+            Text("音色配置")
                 .font(.subheadline)
                 .foregroundColor(textColor)
             Spacer()
             let cloned = store.characters.filter(\.hasVoiceSample).count
-            Text("\(cloned)/\(store.characters.count) 个角色已克隆")
+            Text("\(cloned)/\(store.characters.count) 个角色已准备样本")
                 .font(.caption2).foregroundColor(.secondary)
         }
     }
@@ -1429,7 +1429,7 @@ struct ReaderView: View {
     }
 
     private func sentenceView(pi: Int, si: Int, sentenceText: String, paraText: String, isCurrentChapter: Bool) -> some View {
-        let isHighlighted = isCurrentChapter && store.currentParagraphIndex == pi && store.currentSentenceIndex == si
+        let isHighlighted = isSentenceReading(pi: pi, si: si, isCurrentChapter: isCurrentChapter)
         return HStack(alignment: .top, spacing: 6) {
             if isHighlighted {
                 Circle()
@@ -1478,6 +1478,11 @@ struct ReaderView: View {
     private func isParagraphReading(pi: Int, isCurrentChapter: Bool) -> Bool {
         guard let paraIdx = store.currentParagraphIndex, isCurrentChapter else { return false }
         return paraIdx == pi
+    }
+
+    private func isSentenceReading(pi: Int, si: Int, isCurrentChapter: Bool) -> Bool {
+        guard isCurrentChapter else { return false }
+        return store.currentParagraphIndex == pi && store.currentSentenceIndex == si
     }
 }
 

@@ -106,6 +106,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
         if let currentItem {
             playbackHistory.append(currentItem)
+            if playbackHistory.count > 200 {
+                playbackHistory.removeFirst(playbackHistory.count - 200)
+            }
         }
         let item = queue.removeFirst()
         currentItem = item
@@ -116,7 +119,11 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
-            player = try AVAudioPlayer(contentsOf: item.audioURL)
+            if let data = try? Data(contentsOf: item.audioURL), let audioPlayer = try? AVAudioPlayer(data: data) {
+                player = audioPlayer
+            } else {
+                player = try AVAudioPlayer(contentsOf: item.audioURL)
+            }
             player?.delegate = self
             player?.rate = playbackRate
             player?.enableRate = true
@@ -345,7 +352,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     static func cleanupAllAudioFiles() {
         let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let dirs = ["tts_audio", "cosy_audio"]
+        let dirs = ["tts_audio"]
         for dir in dirs {
             try? FileManager.default.removeItem(at: cachesDir.appendingPathComponent(dir, isDirectory: true))
         }

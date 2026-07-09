@@ -80,7 +80,7 @@ struct CharacterEditorView: View {
                             Text(sampleStatus).font(.caption).foregroundColor(.secondary)
                         }
                     } else {
-                        Text("提供 10-30 秒角色语音样本以克隆声纹")
+                        Text("提供角色参考音频后，后续可用于本地试听与角色识别")
                             .font(.caption).foregroundColor(.secondary)
                     }
                     HStack(spacing: 12) {
@@ -250,18 +250,16 @@ struct CharacterEditorView: View {
         Task {
             await MainActor.run { isExtractingEmbedding = true; sampleError = nil }
             do {
-                try await CosyVoiceService.shared.ensureModel()
-                let embedding = try await CosyVoiceService.shared.enrollSpeaker(name: profile.name, audioURL: url)
-                let embeddingData = try JSONEncoder().encode(embedding)
+                let sampleText = "我是\(profile.name)，这是我的参考音频样本。"
+                _ = try await EdgeTTSService.shared.synthesize(text: sampleText, voice: profile.voice.isEmpty ? nil : profile.voice)
                 await MainActor.run {
                     profile.voiceSampleURL = url
-                    profile.voiceSampleEmbedding = embeddingData
-                    sampleStatus = "声纹已提取 (192维嵌入)"
+                    sampleStatus = "样本已保存，可用于后续试听与角色关联"
                     isExtractingEmbedding = false
                 }
             } catch {
                 await MainActor.run {
-                    sampleError = "声纹提取失败: \(error.localizedDescription)"
+                    sampleError = "样本处理失败: \(error.localizedDescription)"
                     isExtractingEmbedding = false
                 }
             }
@@ -273,7 +271,6 @@ struct CharacterEditorView: View {
             try? FileManager.default.removeItem(at: url)
         }
         profile.voiceSampleURL = nil
-        profile.voiceSampleEmbedding = nil
         sampleStatus = ""
     }
 
@@ -289,10 +286,7 @@ struct CharacterEditorView: View {
         Task {
             do {
                 let text = "我是\(profile.name)，TTS多角色小说阅读器听《\(store.books.first?.title ?? "未知书籍")》真爽。"
-                let embedding: [Float]? = profile.voiceSampleEmbedding.flatMap {
-                    try? JSONDecoder().decode([Float].self, from: $0)
-                }
-                let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: text, embedding: embedding)
+                let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: profile.voice.isEmpty ? nil : profile.voice)
                 testFileSize = "\(String(format: "%.1f", Double(audioData.count) / 1024)) KB"
                 do {
                     try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)

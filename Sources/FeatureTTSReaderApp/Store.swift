@@ -56,30 +56,13 @@ final class ReaderStore: NSObject, ObservableObject {
     private var playbackTask: Task<Void, Never>?
     @Published private(set) var isStateLoaded = false
 
-    // Lazy singleton for on-device BERT speaker detection
-    nonisolated private static let bertLock = OSAllocatedUnfairLock()
-    nonisolated(unsafe) private static var _bertDetector: BertSpeakerDetector?
-    nonisolated static var bertDetector: BertSpeakerDetector? {
-        bertLock.withLock {
-            if _bertDetector == nil {
-                let d = BertSpeakerDetector()
-                if d.isAvailable { _bertDetector = d }
-            }
-            return _bertDetector
-        }
-    }
-
-    /// 测试 CosyVoice 模型是否可用
+    /// 测试 Edge TTS relay 服务是否可用
     func testActiveServer() async {
         guard !isTestingServer else { return }
         isTestingServer = true
         activeServerTestResult = "测试中..."
-        do {
-            try await CosyVoiceService.shared.ensureModel()
-            activeServerTestResult = "CosyVoice 就绪"
-        } catch {
-            activeServerTestResult = "失败: \(error.localizedDescription)"
-        }
+        let status = await EdgeTTSService.shared.healthCheck()
+        activeServerTestResult = status
         isTestingServer = false
     }
 
@@ -497,10 +480,21 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     private func loadPersistentLibrary() {
+        var recoveredBooks = false
         let persistedBooks = persistence.fetchBooks()
         if !persistedBooks.isEmpty {
             books = persistedBooks
             loadAllTextsFromFiles()
+        } else {
+            let orphans = recoverOrphanTextFiles()
+            if !orphans.isEmpty {
+                books = orphans
+                recoveredBooks = true
+                persistence.saveBooks(orphans)
+                persistence.saveBookmarks(bookmarks)
+                persistence.saveChapterProgressMap(bookProgressByChapter)
+                persistence.saveLastReadChapterIndexMap(lastReadChapterIndexByBook)
+            }
         }
         let persistedBookmarks = persistence.fetchBookmarks()
         if !persistedBookmarks.isEmpty {
@@ -514,6 +508,43 @@ final class ReaderStore: NSObject, ObservableObject {
         if !persistedLastRead.isEmpty {
             lastReadChapterIndexByBook = persistedLastRead
         }
+        if recoveredBooks, let first = books.first {
+            bookText = loadBookTextFromFile(bookID: first.id) ?? ""
+            lastScannedBookText = bookText
+            currentBookTitle = first.title
+            currentBookID = first.id.uuidString
+            statusMessage = "已从文件恢复 \(books.count) 本导入的书籍"
+        }
+    }
+
+    /// Scans the book_texts directory for orphan .txt files not referenced by any CoreData record,
+    /// and creates Book entries from their filenames (UUID-based).
+    private func recoverOrphanTextFiles() -> [Book] {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let dir = docs.appendingPathComponent("book_texts", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: dir.path),
+              let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles) else {
+            return []
+        }
+        var recovered: [Book] = []
+        for url in files {
+            guard url.pathExtension == "txt" else { continue }
+            let name = url.deletingPathExtension().lastPathComponent
+            guard let bookID = UUID(uuidString: name) else { continue }
+            if books.contains(where: { $0.id == bookID }) { continue }
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let fileSize = attrs[.size] as? Int, fileSize < 10 { continue }
+            var title = "恢复的书籍"
+            if let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty {
+                let lines = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                if let firstLine = lines.first {
+                    title = String(firstLine.trimmingCharacters(in: .whitespacesAndNewlines).prefix(50))
+                }
+            }
+            let book = Book(id: bookID, title: title, text: "", importedAt: Date())
+            recovered.append(book)
+        }
+        return recovered
     }
 
     private func ensureVoiceOptionsLoaded() {
@@ -523,13 +554,12 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func testTTSSynthesize() async -> String {
-        try? await CosyVoiceService.shared.ensureModel()
-        guard await CosyVoiceService.shared.isAvailable else { return "CosyVoice 模型不可用" }
         let testText = "这是个多角色语音阅读器！"
         do {
-            let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: testText)
+            let audioData = try await EdgeTTSService.shared.synthesize(text: testText)
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let audioURL = cachesDir.appendingPathComponent("cosy-test-\(UUID().uuidString).wav")
+            let extensionName = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
+            let audioURL = cachesDir.appendingPathComponent("edge-test-\(UUID().uuidString).\(extensionName)")
             try audioData.write(to: audioURL, options: .atomic)
             await MainActor.run { ttsTestAudioURL = audioURL }
             return "合成成功！文件大小：\(String(format: "%.1f", Double(audioData.count) / 1024)) KB"
@@ -992,20 +1022,13 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func previewVoice(for profile: CharacterProfile) async {
-        try? await CosyVoiceService.shared.ensureModel()
-        guard await CosyVoiceService.shared.isAvailable else {
-            statusMessage = "CosyVoice 模型不可用，请检查网络连接。"
-            return
-        }
         isBusy = true
         let text = "你好，我是 \(profile.name)，这是我的声音示例。"
         do {
-            let embedding: [Float]? = profile.voiceSampleEmbedding.flatMap {
-                try? JSONDecoder().decode([Float].self, from: $0)
-            }
-            let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: text, embedding: embedding)
+            let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: profile.voice.isEmpty ? nil : profile.voice)
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let audioURL = cachesDir.appendingPathComponent("preview-\(UUID().uuidString).wav")
+            let ext = audioData.starts(with: [0x49, 0x44, 0x33]) || (audioData.first ?? 0) & 0xFF == 0xFF ? "mp3" : "wav"
+            let audioURL = cachesDir.appendingPathComponent("preview-\(UUID().uuidString).\(ext)")
             try audioData.write(to: audioURL, options: .atomic)
             await audioController.playFilesAndWait([audioURL])
             statusMessage = "正在播放 \(profile.name) 语音示例。"
@@ -1028,7 +1051,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func autoApplyRecommendedToAll() {
-        statusMessage = "CosyVoice 无需 Azure 音色推荐。"
+        statusMessage = "Edge TTS 使用 relay 服务进行实时合成。"
         saveState()
     }
 
@@ -1119,14 +1142,16 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     private func cancelPlaybackTaskAndWait() async {
-        playbackTask?.cancel()
-        try? await playbackTask?.value
-        playbackTask = nil
+        let task = playbackTask
+        playbackTask = nil  // 先清空引用，防止并发赋值
+        task?.cancel()
+        _ = try? await task?.value
     }
 
     func stopPlayback() {
-        playbackTask?.cancel()
+        let task = playbackTask
         playbackTask = nil
+        task?.cancel()
         audioController.stop()
         AdvancedAudioPlaybackController.cleanupAllAudioFiles()
         speechSynthesizer.stopSpeaking(at: .immediate)
@@ -1237,7 +1262,7 @@ final class ReaderStore: NSObject, ObservableObject {
         return blocks
     }
 
-    /// 逐段落流水线：高亮段落 → 识别对白 → CosyVoice 合成 → 播放
+    /// 逐段落流水线：高亮段落 → 识别对白 → Edge TTS 合成 → 播放
     func playChapterStreaming(chapter: BookChapter, fromParagraphIndex: Int? = nil, fromSentenceIndex: Int? = nil) async throws {
         await MainActor.run {
             isBusy = true
@@ -1259,32 +1284,8 @@ final class ReaderStore: NSObject, ObservableObject {
         let blocks = Self.buildDialogueBlocks(paragraphs)
 
         let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let cosyDir = cachesDir.appendingPathComponent("cosy_audio", isDirectory: true)
-        try? FileManager.default.createDirectory(at: cosyDir, withIntermediateDirectories: true)
-
-        let registry = VoiceEmbeddingRegistry.shared
-        var _speakerEmbeddings: [String: [Float]] = [:]
-        var _speakerSamples: [String: URL] = [:]
-        for char in characters {
-            if let embData = char.voiceSampleEmbedding,
-               let floats = try? JSONDecoder().decode([Float].self, from: embData),
-               floats.count >= 192 {
-                _speakerEmbeddings[char.name] = floats
-                await registry.register(canonicalName: char.name, embedding: floats, sampleRate: 16000, source: .preset)
-            } else if let url = char.voiceSampleURL {
-                _speakerSamples[char.name] = url
-            }
-            if !char.aliases.isEmpty {
-                await registry.registerAliases(char.aliases, for: char.name)
-            }
-        }
-
-        // Sendable wrapper to satisfy Swift 6 concurrency checking in TaskGroup closure
-        struct EmbeddingPayload: @unchecked Sendable {
-            let dict: [String: [Float]]
-            let samples: [String: URL]
-        }
-        let embedPayload = EmbeddingPayload(dict: _speakerEmbeddings, samples: _speakerSamples)
+        let audioDir = cachesDir.appendingPathComponent("edge_audio", isDirectory: true)
+        try? FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
 
         let director = DramaDirector()
         var lastSpeakerID: UUID?
@@ -1372,47 +1373,32 @@ final class ReaderStore: NSObject, ObservableObject {
                             )
                             upcomingContextIndex += 1
 
-                            let cosySegments: [(String, String, String?)] = [(canonical, sentence, refined.emotionTag)]
-
                             group.addTask {
-                                let emb = embedPayload.dict
-                                let samples = embedPayload.samples
                                 await semaphore.wait()
                                 defer { semaphore.signal() }
 
                                 guard !Task.isCancelled else { return nil }
 
                                 let audioData: Data
-                                let progressTask = Task { [weak self] in
-                                    guard let self else { return }
-                                    while !Task.isCancelled {
-                                        let progress = await CosyVoiceService.shared.synthesisProgress
-                                        if progress > 0 {
-                                            await MainActor.run { self.ttsProgressMessage = "CosyVoice 合成 [\(Int(progress * 100))%]" }
-                                        }
-                                        if progress >= 1.0 { break }
-                                        try? await Task.sleep(nanoseconds: 200_000_000)
-                                    }
-                                }
-                                defer { progressTask.cancel() }
-
                                 do {
-                                    audioData = try await CosyVoiceService.shared.synthesizeDialogueWithEmbeddings(
-                                        segments: cosySegments,
-                                        speakerEmbeddings: emb,
-                                        speakerSamples: samples,
-                                        registry: registry
+                                    await MainActor.run { self.ttsProgressMessage = "Edge TTS 请求中..." }
+                                    audioData = try await EdgeTTSService.shared.synthesize(
+                                        text: sentence,
+                                        voice: profile?.voice.isEmpty == false ? profile?.voice : nil,
+                                        rate: Double(profile?.rate ?? 0),
+                                        pitch: Double(profile?.pitch ?? 0),
+                                        emotionTag: refined.emotionTag
                                     )
                                 } catch {
-                                    let isTimeout = error.localizedDescription.contains("超时") || (error as? TTSError) == .timeout
                                     await MainActor.run {
-                                        self.statusMessage = isTimeout ? "CosyVoice 合成超时，切换至系统语音" : "CosyVoice 合成失败，切换至系统语音"
+                                        self.statusMessage = "Edge TTS 合成失败，切换至系统语音"
                                     }
                                     await self.playLocalSpeech(sentence)
                                     return nil
                                 }
 
-                                let audioURL = cosyDir.appendingPathComponent("blk-\(blockIdx)-s-\(sIdx)-\(UUID().uuidString).wav")
+                                let extensionName = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
+                                let audioURL = audioDir.appendingPathComponent("blk-\(blockIdx)-s-\(sIdx)-\(UUID().uuidString).\(extensionName)")
                                 try? audioData.write(to: audioURL, options: .atomic)
 
                                 let anchor = PlaybackAnchor(
@@ -1473,13 +1459,20 @@ final class ReaderStore: NSObject, ObservableObject {
             return
         }
 
-        // Wait for playback completion
+        // Wait for playback completion with timeout
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             if !audioController.isPlaying { cont.resume(); return }
             let c = audioController.$isPlaying
                 .dropFirst().filter { !$0 }.first()
                 .sink { _ in cont.resume() }
             playbackContinuationCancellable = c
+            // 超时兜底: 10秒后无论是否播完都 resume，避免 permanent hang
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                if self?.playbackContinuationCancellable != nil {
+                    cont.resume()
+                    self?.playbackContinuationCancellable = nil
+                }
+            }
         }
         playbackContinuationCancellable = nil
 
@@ -1622,9 +1615,6 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {
-        // Reset BERT profiles for this chapter
-        Self.bertDetector?.resetProfiles()
-
         let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
@@ -1710,7 +1700,7 @@ final class ReaderStore: NSObject, ObservableObject {
         ("\u{300E}", "\u{300F}"),
     ]
 
-    /// Map internal tone names (from analyzeSentenceTone) to CosyVoice emotion tags.
+    /// Map internal tone names (from analyzeSentenceTone) to Edge TTS emotion tags.
     nonisolated private static func mapToneToEmotionTag(_ tone: String) -> String? {
         switch tone.lowercased() {
         case "angry":      return "angry"
@@ -1784,13 +1774,7 @@ final class ReaderStore: NSObject, ObservableObject {
             // 当对白靠近段首时，合并前一段落末尾文本作为上下文
             let mergedContext = openIdx < 80 && !previousContextSuffix.isEmpty ? previousContextSuffix + beforeContext : beforeContext
 
-            // BERT primary: run once and use for disambiguation
-            var bertResult: (name: String?, score: Float) = (nil, 0)
-            if let bert = Self.bertDetector, !mergedContext.isEmpty {
-                bertResult = bert.detectSpeaker(context: mergedContext, quote: quoteText, candidates: characters.map(\.name))
-            }
-
-            // Regex speaker detection
+            // Regex-based speaker detection; no external BERT dependency.
             var regexSpeaker: String? = nil
             if let detected = detectSpeakerInContext(mergedContext, characters: characters) {
                 regexSpeaker = detected
@@ -1806,17 +1790,8 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
             }
 
-            // Decide: BERT primary with regex tiebreaker
-            if bertResult.score > 0.7 {
-                speaker = bertResult.name
-            } else if bertResult.score > 0.5, regexSpeaker != nil {
+            if regexSpeaker != nil {
                 speaker = regexSpeaker
-            } else if bertResult.score > 0.5 {
-                speaker = bertResult.name
-            } else if regexSpeaker != nil {
-                speaker = regexSpeaker
-            } else if bertResult.score > 0.4 {
-                speaker = bertResult.name
             }
 
             // If still not found, look for vocative inside the quote
@@ -1832,12 +1807,6 @@ final class ReaderStore: NSObject, ObservableObject {
 
             let resolvedSpeaker = speaker ?? currentLastSpeaker ?? narratorName
             currentLastSpeaker = resolvedSpeaker
-
-            // Update BERT profile for high-confidence detections
-            if speaker != nil, let bert = Self.bertDetector, !mergedContext.isEmpty, resolvedSpeaker != narratorName {
-                let profileText = mergedContext + " [SEP] " + quoteText
-                bert.updateProfile(for: resolvedSpeaker, from: profileText)
-            }
 
             if !quoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let tone = toneAnalyzer.analyzeSentenceTone(quoteText)
@@ -1949,7 +1918,16 @@ final class ReaderStore: NSObject, ObservableObject {
         let paragraphs = chapterText.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let trimmed = paragraphText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return paragraphs.firstIndex(where: { $0.contains(trimmed) || trimmed.contains($0) })
+        // 精确匹配整段内容，避免子串歧义
+        if let exact = paragraphs.firstIndex(where: { $0 == trimmed }) { return exact }
+        // 容错: 去掉末尾标点再匹配
+        let withoutPunct = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "。！？!?.，,；;"))
+        if withoutPunct != trimmed,
+           let idx = paragraphs.firstIndex(where: { $0 == withoutPunct || $0.hasPrefix(withoutPunct) }) {
+            return idx
+        }
+        // 最后容错: 子串包含匹配（保留原始兼容性）
+        return paragraphs.firstIndex(where: { $0.contains(trimmed) })
     }
 
     func playFromParagraph(_ paragraph: String) async {
@@ -1985,9 +1963,9 @@ final class ReaderStore: NSObject, ObservableObject {
         await buildScript(for: false)
         guard let first = scriptSegments.first else { return "脚本为空，无法测试。" }
         do {
-            let embedding: [Float]? = nil
-            let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: first.text, embedding: embedding)
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("e2e-test-\(UUID().uuidString).wav")
+            let audioData = try await EdgeTTSService.shared.synthesize(text: first.text)
+            let extensionName = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("e2e-test-\(UUID().uuidString).\(extensionName)")
             try audioData.write(to: url, options: .atomic)
             await audioController.playFilesAndWait([url])
             return "合成并播放成功：\(url.lastPathComponent)"

@@ -6,37 +6,12 @@ struct TTSView: View {
     @State private var modelStatus = "检查中…"
     @State private var isTesting = false
     @State private var testResult: String?
-    @State private var downloadPhase: CosyVoiceService.DownloadPhase = .idle
-    @State private var downloadError: String?
-    @State private var downloadStartedAt: Date?
-    @State private var downloadElapsed: TimeInterval = 0
+    @State private var serverListText = EdgeTTSService.shared.serverListText
+    @State private var apiKey = EdgeTTSService.shared.apiKey
+    @State private var healthMessage = ""
     @State private var showCopied = false
-    @State private var showManualImport = false
-    @State private var importModelURL: URL?
-    @State private var selectedVariant = 0
-    @State private var importError: String?
-    @State private var downloadProgress: Double = 0
-    @State private var downloadSpeed: Double = 0
-    @State private var selectedProxy: DownloadProxy = .direct
-    @State private var customProxyURL = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
-    private var realProgress: Double? {
-        guard downloadPhase == .downloading else { return nil }
-        let p = downloadProgress
-        return p > 0 ? p : nil
-    }
-
-    private var elapsedText: String {
-        let secs = downloadElapsed
-        if secs < 60 {
-            return "\(Int(secs))秒"
-        }
-        let m = Int(secs) / 60
-        let s = Int(secs) % 60
-        return "\(m)分\(s)秒"
-    }
 
     var body: some View {
         NavigationStack {
@@ -50,7 +25,8 @@ struct TTSView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("语音")
             .onAppear {
-                customProxyURL = DownloadProxy.customPrefix
+                serverListText = EdgeTTSService.shared.serverListText
+                apiKey = EdgeTTSService.shared.apiKey
                 refreshStatus()
             }
             .onReceive(timer) { _ in refreshStatus() }
@@ -62,11 +38,11 @@ struct TTSView: View {
     private var engineSection: some View {
         Section {
             HStack {
-                Text("CosyVoice 3")
+                Text("Edge TTS")
                     .font(.headline)
                 Spacer()
                 Circle()
-                    .fill(downloadPhase == .ready ? Color.green : .orange)
+                    .fill(healthMessage.contains("就绪") || healthMessage.contains("服务") ? Color.green : .orange)
                     .frame(width: 8, height: 8)
                 Text(modelStatus)
                     .font(.caption)
@@ -79,200 +55,47 @@ struct TTSView: View {
 
     // MARK: - Download Section
 
-    @ViewBuilder
     private var downloadSection: some View {
         Section {
-            // Variant picker (only when idle)
-            if downloadPhase == .idle {
-                Picker("模型版本", selection: $selectedVariant) {
-                    ForEach(Array(CosyVoiceService.variants.enumerated()), id: \.offset) { i, v in
-                        Text(v.name).tag(i)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("服务地址列表")
+                    .font(.subheadline)
+                TextEditor(text: $serverListText)
+                    .frame(minHeight: 100)
+                    .font(.body.monospaced())
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
+                TextField("API Key（可选）", text: $apiKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        saveServerURL()
                     }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: selectedVariant) { _, newIndex in
-                    guard newIndex < CosyVoiceService.variants.count else { return }
-                    let tag = CosyVoiceService.variants[newIndex].tag
-                    Task { await CosyVoiceService.shared.setVariant(tag) }
-                }
-            }
-
-            // Proxy selector (only when idle or failed)
-            if downloadPhase == .idle || downloadPhase == .failed {
-                Picker("加速代理", selection: $selectedProxy) {
-                    ForEach(DownloadProxy.allCases, id: \.self) { proxy in
-                        Text(proxy.displayName).tag(proxy)
-                    }
-                }
-                .onChange(of: selectedProxy) { _, newValue in
-                    DownloadProxy.active = newValue
-                    if newValue == .custom {
-                        customProxyURL = DownloadProxy.customPrefix
-                    } else {
-                        customProxyURL = ""
-                    }
-                }
-
-                if selectedProxy == .custom {
-                    HStack {
-                        TextField("例如 http://10.0.1.45/tts/", text: $customProxyURL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .font(.caption)
-                        Button("应用") {
-                            DownloadProxy.customPrefix = customProxyURL
-                                .trimmingCharacters(in: .whitespaces)
-                                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                        }
-                        .font(.caption)
-                        .buttonStyle(.bordered)
-                    }
-                }
-            }
-
-            switch downloadPhase {
-            case .idle:
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("模型未下载 (~1.0GB)")
-                        .foregroundColor(.secondary)
-                    if selectedProxy != .direct {
-                        Text("代理: \(selectedProxy.displayName)")
-                            .font(.caption).foregroundColor(.green)
-                    }
-                    Text("需要网络连接，仅首次需下载")
-                        .font(.caption).foregroundColor(.secondary)
-                    Button("开始下载模型", systemImage: "icloud.and.arrow.down") {
-                        startDownload()
+                HStack {
+                    Button("保存") {
+                        saveServerURL()
                     }
                     .buttonStyle(.borderedProminent)
-                }
-
-            case .downloading:
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        ProgressView()
-                        Text("正在下载模型…")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Button("取消") {
-                            Task { await CosyVoiceService.shared.cancelDownload() }
-                        }
-                        .font(.caption)
-                        .buttonStyle(.bordered)
-                        .tint(.orange)
-                    }
-                    if let progress = realProgress {
-                        ProgressView(value: progress)
-                            .tint(.blue)
-                        HStack {
-                            Text("已用时 \(elapsedText)")
-                            Spacer()
-                            Text("\(Int(progress * 100))%")
-                        }
-                        .font(.caption).foregroundColor(.secondary)
-                    }
-                    Text("约 1.0GB，请保持网络畅通")
-                        .font(.caption).foregroundColor(.secondary)
-                }
-
-            case .warming:
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        ProgressView()
-                        Text("模型预热中…")
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-            case .ready:
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("模型已就绪")
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Button("删除模型", systemImage: "trash", role: .destructive) {
-                        Task { await CosyVoiceService.shared.resetDownload() }
-                    }
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                }
-
-            case .failed:
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.red)
-                        Text("下载失败")
-                            .foregroundColor(.red)
-                    }
-                    if let err = downloadError {
-                        Text(err).font(.caption).foregroundColor(.secondary)
-                    }
-                    Button("重试下载", systemImage: "arrow.clockwise") {
-                        Task { await CosyVoiceService.shared.resetDownload(); startDownload() }
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-
-            Divider()
-            VStack(spacing: 4) {
-                HStack {
-                    Text("手动下载（复制到浏览器）")
-                        .font(.caption).foregroundColor(.secondary)
-                    Spacer()
-                    Button {
-                        let tag = CosyVoiceService.variants[selectedVariant].tag
-                        let raw: String
-                        if selectedProxy == .custom {
-                            let prefix = customProxyURL.hasSuffix("/") ? customProxyURL : "\(customProxyURL)/"
-                            raw = "\(prefix)cosyvoice-\(tag).zip"
-                        } else {
-                            raw = "https://github.com/fzdymy/feature-tts-reader/releases/download/\(tag)/cosyvoice-\(tag).zip"
-                        }
-                        UIPasteboard.general.string = raw
+                    Button("复制") {
+                        UIPasteboard.general.string = serverListText
                         showCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showCopied = false }
-                    } label: {
-                        Label(showCopied ? "已复制" : "复制链接", systemImage: showCopied ? "checkmark" : "doc.on.doc")
                     }
+                    .buttonStyle(.bordered)
+                }
+                Text("当前默认服务：\(EdgeTTSService.defaultServerURL)")
                     .font(.caption)
-                    .buttonStyle(.borderless)
+                    .foregroundColor(.secondary)
+                Text("每行一个地址；可填多个备用服务器。当前本地服务使用 /tts?text=... 的查询接口返回音频。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if !healthMessage.isEmpty {
+                    Text(healthMessage)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                if selectedProxy != .direct {
-                    Text("当前使用代理: \(selectedProxy.displayName)")
-                        .font(.caption2).foregroundColor(.green)
-                } else {
-                    Text("国内用户建议选择加速代理")
-                        .font(.caption2).foregroundColor(.orange)
-                }
-            }
-
-            HStack {
-                Text("从本地文件导入模型")
-                    .font(.caption).foregroundColor(.secondary)
-                Spacer()
-                Button("导入模型文件夹") {
-                    showManualImport = true
-                }
-                .font(.caption)
-                .buttonStyle(.bordered)
-            }
-            if let err = importError {
-                Text(err).font(.caption).foregroundColor(.red)
             }
         } header: {
-            Label("模型下载", systemImage: "arrow.down.circle")
-        }
-        .fileImporter(
-            isPresented: $showManualImport,
-            allowedContentTypes: {
-                [.folder, .zip]
-            }()
-        ) { result in
-            handleModelImport(result)
+            Label("服务配置", systemImage: "server.rack")
         }
     }
 
@@ -289,7 +112,7 @@ struct TTSView: View {
                     isTesting = false
                 }
             }
-            .disabled(isTesting || downloadPhase != .ready)
+            .disabled(isTesting)
 
             if let result = testResult {
                 Text(result).font(.caption).foregroundColor(.secondary)
@@ -318,7 +141,7 @@ struct TTSView: View {
             Text("多角色对话合成").font(.subheadline)
             Text("支持情绪标签：开心、悲伤、愤怒等")
                 .font(.caption).foregroundColor(.secondary)
-            Text("声纹克隆：每个角色 10-30 秒参考音频")
+            Text("可直接使用 Edge TTS relay 服务进行实时合成与播放")
                 .font(.caption).foregroundColor(.secondary)
             Text(store.statusMessage)
                 .font(.subheadline).foregroundColor(.secondary)
@@ -331,92 +154,19 @@ struct TTSView: View {
     // MARK: - Helpers
 
     private func refreshStatus() {
-        // Sync proxy selector with current setting
-        selectedProxy = DownloadProxy.active
-        // Sync variant picker with service's active variant
-        let activeTag = CosyVoiceService.activeVariant
-        if let idx = CosyVoiceService.variants.firstIndex(where: { $0.tag == activeTag }) {
-            selectedVariant = idx
-        }
         Task {
-            let svc = CosyVoiceService.shared
-            let actorPhase = await svc.downloadPhase
-            // Only override local phase if no user-initiated download is in flight.
-            // This prevents the timer from reverting startDownload()'s immediate .downloading back to .idle.
-            switch (actorPhase, downloadPhase) {
-            case (.idle, .downloading):
-                break // keep local .downloading until actor catches up
-            default:
-                downloadPhase = actorPhase
-            }
-            downloadError = await svc.downloadError
-            downloadStartedAt = await svc.downloadStartedAt
-            downloadProgress = await svc.downloadProgress
-            downloadSpeed = await svc.downloadSpeed
-            if let start = downloadStartedAt {
-                downloadElapsed = Date().timeIntervalSince(start)
-            }
-            switch downloadPhase {
-            case .idle:     modelStatus = "未下载"
-            case .downloading: modelStatus = "下载中…"
-            case .warming:  modelStatus = "预热中…"
-            case .ready:    modelStatus = "就绪"
-            case .failed:   modelStatus = "下载失败"
+            let status = await EdgeTTSService.shared.healthCheck()
+            await MainActor.run {
+                healthMessage = status
+                modelStatus = status.contains("就绪") || status.contains("服务") ? "已配置" : "未连接"
             }
         }
     }
 
-    private func startDownload() {
-        downloadPhase = .downloading
-        downloadError = nil
-        downloadProgress = 0
-        downloadSpeed = 0
-        downloadStartedAt = Date()
-        downloadElapsed = 0
-        Task {
-            do {
-                try await CosyVoiceService.shared.ensureModel()
-            } catch {
-                downloadError = error.localizedDescription
-            }
-        }
-    }
-
-    private func handleModelImport(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url):
-            let bookmarkData = try? url.bookmarkData(
-                options: .minimalBookmark,
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-            Task {
-                do {
-                    var isStale = false
-                    let resolvedURL: URL
-                    if let bookmarkData = bookmarkData {
-                        resolvedURL = try URL(
-                            resolvingBookmarkData: bookmarkData,
-                            options: [.withoutUI],
-                            relativeTo: nil,
-                            bookmarkDataIsStale: &isStale
-                        )
-                        guard resolvedURL.startAccessingSecurityScopedResource() else {
-                            importError = "无法访问文件权限"
-                            return
-                        }
-                        defer { resolvedURL.stopAccessingSecurityScopedResource() }
-                    } else {
-                        resolvedURL = url
-                    }
-                    try await CosyVoiceService.shared.importModel(from: resolvedURL)
-                } catch {
-                    importError = error.localizedDescription
-                }
-            }
-        case .failure(let error):
-            importError = error.localizedDescription
-        }
+    private func saveServerURL() {
+        EdgeTTSService.shared.setServerList(serverListText)
+        EdgeTTSService.shared.setAPIKey(apiKey)
+        refreshStatus()
     }
 
     private var voiceSamples: [URL] {
@@ -433,7 +183,7 @@ struct TTSView: View {
             if voiceSamples.isEmpty {
                 Text("暂无内置音色样本").foregroundColor(.secondary)
             } else {
-                Text("APP内置 \(voiceSamples.count) 个音色样本 (16kHz 单声道 WAV)")
+                Text("APP内置 \(voiceSamples.count) 个音色样本 (16kHz 单声道 WAV，供本地试听使用)")
                     .font(.caption).foregroundColor(.secondary)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {

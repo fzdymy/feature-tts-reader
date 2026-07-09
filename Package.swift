@@ -12,16 +12,9 @@ let package = Package(
             targets: ["FeatureTTSReaderApp"]
         )
     ],
-    dependencies: [
-        .package(url: "https://github.com/soniqo/speech-swift", branch: "main"),
-    ],
     targets: [
         .executableTarget(
             name: "FeatureTTSReaderApp",
-            dependencies: [
-                .product(name: "CosyVoiceTTS", package: "speech-swift"),
-                .product(name: "AudioCommon", package: "speech-swift"),
-            ],
             path: "Sources/FeatureTTSReaderApp",
             resources: [.copy("Models")]
         )

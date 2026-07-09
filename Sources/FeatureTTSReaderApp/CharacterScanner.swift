@@ -1,7 +1,10 @@
 import Foundation
 import NaturalLanguage
 
-/// Shared scanning pipeline used by both Store.scanCharacters() and CharacterAssignmentView.startScan().
+/// Shared scanning pipeline used by Store.scanCharacters().
+/// CharacterAssignmentView.startScan() uses its own enhanced inline pipeline
+/// (with progress UI, Phase 4 titleSuffix merge, dynamic minFreq, top-100 cap,
+/// gender fallback) — not this function. Do not assume this is the sole pipeline.
 struct CharacterScanner {
     struct Config {
         var maxResults: Int = 12

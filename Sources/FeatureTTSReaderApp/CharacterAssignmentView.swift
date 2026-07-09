@@ -392,11 +392,9 @@ struct CharacterAssignmentPanel: View {
             store.statusMessage = "正在生成试听..."
             let sampleText = "你好，我是\(profile.name)。"
             do {
-                let embedding: [Float]? = profile.voiceSampleEmbedding.flatMap {
-                    try? JSONDecoder().decode([Float].self, from: $0)
-                }
-                let audioData = try await CosyVoiceService.shared.synthesizeSingle(text: sampleText, embedding: embedding)
-                let url = FileManager.default.temporaryDirectory.appendingPathComponent("sample-\(UUID().uuidString).wav")
+                let audioData = try await EdgeTTSService.shared.synthesize(text: sampleText, voice: profile.voice.isEmpty ? nil : profile.voice)
+                let ext = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("sample-\(UUID().uuidString).\(ext)")
                 try audioData.write(to: url, options: .atomic)
                 await store.audioController.playFilesAndWait([url])
                 store.statusMessage = "试听已开始播放"
