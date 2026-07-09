@@ -9,6 +9,8 @@ struct BookDetailView: View {
     @State private var isLoadingChapters = true
     @State private var loadError = false
     @State private var readerCover: ReaderCoverKey?
+    @State private var resolvedTextLength = 0
+    @State private var isDeleting = false
 
     struct ReaderCoverKey: Identifiable {
         let id: UUID
@@ -72,7 +74,7 @@ struct BookDetailView: View {
                     } else {
                         InfoRow(label: "章节数", value: "\(chapterCount)")
                     }
-                    let wan = Double(book.text.count) / 10000
+                    let wan = Double(resolvedTextLength) / 10000
                     InfoRow(label: "字数", value: "\(String(format: "%.1f", wan)) 万字")
                 }
             }
@@ -81,21 +83,38 @@ struct BookDetailView: View {
                 .environmentObject(store)
 
             Section {
-                Button(role: .destructive) {
-                    if let index = store.books.firstIndex(where: { $0.id == book.id }) {
-                        store.books.remove(at: index)
-                        store.saveState()
+                VStack(spacing: 8) {
+                    Button(action: {
+                        Task { await loadChapters() }
+                    }) {
+                        Label("重试加载章节", systemImage: "arrow.clockwise")
                     }
-                    dismiss()
-                } label: {
-                    Label("删除本书", systemImage: "trash")
+                    .disabled(isLoadingChapters)
+
+                    Button(role: .destructive) {
+                        isDeleting = true
+                        let targetID = book.id
+                        store.books.removeAll { $0.id == targetID }
+                        store.bookChaptersCache[targetID] = nil
+                        store.saveState()
+                        dismiss()
+                    } label: {
+                        Label("删除本书", systemImage: "trash")
+                    }
+                    .disabled(isDeleting)
                 }
             }
         }
         .navigationTitle("书籍详情")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
+        .task(id: book.id) {
             await loadChapters()
+        }
+        .onAppear {
+            refreshChapterCount()
+        }
+        .onReceive(store.objectWillChange) { _ in
+            refreshChapterCount()
         }
         .fullScreenCover(item: $readerCover) { cover in
             ReaderView(book: book,
@@ -107,48 +126,80 @@ struct BookDetailView: View {
     }
 
     private func loadChapters() async {
-        if let cached = store.bookChaptersCache[book.id] {
+        refreshChapterCount()
+        if let cached = store.bookChaptersCache[book.id], !cached.isEmpty {
             chapterCount = cached.count
             isLoadingChapters = false
+            loadError = false
             return
         }
+
+        isLoadingChapters = true
+        loadError = false
         let text = await loadBookText()
+        guard !Task.isCancelled else { return }
         guard let text, !text.isEmpty else {
-            loadError = true
-            isLoadingChapters = false
+            await MainActor.run {
+                loadError = true
+                isLoadingChapters = false
+            }
             return
         }
-        let parsed = await Task.detached(priority: .userInitiated) { [text] in
-            ReaderStore.extractChapters(from: text)
-        }.value
+
+        let parsed = await Task(priority: .userInitiated) { ReaderStore.extractChapters(from: text) }.value
+        guard !Task.isCancelled else { return }
         await MainActor.run {
             store.bookChaptersCache[book.id] = parsed
             chapterCount = parsed.count
             isLoadingChapters = false
+            loadError = parsed.isEmpty
+            resolvedTextLength = text.count
         }
     }
 
     private func loadBookText() async -> String? {
         if !book.text.isEmpty { return book.text }
         if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty { return store.bookText }
+        if let fileText = store.loadBookTextFromFile(bookID: book.id) { return fileText }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
         let url = docs.appendingPathComponent("book_texts/\(book.id.uuidString).txt")
-        return await Task.detached(priority: .userInitiated) {
+        return await Task(priority: .userInitiated) {
             try? String(contentsOf: url, encoding: .utf8)
         }.value
     }
 
+    private func refreshChapterCount() {
+        chapterCount = store.bookChaptersCache[book.id]?.count ?? 0
+        let fallbackText: String
+        if !book.text.isEmpty {
+            fallbackText = book.text
+        } else if store.currentBookID == book.id.uuidString {
+            fallbackText = store.bookText
+        } else {
+            fallbackText = store.loadBookTextFromFile(bookID: book.id) ?? ""
+        }
+        resolvedTextLength = fallbackText.count
+        if chapterCount > 0 {
+            isLoadingChapters = false
+            loadError = false
+        }
+    }
+
     private func openReader() {
-        guard let chaps = store.bookChaptersCache[book.id], !chaps.isEmpty else {
+        let fallbackText = book.text.isEmpty ? (store.currentBookID == book.id.uuidString ? store.bookText : store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
+        let chaps = store.bookChaptersCache[book.id] ?? (fallbackText.isEmpty ? nil : store.chaptersForBook(book.id, text: fallbackText))
+        guard let chapters = chaps, !chapters.isEmpty else {
             ReaderStore.debugLog("[OPEN-READER-FAIL] no cache for \(book.id.uuidString)")
+            loadError = true
             return
         }
         let saved = ReaderStore.loadLastChapterIndex(for: book.id)
-        let safeIndex = min(saved, chaps.count - 1)
-        ReaderStore.debugLog("[OPEN-READER] saved=\(saved) safe=\(safeIndex) total=\(chaps.count)")
+        let safeIndex = max(0, min(saved, chapters.count - 1))
+        store.currentBookID = book.id.uuidString
+        ReaderStore.debugLog("[OPEN-READER] saved=\(saved) safe=\(safeIndex) total=\(chapters.count)")
         readerCover = ReaderCoverKey(
-            id: chaps[safeIndex].id,
-            chapter: chaps[safeIndex],
+            id: chapters[safeIndex].id,
+            chapter: chapters[safeIndex],
             chapterIndex: safeIndex
         )
     }
@@ -164,5 +215,12 @@ struct InfoRow: View {
             Spacer()
             Text(value).foregroundColor(.primary)
         }
+    }
+}
+
+#Preview {
+    NavigationStack {
+        BookDetailView(book: Book(id: UUID(), title: "示例书籍", text: "这是一个样本文本，用于预览书籍详情。", importedAt: Date()))
+            .environmentObject(ReaderStore())
     }
 }

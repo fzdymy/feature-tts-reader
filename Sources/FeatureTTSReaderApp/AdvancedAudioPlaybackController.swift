@@ -17,7 +17,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private var currentItem: TTSQueueItem?
     private var playbackHistory: [TTSQueueItem] = []
     private var playbackContinuation: CheckedContinuation<Void, Never>?
-    private let rmsQueue = DispatchQueue(label: "rms", qos: .background)
     private var rmsTimer: Timer?
     private var rmsInstallRequested = false
     private var remoteCommandCenter = MPRemoteCommandCenter.shared()
@@ -100,8 +99,10 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             currentItem = nil
             queueCount = 0
             updateNowPlaying()
-            playbackContinuation?.resume()
-            playbackContinuation = nil
+            if let continuation = playbackContinuation {
+                playbackContinuation = nil
+                continuation.resume()
+            }
             return
         }
         if let currentItem {
@@ -141,9 +142,11 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func stop() {
+        if let continuation = playbackContinuation {
+            playbackContinuation = nil
+            continuation.resume()
+        }
         flushPlayback()
-        playbackContinuation?.resume()
-        playbackContinuation = nil
     }
 
     func skipToSegment(at paragraphIndex: Int) {
@@ -179,9 +182,22 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func playNext() { playNextSeamlessly() }
-    func playPrevious() { flushPlayback() }
+    func playPrevious() {
+        guard let previous = playbackHistory.last else { return }
+        playbackHistory.removeLast()
+        queue.insert(previous, at: 0)
+        currentIndex = 0
+        queueCount = queue.count
+        player?.stop()
+        player = nil
+        self.currentAnchor = nil
+        currentItem = nil
+        isPlaying = false
+        stopRMS()
+        playNextSeamlessly(isFirst: true)
+    }
     func skipForward() { playNextSeamlessly() }
-    func skipBackward() { flushPlayback() }
+    func skipBackward() { playNextSeamlessly() }
 
     func skipPreviousSentence() {
         guard let anchor = currentAnchor else { return }
@@ -209,11 +225,20 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     func skipPreviousParagraph() {
         guard let anchor = currentAnchor else { return }
         let target = (anchor.paragraphIndex ?? 0) - 1
-        guard let previousIndex = playbackHistory.lastIndex(where: { item in
+        var previousIndex: Int?
+        if let idx = playbackHistory.firstIndex(where: { item in
             guard let a = item.anchor else { return false }
-            return (a.paragraphIndex ?? 0) <= target
-        }) else { return }
-        let targetItem = playbackHistory.remove(at: previousIndex)
+            return (a.paragraphIndex ?? 0) == target
+        }) {
+            previousIndex = idx
+        } else if let idx = playbackHistory.lastIndex(where: { item in
+            guard let a = item.anchor else { return false }
+            return (a.paragraphIndex ?? 0) < target
+        }) {
+            previousIndex = idx
+        }
+        guard let idx = previousIndex else { return }
+        let targetItem = playbackHistory.remove(at: idx)
         queue.insert(targetItem, at: 0)
         currentIndex = 0
         queueCount = queue.count
@@ -280,6 +305,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func playFilesAndWait(_ urls: [URL]) async {
+        guard playbackContinuation == nil else { return }
         let items = urls.enumerated().map { (i, url) in
             TTSQueueItem(
                 segment: ScriptSegment(id: UUID(), characterName: "旁白", voice: "", rate: 0, pitch: 0, style: "neutral", text: "", emotionTag: nil),
@@ -323,6 +349,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             let normalized = self.isPlaying ? max(0, (rms + 80) / 80) : 0
             Task { @MainActor in self.audioVolumeRMS = normalized }
         }
+        RunLoop.main.add(rmsTimer!, forMode: .common)
     }
 
     private func stopRMS() {
@@ -338,12 +365,16 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             return
         }
         let segment = item.segment
+        let title = String(segment.text.prefix(30)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeTitle = title.isEmpty ? segment.characterName : "\(segment.characterName)：\(title)"
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
-            MPMediaItemPropertyTitle: "\(segment.characterName)：\(segment.text.prefix(30))",
-            MPMediaItemPropertyArtist: item.chapterTitle,
+            MPMediaItemPropertyTitle: safeTitle,
+            MPMediaItemPropertyArtist: item.chapterTitle.isEmpty ? "朗读" : item.chapterTitle,
+            MPMediaItemPropertyAlbumTitle: "FeatureTTSReader",
             MPMediaItemPropertyPlaybackDuration: player.duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: player.currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(playbackRate) : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
         ]
     }
 
@@ -352,7 +383,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     static func cleanupAllAudioFiles() {
         let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let dirs = ["tts_audio"]
+        let dirs = ["edge_audio", "tts_audio"]
         for dir in dirs {
             try? FileManager.default.removeItem(at: cachesDir.appendingPathComponent(dir, isDirectory: true))
         }

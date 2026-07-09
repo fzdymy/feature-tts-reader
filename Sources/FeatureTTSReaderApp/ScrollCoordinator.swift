@@ -6,9 +6,15 @@ class ScrollCoordinator: ObservableObject {
     weak var scrollView: UIScrollView?
 
     func scrollTo(offset: CGFloat, animated: Bool = true) {
-        guard let sv = scrollView else { return }
-        let clamped = min(max(offset, 0), sv.contentSize.height - sv.bounds.height)
-        sv.setContentOffset(CGPoint(x: 0, y: clamped), animated: animated)
+        if let sv = scrollView {
+            let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
+            let clamped = min(max(offset, 0), maxOffset)
+            sv.setContentOffset(CGPoint(x: 0, y: clamped), animated: animated)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.scrollTo(offset: offset, animated: animated)
+        }
     }
 }
 

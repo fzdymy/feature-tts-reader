@@ -171,7 +171,6 @@ final class ReaderStore: NSObject, ObservableObject {
                 Task { @MainActor [weak self] in
                     self?.currentParagraphIndex = anchor?.paragraphIndex
                     self?.currentSentenceIndex = anchor?.sentenceIndex
-                    self?.currentSentenceText = nil
                     self?.ttsCurrentIndex = anchor.map { $0.paragraphIndex } ?? 0
                     self?.ttsSegmentTitle = anchor.map { "段 \($0.paragraphIndex):句 \($0.sentenceIndex)" } ?? ""
                 }
@@ -180,9 +179,9 @@ final class ReaderStore: NSObject, ObservableObject {
 
         audioController.$queueCount
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] count in
+            .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.ttsIsPlaying = count > 0
+                    self?.ttsIsPlaying = self?.audioController.isPlaying ?? false
                 }
             }
             .store(in: &cancellables)
@@ -238,7 +237,21 @@ final class ReaderStore: NSObject, ObservableObject {
                 startAutoSaveTimer()
                 return
             }
-            books = state.books
+            var mergedBooks = state.books
+            let persistedBooks = persistence.fetchBooks()
+            if !persistedBooks.isEmpty {
+                for persistedBook in persistedBooks where !mergedBooks.contains(where: { $0.id == persistedBook.id }) {
+                    mergedBooks.append(persistedBook)
+                }
+                if mergedBooks.count != state.books.count {
+                    books = mergedBooks
+                    persistLibrary()
+                } else {
+                    books = mergedBooks
+                }
+            } else {
+                books = state.books
+            }
             chapters = state.chapters
             if let bid = UUID(uuidString: state.currentBookID) {
                 bookChaptersCache[bid] = state.chapters
@@ -412,7 +425,6 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func saveState() {
-        guard isStateLoaded else { return }
         saveAllTextsToFiles()
         let state = ReaderState(
             bookText: "",
@@ -466,8 +478,10 @@ final class ReaderStore: NSObject, ObservableObject {
         )
         guard let data = try? JSONEncoder().encode(state) else { return }
         let targetURL = stateFileURL()
-        Task.detached {
-            try? data.write(to: targetURL, options: Data.WritingOptions.atomic)
+        do {
+            try data.write(to: targetURL, options: .atomic)
+        } catch {
+            Logger.log(error: error, message: "saveState")
         }
         persistLibrary()
     }
@@ -532,8 +546,6 @@ final class ReaderStore: NSObject, ObservableObject {
             let name = url.deletingPathExtension().lastPathComponent
             guard let bookID = UUID(uuidString: name) else { continue }
             if books.contains(where: { $0.id == bookID }) { continue }
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let fileSize = attrs[.size] as? Int, fileSize < 10 { continue }
             var title = "恢复的书籍"
             if let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty {
                 let lines = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -1436,16 +1448,16 @@ final class ReaderStore: NSObject, ObservableObject {
         var consumed = 0
         var isFirst = true
         for await item in stream {
+            await MainActor.run {
+                ttsChapterTitle = chapter.title
+                ttsSegmentTitle = item.segment.characterName
+                ttsIsPlaying = true; isSpeaking = true
+                currentParagraphIndex = item.paragraphIndex
+                currentSentenceIndex = item.sentenceIndex
+                currentSentenceText = item.segment.text
+                statusMessage = "朗读中..."; ttsProgressMessage = ""
+            }
             if isFirst {
-                await MainActor.run {
-                    ttsChapterTitle = chapter.title
-                    ttsSegmentTitle = item.segment.characterName
-                    ttsIsPlaying = true; isSpeaking = true
-                    currentParagraphIndex = item.paragraphIndex
-                    currentSentenceIndex = item.sentenceIndex
-                    currentSentenceText = item.segment.text
-                    statusMessage = "朗读中..."; ttsProgressMessage = ""
-                }
                 audioController.playQueue([item])
                 isFirst = false
             } else {

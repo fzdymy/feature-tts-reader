@@ -109,9 +109,14 @@ actor EdgeTTSService {
         self.session = session
         let key = UserDefaults.standard.string(forKey: Self.apiKeyKey) ?? ""
         if UserDefaults.standard.data(forKey: Self.serverListKey) == nil,
-           (UserDefaults.standard.string(forKey: Self.legacyServerURLKey) == nil ||
-            UserDefaults.standard.string(forKey: Self.legacyServerURLKey) == Self.oldDefaultServerURL ||
-            UserDefaults.standard.string(forKey: Self.legacyServerURLKey) == "http://10.0.1.45") {
+           let legacy = UserDefaults.standard.string(forKey: Self.legacyServerURLKey) {
+            let normalizedLegacy = legacy == Self.oldDefaultServerURL || legacy == "http://10.0.1.45" ? Self.defaultServerURL : legacy
+            let config = EdgeTTSServerConfig(name: "默认", url: normalizedLegacy, apiKey: key)
+            if let data = try? JSONEncoder().encode([config]) {
+                UserDefaults.standard.set(data, forKey: Self.serverListKey)
+            }
+            UserDefaults.standard.set(normalizedLegacy, forKey: Self.legacyServerURLKey)
+        } else if UserDefaults.standard.data(forKey: Self.serverListKey) == nil {
             let config = EdgeTTSServerConfig(name: "默认", url: Self.defaultServerURL, apiKey: key)
             if let data = try? JSONEncoder().encode([config]) {
                 UserDefaults.standard.set(data, forKey: Self.serverListKey)

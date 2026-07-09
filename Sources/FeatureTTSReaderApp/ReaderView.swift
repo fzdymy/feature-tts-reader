@@ -54,10 +54,13 @@ struct ReaderView: View {
     @State private var scrollPositionID: String?
     @State private var navigationTarget: Int?
     @State private var scrollOffset: CGFloat = 0
+    @State private var immersiveBeforeAudioMode = false
+    @State private var autoScrollWorkItem: DispatchWorkItem?
     @State private var segmentStartOffset: CGFloat = 0
     @State private var scrolledAway = false
     @State private var lastAutoScrollTime: Date = .distantPast
     @State private var chapterHeights: [CGFloat] = []  // cached heights
+    @State private var cachedParagraphs: [UUID: [[String]]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
 
     private func navigateToChapter(_ target: Int) {
@@ -109,7 +112,7 @@ struct ReaderView: View {
     }
 
     private func indentedText(_ text: String) -> String {
-        "\u{3000}\u{3000}" + text.replacingOccurrences(of: "\n", with: "\n\u{3000}\u{3000}")
+        text
     }
 
     private var chapterProgressInChapter: Double {
@@ -209,7 +212,7 @@ struct ReaderView: View {
                 }
                 .scrollTargetLayout()
                 .simultaneousGesture(
-                    TapGesture(count: 2).onEnded { withAnimation(.easeInOut(duration: 0.25)) { isImmersive.toggle() } }
+                    TapGesture(count: 2).onEnded { toggleImmersiveMode() }
                 )
             }
             .scrollPosition(id: $scrollPositionID)
@@ -245,13 +248,14 @@ struct ReaderView: View {
                 chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
             }
             .onChange(of: store.currentParagraphIndex) { _, _ in
-                updateAutoScrollForCurrentPlayback()
+                scheduleAutoScrollUpdate()
             }
             .onChange(of: store.currentSentenceIndex) { _, _ in
-                updateAutoScrollForCurrentPlayback()
+                scheduleAutoScrollUpdate()
             }
             .onChange(of: store.ttsIsPlaying) { _, newValue in
                 isPlaying = newValue
+                scheduleAutoScrollUpdate()
             }
             .onChange(of: store.selectedChapterID) { _, newID in
                 guard let idx = chaptersList.firstIndex(where: { $0.id == newID }),
@@ -348,6 +352,7 @@ struct ReaderView: View {
                         HStack {
                             Spacer()
                             Button(action: {
+                                immersiveBeforeAudioMode = isImmersive
                                 isAudioMode = true
                                 isPlaying = true
                                 segmentStartOffset = scrollOffset
@@ -373,7 +378,7 @@ struct ReaderView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(true)
-        .statusBarHidden(isImmersive || isAudioMode)
+        .statusBarHidden(isImmersive || (isAudioMode && store.ttsIsPlaying))
         .onReceive(timer) { _ in
             currentTime = Date()
             if UIDevice.current.isBatteryMonitoringEnabled {
@@ -436,6 +441,7 @@ struct ReaderView: View {
                 Button(action: {
                     isAudioMode = false
                     isPlaying = false
+                    isImmersive = immersiveBeforeAudioMode
                     store.stopPlayback()
                 }) {
                     HStack(spacing: 4) {
@@ -447,14 +453,21 @@ struct ReaderView: View {
                     .foregroundColor(textColor.opacity(0.7))
                 }
             } else {
-                Button(action: {
-                    ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
-                    store.saveState()
-                    dismiss()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(textColor.opacity(0.7))
+                HStack(spacing: 8) {
+                    Button(action: {
+                        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+                        store.saveState()
+                        dismiss()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(textColor.opacity(0.7))
+                    }
+                    Button(action: toggleImmersiveMode) {
+                        Image(systemName: isImmersive ? "rectangle" : "rectangle.split.2x1")
+                            .font(.title3)
+                            .foregroundColor(textColor.opacity(0.7))
+                    }
                 }
             }
 
@@ -489,9 +502,8 @@ struct ReaderView: View {
     private var currentSegmentParagraphs: [String]? {
         guard let pi = store.currentParagraphIndex, currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
-        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let paragraphs = paragraphCache(for: ch)
         guard pi < paragraphs.count else { return nil }
-        // Return the paragraph(s) at the current anchor for auto-scroll
         let blockStart = max(0, pi - 1)
         let blockEnd = min(paragraphs.count, pi + 2)
         return Array(paragraphs[blockStart..<blockEnd])
@@ -500,8 +512,8 @@ struct ReaderView: View {
     @ViewBuilder
     private func chapterContent(index: Int) -> some View {
         let ch = chaptersList[index]
-        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let isCurrentChapter = index == currentChapterIndex && store.ttsIsPlaying
+        let paragraphs = paragraphCache(for: ch)
+        let isCurrentChapter = index == currentChapterIndex && (store.ttsIsPlaying || store.currentSentenceText != nil)
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 8) {
                 Text(ch.title)
@@ -1195,11 +1207,11 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
         ReaderStore.debugLog("[POS-SAVE] onDisappear idx=\(currentChapterIndex) bookID=\(bookID.uuidString)")
         if currentChapterIndex < chaptersList.count {
-            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: 1.0)
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: max(0.0, min(1.0, chapterProgressInChapter)))
         }
         store.saveState()
         if !useSystemBrightness {
-            UIScreen.main.brightness = UserDefaults.standard.object(forKey: "systemBrightness") as? CGFloat ?? 0.5
+            UIScreen.main.brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat ?? 0.5
         }
     }
 
@@ -1258,12 +1270,12 @@ struct ReaderView: View {
     private func segmentTextForCurrentPosition() -> String? {
         if let pi = store.currentParagraphIndex, currentChapterIndex < chaptersList.count {
             let ch = chaptersList[currentChapterIndex]
-            let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let paragraphs = paragraphCache(for: ch)
             if pi < paragraphs.count { return paragraphs[pi] }
         }
         guard currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
-        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let paragraphs = paragraphCache(for: ch)
         let cached = chapterHeights
         let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
         let offsetInChapter = scrollOffset - pastHeight
@@ -1292,7 +1304,7 @@ struct ReaderView: View {
     private func autoScrollOffset(for paragraphIndex: Int, sentenceIndex: Int? = nil) -> CGFloat? {
         guard currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
-        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let paragraphs = paragraphCache(for: ch)
         guard paragraphIndex >= 0, paragraphIndex < paragraphs.count else { return nil }
         let cached = chapterHeights
         let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
@@ -1337,18 +1349,37 @@ struct ReaderView: View {
         store.currentParagraphIndex = paragraphIndex
         store.currentSentenceIndex = sentenceIndex
         store.currentSentenceText = sentenceText
+        if store.ttsIsPlaying {
+            store.audioController.skipToSegment(at: paragraphIndex)
+        }
         scrollToSentenceCenter(paragraphIndex: paragraphIndex, sentenceIndex: sentenceIndex)
     }
 
+    private func toggleImmersiveMode() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            isImmersive.toggle()
+        }
+    }
+
+    private func scheduleAutoScrollUpdate() {
+        autoScrollWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            updateAutoScrollForCurrentPlayback()
+        }
+        autoScrollWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: workItem)
+    }
+
     private func updateAutoScrollForCurrentPlayback() {
+        guard store.ttsIsPlaying || store.currentParagraphIndex != nil else { return }
         if !scrolledAway, let paragraphIndex = store.currentParagraphIndex, let offset = autoScrollOffset(for: paragraphIndex, sentenceIndex: store.currentSentenceIndex) {
             lastAutoScrollTime = Date()
             scrollCoordinator.scrollTo(offset: offset, animated: true)
             segmentStartOffset = offset
+            scrolledAway = false
         } else {
             segmentStartOffset = scrollOffset
         }
-        scrolledAway = false
         withAnimation { isPlaying = store.ttsIsPlaying }
     }
 
@@ -1374,7 +1405,7 @@ struct ReaderView: View {
     private func currentParagraphIndexForCurrentPosition() -> Int? {
         guard currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
-        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let paragraphs = paragraphCache(for: ch)
         guard let currentText = segmentTextForCurrentPosition() else { return store.currentParagraphIndex }
         let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         return paragraphs.firstIndex(where: { $0.contains(trimmed) || trimmed.contains($0) })
@@ -1396,6 +1427,13 @@ struct ReaderView: View {
         case .sepia: return "circle.lefthalf.filled"
         case .dark: return "moon.fill"
         }
+    }
+
+    private func paragraphCache(for chapter: BookChapter) -> [String] {
+        if let cached = cachedParagraphs[chapter.id] { return cached }
+        let result = chapter.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        cachedParagraphs[chapter.id] = result
+        return result
     }
 
     private func paragraphView(pi: Int, paraText: String, isCurrentChapter: Bool) -> some View {
@@ -1462,6 +1500,7 @@ struct ReaderView: View {
                     selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
                 }
                 .onTapGesture(count: 2) {
+                    guard store.enableDoubleTapToSpeak else { return }
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                     selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
@@ -1475,13 +1514,14 @@ struct ReaderView: View {
     }
 
     private func isParagraphReading(pi: Int, isCurrentChapter: Bool) -> Bool {
-        guard let paraIdx = store.currentParagraphIndex, isCurrentChapter else { return false }
-        return paraIdx == pi
+        guard isCurrentChapter, let paraIdx = store.currentParagraphIndex else { return false }
+        return paraIdx == pi && (store.ttsIsPlaying || store.currentSentenceText != nil)
     }
 
     private func isSentenceReading(pi: Int, si: Int, isCurrentChapter: Bool) -> Bool {
         guard isCurrentChapter else { return false }
-        return store.currentParagraphIndex == pi && store.currentSentenceIndex == si
+        let isActive = store.ttsIsPlaying || store.currentSentenceText != nil
+        return isActive && store.currentParagraphIndex == pi && store.currentSentenceIndex == si
     }
 }
 

@@ -1,9 +1,11 @@
 import Foundation
 import CoreData
+import os
 
 final class PersistenceController: ObservableObject, @unchecked Sendable {
     static let shared = PersistenceController()
 
+    private let logger = Logger(subsystem: "FeatureTTSReader", category: "Persistence")
     let container: NSPersistentContainer
 
     init(inMemory: Bool = false) {
@@ -12,9 +14,9 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
         if inMemory {
             container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
         }
-        container.loadPersistentStores { description, error in
+        container.loadPersistentStores { _, error in
             if let error = error {
-                assertionFailure("无法载入 Core Data 存储: \(error.localizedDescription)")
+                self.logger.error("无法载入 Core Data 存储: \(error.localizedDescription)")
             }
         }
         container.viewContext.automaticallyMergesChangesFromParent = true
@@ -81,7 +83,7 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
         do {
             try context.save()
         } catch {
-            assertionFailure("Core Data 保存失败：\(error.localizedDescription)")
+            logger.error("Core Data 保存失败：\(error.localizedDescription)")
         }
     }
 
