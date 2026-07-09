@@ -1,6 +1,6 @@
 import Foundation
 
-struct EdgeTTSServerConfig: Codable, Equatable, Sendable {
+struct EdgeTTSServerConfig: Codable, Equatable, Sendable, Identifiable {
     var id: UUID
     var name: String
     var url: String
@@ -269,6 +269,9 @@ actor EdgeTTSService {
         components.queryItems = [
             URLQueryItem(name: "t", value: ssmlText),
         ]
+        if !apiKey.isEmpty {
+            components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
+        }
         var request = URLRequest(url: components.url ?? endpoint)
         request.httpMethod = "GET"
         request.setValue("audio/mp3", forHTTPHeaderField: "Accept")

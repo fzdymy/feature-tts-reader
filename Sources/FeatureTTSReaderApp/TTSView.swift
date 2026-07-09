@@ -244,53 +244,72 @@ struct TTSView: View {
     @ViewBuilder
     private var requestPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("即将发送的请求")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.secondary)
+            HStack {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .foregroundColor(.secondary)
+                Text("预发送内容（单击收起，长按复制内容）")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
 
             if let config = serverConfigs.first(where: { $0.id == selectedServerID }) {
-                // URL preview
-                let baseURL = URL(string: config.url)?.appendingPathComponent("tts")
-                let ssml = EdgeTTSService.buildSSML(text: testText, voice: nil, rate: 0, pitch: 0, emotionTag: nil)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("URL")
-                        .font(.caption2.weight(.medium))
-                        .foregroundColor(.secondary)
-                    Text("GET \(baseURL?.absoluteString ?? "无效URL")?t=\(ssml)")
-                        .font(.caption2.monospaced())
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-                }
-
-                if !config.apiKey.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Headers")
-                            .font(.caption2.weight(.medium))
-                            .foregroundColor(.secondary)
-                        Text("X-API-Key: \(config.apiKey)")
+                let previewJSON = buildPreviewJSON(config: config)
+                if let jsonData = try? JSONSerialization.data(withJSONObject: previewJSON, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+                   let jsonStr = String(data: jsonData, encoding: .utf8) {
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        Text(jsonStr)
                             .font(.caption2.monospaced())
                             .textSelection(.enabled)
-                        Text("Accept: audio/mp3")
-                            .font(.caption2.monospaced())
-                            .textSelection(.enabled)
+                            .lineLimit(nil)
                     }
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("SSML 内容")
-                        .font(.caption2.weight(.medium))
-                        .foregroundColor(.secondary)
-                    Text(EdgeTTSService.buildSSML(text: testText, voice: nil, rate: 0, pitch: 0, emotionTag: nil))
-                        .font(.caption2.monospaced())
-                        .lineLimit(5)
-                        .textSelection(.enabled)
                 }
             }
         }
         .padding(10)
         .background(Color(.systemGray6))
         .cornerRadius(8)
+    }
+
+    private func buildPreviewJSON(config: EdgeTTSServerConfig) -> [String: Any] {
+        let params: [String: String] = [
+            "t": testText,
+            "v": "zh-CN-YunyangNeural",
+            "r": "16",
+            "p": "5",
+            "s": "narration-professional",
+            "api_key": config.apiKey
+        ]
+        let handle: [String: Any] = [
+            "paramsEx": "",
+            "processType": 1,
+            "maxPageCount": 1,
+            "nextPageMethod": 1,
+            "method": 1,
+            "requestByWebView": 0,
+            "parser": [:],
+            "nextPageParams": [:],
+            "url": config.url.hasSuffix("/tts") ? config.url : config.url + "/tts",
+            "params": params,
+            "httpConfigs": [
+                "useCookies": 1,
+                "headers": [:]
+            ]
+        ]
+        return [
+            "loginUrl": "",
+            "maxWordCount": "",
+            "customRules": [:],
+            "ttsConfigGroup": config.name.isEmpty ? "默认" : config.name,
+            "_TTSName": "云扬 (男)",
+            "_ClassName": "CustomTTS",
+            "_TTSConfigID": config.id.uuidString,
+            "httpConfigs": [
+                "useCookies": 1,
+                "headers": [:]
+            ],
+            "voiceList": [],
+            "ttsHandles": [handle]
+        ] as [String: Any]
     }
 
     private func saveAndTest() {
