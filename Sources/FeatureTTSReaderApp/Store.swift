@@ -558,8 +558,8 @@ final class ReaderStore: NSObject, ObservableObject {
         do {
             let audioData = try await EdgeTTSService.shared.synthesize(text: testText)
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let extensionName = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
-            let audioURL = cachesDir.appendingPathComponent("edge-test-\(UUID().uuidString).\(extensionName)")
+            let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+            let audioURL = cachesDir.appendingPathComponent("edge-test-\(UUID().uuidString).\(ext)")
             try audioData.write(to: audioURL, options: .atomic)
             await MainActor.run { ttsTestAudioURL = audioURL }
             return "合成成功！文件大小：\(String(format: "%.1f", Double(audioData.count) / 1024)) KB"
@@ -1027,7 +1027,7 @@ final class ReaderStore: NSObject, ObservableObject {
         do {
             let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: profile.voice.isEmpty ? nil : profile.voice)
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let ext = audioData.starts(with: [0x49, 0x44, 0x33]) || (audioData.first ?? 0) & 0xFF == 0xFF ? "mp3" : "wav"
+            let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
             let audioURL = cachesDir.appendingPathComponent("preview-\(UUID().uuidString).\(ext)")
             try audioData.write(to: audioURL, options: .atomic)
             await audioController.playFilesAndWait([audioURL])
@@ -1397,8 +1397,8 @@ final class ReaderStore: NSObject, ObservableObject {
                                     return nil
                                 }
 
-                                let extensionName = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
-                                let audioURL = audioDir.appendingPathComponent("blk-\(blockIdx)-s-\(sIdx)-\(UUID().uuidString).\(extensionName)")
+                                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                                let audioURL = audioDir.appendingPathComponent("blk-\(blockIdx)-s-\(sIdx)-\(UUID().uuidString).\(ext)")
                                 try? audioData.write(to: audioURL, options: .atomic)
 
                                 let anchor = PlaybackAnchor(
@@ -1964,8 +1964,8 @@ final class ReaderStore: NSObject, ObservableObject {
         guard let first = scriptSegments.first else { return "脚本为空，无法测试。" }
         do {
             let audioData = try await EdgeTTSService.shared.synthesize(text: first.text)
-            let extensionName = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("e2e-test-\(UUID().uuidString).\(extensionName)")
+            let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("e2e-test-\(UUID().uuidString).\(ext)")
             try audioData.write(to: url, options: .atomic)
             await audioController.playFilesAndWait([url])
             return "合成并播放成功：\(url.lastPathComponent)"

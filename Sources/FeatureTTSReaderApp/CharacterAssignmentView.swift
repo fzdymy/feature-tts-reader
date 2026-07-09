@@ -392,7 +392,7 @@ struct CharacterAssignmentPanel: View {
             let sampleText = "你好，我是\(profile.name)。"
             do {
                 let audioData = try await EdgeTTSService.shared.synthesize(text: sampleText, voice: profile.voice.isEmpty ? nil : profile.voice)
-                let ext = audioData.starts(with: [0x49, 0x44, 0x33]) ? "mp3" : "wav"
+                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("sample-\(UUID().uuidString).\(ext)")
                 try audioData.write(to: url, options: .atomic)
                 await store.audioController.playFilesAndWait([url])

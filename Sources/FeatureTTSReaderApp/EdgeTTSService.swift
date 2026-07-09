@@ -139,6 +139,8 @@ actor EdgeTTSService {
         let servers = configuredServers
         guard !servers.isEmpty else { throw EdgeTTSError.missingServerURL }
 
+        let ssmlText = buildSSML(text: trimmed, voice: voice, rate: rate, pitch: pitch, emotionTag: emotionTag)
+
         var lastError: Error?
         for server in servers {
             guard let baseURL = URL(string: server.url) else {
@@ -147,7 +149,7 @@ actor EdgeTTSService {
             }
             let endpoint = baseURL.appendingPathComponent("tts")
             do {
-                let request = try buildPostRequest(to: endpoint, text: trimmed, voice: voice, rate: rate, pitch: pitch, emotionTag: emotionTag, apiKey: server.apiKey)
+                let request = try buildGetRequest(to: endpoint, ssmlText: ssmlText, apiKey: server.apiKey)
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     throw EdgeTTSError.invalidResponse("无效响应")
@@ -236,33 +238,24 @@ actor EdgeTTSService {
         return result.isEmpty ? [EdgeTTSServerConfig(name: "默认", url: Self.defaultServerURL, apiKey: apiKey)] : result
     }
 
-    private func buildPostRequest(to endpoint: URL, text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?, apiKey: String) throws -> URLRequest {
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    private func buildGetRequest(to endpoint: URL, ssmlText: String, apiKey: String) throws -> URLRequest {
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw EdgeTTSError.invalidServerURL
+        }
+        components.queryItems = [
+            URLQueryItem(name: "t", value: ssmlText),
+        ]
+        var request = URLRequest(url: components.url ?? endpoint)
+        request.httpMethod = "GET"
         request.setValue("audio/mp3", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 20
         if !apiKey.isEmpty {
             request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
         }
-
-        let ssml = buildSSML(text: text, voice: voice, rate: rate, pitch: pitch, emotionTag: emotionTag)
-        let payload: [String: Any] = [
-            "text": text,
-            "ssml": ssml,
-            "voice": voice ?? "",
-            "rate": rate,
-            "pitch": pitch,
-            "emotion": emotionTag ?? "",
-            "api_key": apiKey
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         return request
     }
 
     private func buildSSML(text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?) -> String {
-        let normalizedVoice = (voice ?? "")
-        let voiced = normalizedVoice.isEmpty ? "zh-CN-XiaoyiNeural" : normalizedVoice
         let emotion = (emotionTag ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let rateValue: String
         switch rate {
@@ -277,21 +270,33 @@ actor EdgeTTSService {
         default: pitchValue = "\(Int(pitch))%"
         }
 
-        var ssml = "<speak version=\"1.0\" xml:lang=\"zh-CN\" xmlns:mstts=\"http://www.w3.org/2001/mstts\">"
-        ssml += "<voice name=\"\(voiced)\">"
+        var result = "<prosody rate=\"\(rateValue)\" pitch=\"\(pitchValue)\">"
         if !emotion.isEmpty && Self.supportedEmotions.contains(emotion) {
-            ssml += "<mstts:express-as type=\"\(emotion)\">"
+            result = "<mstts:express-as type=\"\(emotion)\" xmlns:mstts=\"http://www.w3.org/2001/mstts\">" + result
         }
-        ssml += "<prosody rate=\"\(rateValue)\" pitch=\"\(pitchValue)\">"
-        ssml += text
-        ssml += "</prosody>"
+        result += Self.escapeXML(text)
+        result += "</prosody>"
         if !emotion.isEmpty && Self.supportedEmotions.contains(emotion) {
-            ssml += "</mstts:express-as>"
+            result += "</mstts:express-as>"
         }
-        ssml += "</voice>"
-        ssml += "</speak>"
-        return ssml
+        return result
+    }
+
+    private static func escapeXML(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
+         .replacingOccurrences(of: "\"", with: "&quot;")
+         .replacingOccurrences(of: "'", with: "&apos;")
     }
 
     private static let supportedEmotions: Set<String> = ["angry", "cheerful", "excited", "friendly", "hopeful", "sad", "shouting", "terrified", "unfriendly", "whispering"]
+
+    /// Detect whether raw audio data is MP3: starts with ID3 header or MPEG sync word (0xFF).
+    static func isMP3Data(_ data: Data) -> Bool {
+        guard data.count >= 2 else { return false }
+        let id3Header: [UInt8] = [0x49, 0x44, 0x33]
+        if data.starts(with: id3Header) { return true }
+        return data[0] == 0xFF && (data[1] & 0xE0) == 0xE0
+    }
 }
