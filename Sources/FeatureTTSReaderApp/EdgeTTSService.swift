@@ -134,7 +134,7 @@ actor EdgeTTSService {
         apiKey = raw
     }
 
-    func synthesize(text: String, voice: String? = nil, rate: Double = 0, pitch: Double = 0, emotionTag: String? = nil) async throws -> Data {
+    func synthesize(text: String, voice: String? = nil, rate: Double = 0, pitch: Double = 0, emotionTag: String? = nil, serverID: UUID? = nil) async throws -> Data {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EdgeTTSError.emptyResponse }
 
@@ -143,8 +143,18 @@ actor EdgeTTSService {
 
         let ssmlText = buildSSML(text: trimmed, voice: voice, rate: rate, pitch: pitch, emotionTag: emotionTag)
 
+        let candidates: [EdgeTTSServerConfig]
+        if let serverID {
+            candidates = servers.filter { $0.id == serverID }
+            if candidates.isEmpty {
+                throw EdgeTTSError.invalidServerURL
+            }
+        } else {
+            candidates = servers
+        }
+
         var lastError: Error?
-        for server in servers {
+        for server in candidates {
             guard let baseURL = URL(string: server.url) else {
                 lastError = EdgeTTSError.invalidServerURL
                 continue
@@ -180,35 +190,47 @@ actor EdgeTTSService {
 
         var results: [String] = []
         for server in servers {
-            guard let baseURL = URL(string: server.url) else { continue }
-            let endpoints = [
-                baseURL.appendingPathComponent("health"),
-                baseURL
-            ]
-
-            var serverOk = false
-            for endpoint in endpoints {
-                var request = URLRequest(url: endpoint)
-                request.httpMethod = "GET"
-                request.timeoutInterval = 3
-                if !server.apiKey.isEmpty {
-                    request.setValue(server.apiKey, forHTTPHeaderField: "X-API-Key")
-                }
-                do {
-                    let (_, response) = try await session.data(for: request)
-                    guard let http = response as? HTTPURLResponse else { continue }
-                    if (200...299).contains(http.statusCode) {
-                        serverOk = true
-                        break
-                    }
-                } catch {
-                    continue
-                }
-            }
-            results.append(serverOk ? "\(server.name): 就绪" : "\(server.name): 暂不可达")
+            let result = await checkServer(server)
+            results.append(result)
         }
-
         return results.joined(separator: "  ")
+    }
+
+    func healthCheck(serverID: UUID) async -> String {
+        let servers = configuredServers
+        guard let server = servers.first(where: { $0.id == serverID }) else {
+            return "未找到服务器"
+        }
+        return await checkServer(server)
+    }
+
+    private func checkServer(_ server: EdgeTTSServerConfig) async -> String {
+        guard let baseURL = URL(string: server.url) else {
+            return "\(server.name): 无效地址"
+        }
+        let endpoints = [
+            baseURL.appendingPathComponent("health"),
+            baseURL
+        ]
+
+        for endpoint in endpoints {
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 3
+            if !server.apiKey.isEmpty {
+                request.setValue(server.apiKey, forHTTPHeaderField: "X-API-Key")
+            }
+            do {
+                let (_, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { continue }
+                if (200...299).contains(http.statusCode) {
+                    return "\(server.name): 就绪"
+                }
+            } catch {
+                continue
+            }
+        }
+        return "\(server.name): 暂不可达"
     }
 
     func setServers(_ servers: [EdgeTTSServerConfig]) {
@@ -257,7 +279,7 @@ actor EdgeTTSService {
         return request
     }
 
-    private func buildSSML(text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?) -> String {
+    static func buildSSML(text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?) -> String {
         let emotion = (emotionTag ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let rateValue: String
         switch rate {
