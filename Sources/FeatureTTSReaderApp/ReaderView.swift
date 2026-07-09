@@ -61,8 +61,8 @@ struct ReaderView: View {
     @State private var lastAutoScrollTime: Date = .distantPast
     @State private var chapterHeights: [CGFloat] = []  // cached heights
     @State private var cachedParagraphs: [UUID: [String]] = [:]
-    @State private var pendingTapWorkItem: DispatchWorkItem?
     @StateObject private var scrollCoordinator = ScrollCoordinator()
+    @StateObject private var tapCoordinator = TapCoordinator()
 
     private func navigateToChapter(_ target: Int) {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
@@ -223,10 +223,9 @@ struct ReaderView: View {
         .gesture(
             SpatialTapGesture()
                 .onEnded { value in
-                    pendingTapWorkItem?.cancel()
+                    tapCoordinator.cancel()
                     let item = DispatchWorkItem { handleZoneTap(at: value.location) }
-                    pendingTapWorkItem = item
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+                    tapCoordinator.schedule(item)
                 }
         )
         .sheet(isPresented: $showCharacterPanel) {
@@ -971,7 +970,7 @@ struct ReaderView: View {
                 .cornerRadius(6)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
-                    self.pendingTapWorkItem?.cancel()
+                    tapCoordinator.cancel()
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                     onSentenceTap(pi, si, sentenceText)
@@ -1687,6 +1686,21 @@ private struct ReaderOverlayView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 4)
         .background(bgColor.opacity(0.9))
+    }
+}
+
+@MainActor
+class TapCoordinator: ObservableObject {
+    private var workItem: DispatchWorkItem?
+
+    func cancel() {
+        workItem?.cancel()
+        workItem = nil
+    }
+
+    func schedule(_ item: DispatchWorkItem) {
+        workItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
     }
 }
 
