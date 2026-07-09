@@ -60,7 +60,7 @@ struct ReaderView: View {
     @State private var scrolledAway = false
     @State private var lastAutoScrollTime: Date = .distantPast
     @State private var chapterHeights: [CGFloat] = []  // cached heights
-    @State private var cachedParagraphs: [UUID: [[String]]] = [:]
+    @State private var cachedParagraphs: [UUID: [String]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
 
     private func navigateToChapter(_ target: Int) {

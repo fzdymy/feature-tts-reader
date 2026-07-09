@@ -5,7 +5,7 @@ import os
 final class PersistenceController: ObservableObject, @unchecked Sendable {
     static let shared = PersistenceController()
 
-    private let logger = Logger(subsystem: "FeatureTTSReader", category: "Persistence")
+    private let log = OSLog(subsystem: "com.featurettsreader", category: "Persistence")
     let container: NSPersistentContainer
 
     init(inMemory: Bool = false) {
@@ -16,7 +16,7 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
         }
         container.loadPersistentStores { _, error in
             if let error = error {
-                self.logger.error("无法载入 Core Data 存储: \(error.localizedDescription)")
+                os_log(.error, log: self.log, "无法载入 Core Data 存储: %{public}@", error.localizedDescription)
             }
         }
         container.viewContext.automaticallyMergesChangesFromParent = true
@@ -83,7 +83,7 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
         do {
             try context.save()
         } catch {
-            logger.error("Core Data 保存失败：\(error.localizedDescription)")
+            os_log(.error, log: log, "Core Data 保存失败：%{public}@", error.localizedDescription)
         }
     }
 
