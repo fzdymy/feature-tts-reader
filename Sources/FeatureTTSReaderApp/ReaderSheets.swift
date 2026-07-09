@@ -37,8 +37,7 @@ struct ReaderSheets: ViewModifier {
             }
             .sheet(item: $editingCharacter) { character in
                 CharacterEditorView(
-                    character: character,
-                    voices: store.voices.isEmpty ? VoiceItem.defaultItems() : store.voices
+                    character: character
                 ) { updated in
                     onCharacterEdit(updated)
                 }

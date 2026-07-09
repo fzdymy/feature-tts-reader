@@ -4,8 +4,6 @@ struct CharacterListView: View {
     @EnvironmentObject private var store: ReaderStore
     @Environment(\.dismiss) private var dismiss
     @State private var selectedCharacter: CharacterProfile?
-    @State private var voices: [VoiceItem] = []
-
     var body: some View {
         NavigationStack {
             List {
@@ -67,15 +65,13 @@ struct CharacterListView: View {
                 }
             }
             .onAppear {
-                voices = store.voices
                 if store.characters.isEmpty || store.lastScannedBookText != store.bookText {
                     Task { await store.scanCharacters() }
                 }
             }
             .sheet(item: $selectedCharacter) { character in
                 CharacterEditorView(
-                    character: character,
-                    voices: voices
+                    character: character
                 ) { updated in
                     if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
                         store.characters[idx] = updated

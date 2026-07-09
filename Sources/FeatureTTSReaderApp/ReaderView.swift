@@ -1002,8 +1002,7 @@ struct ReaderView: View {
                 .font(.subheadline)
                 .foregroundColor(textColor)
             Spacer()
-            let cloned = store.characters.filter(\.hasVoiceSample).count
-            Text("\(cloned)/\(store.characters.count) 个角色已准备样本")
+            Text("\(store.characters.count) 个角色")
                 .font(.caption2).foregroundColor(.secondary)
         }
     }

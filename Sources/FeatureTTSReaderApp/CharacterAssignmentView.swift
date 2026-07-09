@@ -52,8 +52,7 @@ struct CharacterAssignmentPanel: View {
         }
         .sheet(item: $editingCharacter) { profile in
             CharacterEditorView(
-                character: profile,
-                voices: store.voices
+                character: profile
             ) { updated in
                 if let i = store.characters.firstIndex(where: { $0.id == updated.id }) {
                     store.characters[i] = updated
