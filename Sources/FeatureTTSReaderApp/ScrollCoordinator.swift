@@ -2,6 +2,7 @@ import SwiftUI
 
 // MARK: - ScrollCoordinator (for programmatic scroll-to-offset)
 
+@MainActor
 class ScrollCoordinator: ObservableObject {
     weak var scrollView: UIScrollView?
 

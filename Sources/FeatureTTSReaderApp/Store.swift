@@ -201,7 +201,9 @@ final class ReaderStore: NSObject, ObservableObject {
         autoSaveTimer?.invalidate()
         let interval = UserDefaults.standard.object(forKey: "autoSaveInterval") as? Double ?? 30
         autoSaveTimer = Timer.scheduledTimer(withTimeInterval: max(interval, 10), repeats: true) { [weak self] _ in
-            self?.saveState()
+            Task { @MainActor [weak self] in
+                self?.saveState()
+            }
         }
     }
 
@@ -820,7 +822,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    private func readDataWithProgress(_ url: URL, progress: @escaping (Double) -> Void) async throws -> Data {
+    private func readDataWithProgress(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> Data {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -843,7 +845,8 @@ final class ReaderStore: NSObject, ObservableObject {
                             collected.append(chunk)
                             if fileSize > 0 {
                                 let p = Double(collected.count) / Double(max(1, fileSize))
-                                progress(min(max(p, 0), 1))
+                                let clampedP = min(max(p, 0), 1)
+                                progress(clampedP)
                             }
                         }
                         if chunk.isEmpty {
@@ -1157,7 +1160,7 @@ final class ReaderStore: NSObject, ObservableObject {
         let task = playbackTask
         playbackTask = nil  // 先清空引用，防止并发赋值
         task?.cancel()
-        _ = try? await task?.value
+        await task?.value
     }
 
     func stopPlayback() {
@@ -2155,7 +2158,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
 }
     
-private final class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate {
+private final class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
     weak var owner: ReaderStore?
 
     init(owner: ReaderStore) {
@@ -2163,8 +2166,8 @@ private final class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesize
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in
-            owner?.isSpeaking = false
+        Task { @MainActor [weak self] in
+            self?.owner?.isSpeaking = false
         }
     }
 }

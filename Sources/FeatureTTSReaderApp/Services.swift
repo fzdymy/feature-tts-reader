@@ -31,7 +31,7 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
 
     private func setupAudioSession() {
         do {
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.allowBluetooth, .allowAirPlay, .mixWithOthers])
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.allowBluetoothHFP, .allowAirPlay, .mixWithOthers])
             try session.setActive(true)
         } catch {
             Logger.log(error: error)
