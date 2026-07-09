@@ -828,7 +828,7 @@ struct ReaderView: View {
     @State private var paragraphs: [String] = []
     @State private var sentenceCache: [Int: [String]] = [:]
 
-    static func == (lhs: ChapterContentView, rhs: ChapterContentView) -> Bool {
+    nonisolated static func == (lhs: ChapterContentView, rhs: ChapterContentView) -> Bool {
         lhs.index == rhs.index &&
         lhs.isCurrentChapter == rhs.isCurrentChapter &&
         lhs.playbackParagraphIndex == rhs.playbackParagraphIndex &&
@@ -984,7 +984,7 @@ private struct ContextMenuContent: View {
         }
     }
 
-    private static func extractCandidateNamesStatic(from text: String) -> [String] {
+    nonisolated private static func extractCandidateNamesStatic(from text: String) -> [String] {
         var nameCounts: [String: Int] = [:]
         let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
         let runPattern = try? NSRegularExpression(pattern: "[\\p{Han}]+")

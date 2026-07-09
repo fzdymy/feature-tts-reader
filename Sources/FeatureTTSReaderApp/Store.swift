@@ -1399,7 +1399,7 @@ final class ReaderStore: NSObject, ObservableObject {
         // 立即预取前 N 句（HTTP 并行发出，不等响应）
         for i in 0..<min(prefetchWindowSize, pendingUnits.count) {
             let u = pendingUnits[i]
-            prefetcher.prefetch(index: i, text: u.sentence, voice: u.voice,
+            await prefetcher.prefetch(index: i, text: u.sentence, voice: u.voice,
                                 rate: u.rate, pitch: u.pitch, emotionTag: u.emotionTag)
         }
 
@@ -1413,7 +1413,7 @@ final class ReaderStore: NSObject, ObservableObject {
             let nextIndex = index + prefetchWindowSize
             if nextIndex < pendingUnits.count {
                 let nu = pendingUnits[nextIndex]
-                prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voice,
+                await prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voice,
                                     rate: nu.rate, pitch: nu.pitch, emotionTag: nu.emotionTag)
             }
             guard let audioData = audioData else { continue }

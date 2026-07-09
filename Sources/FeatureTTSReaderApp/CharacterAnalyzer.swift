@@ -462,7 +462,7 @@ final class CharacterAnalyzer: @unchecked Sendable {
     /// and filter out names appearing ≤1 time (likely false positives).
     func countCharacterFrequencies(text: String, candidates: Set<String>) -> [String: Int] {
         let ac = ACAutomaton()
-        for name in candidates where !isStopWord(name) && name.count >= 2 {
+        for name in candidates where !Self.isStopWord(name) && name.count >= 2 {
             ac.insert(name)
         }
         let rawCounts = ac.search(text)
@@ -557,7 +557,7 @@ final class CharacterAnalyzer: @unchecked Sendable {
             tagger.enumerateTags(in: para.startIndex..<para.endIndex, unit: .word, scheme: .nameType, options: [.joinNames, .omitWhitespace, .omitOther]) { tag, range in
                 if tag == .personalName {
                     let name = String(para[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if name.count >= 2 && name.count <= 4 && !knownNames.contains(name) && !isStopWord(name) {
+                    if name.count >= 2 && name.count <= 4 && !knownNames.contains(name) && !Self.isStopWord(name) {
                         if name.count == 2 && !Self.firstCharIsSurname(name) { return true }
                         result[name, default: 0] += 1
                     }
