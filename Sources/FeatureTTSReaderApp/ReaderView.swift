@@ -391,10 +391,6 @@ struct ReaderView: View {
         }
     }
 
-    // MARK: - Bookmark Panel
-
-
-
     // MARK: - Character Panel Components
 
     private var voiceCatalogRow: some View {
@@ -598,7 +594,9 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
         ReaderStore.debugLog("[POS-SAVE] onDisappear idx=\(currentChapterIndex) bookID=\(bookID.uuidString)")
         if currentChapterIndex < chaptersList.count {
-            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: max(0.0, min(1.0, chapterProgressInChapter)))
+            let progress = currentChapterIndex >= 0 && currentChapterIndex < chapterHeights.count
+                ? Double(scrollOffset) / max(chapterHeights[currentChapterIndex], 1) : 0
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: max(0.0, min(1.0, progress)))
         }
         store.saveState()
         if !useSystemBrightness {
@@ -812,7 +810,7 @@ struct ReaderView: View {
 
 // MARK: - ChapterContentView (Equatable, isolated re-render)
 
-struct ChapterContentView: View, Equatable {
+@MainActor struct ChapterContentView: View, Equatable {
     let index: Int
     let chapter: BookChapter
     let isCurrentChapter: Bool
@@ -968,7 +966,7 @@ private struct ContextMenuContent: View {
             if !loaded {
                 ProgressView().onAppear {
                     Task.detached(priority: .userInitiated) {
-                        let result = extractCandidateNamesStatic(from: paraText)
+                        let result = Self.extractCandidateNamesStatic(from: paraText)
                         await MainActor.run { names = result; loaded = true }
                     }
                 }
@@ -1588,6 +1586,41 @@ private struct ReaderOverlayView: View {
     }
 
     // MARK: - Bookmark Panel
+
+    private var bookmarkPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("书签 (\(chapterBookmarks.count))").font(.headline).foregroundColor(textColor)
+                Spacer()
+                Button("关闭") { showBookmarks = false }.font(.caption)
+            }
+            .padding(.horizontal).padding(.top, 8)
+            if chapterBookmarks.isEmpty {
+                Text("暂无书签").foregroundColor(textColor.opacity(0.5)).padding()
+            } else {
+                List {
+                    ForEach(chapterBookmarks) { bm in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(bm.note.isEmpty ? "\(Int(bm.percent * 100))%" : bm.note)
+                                    .font(.caption).foregroundColor(textColor)
+                                Text(bm.createdAt.formatted(date: .omitted, time: .shortened))
+                                    .font(.caption2).foregroundColor(textColor.opacity(0.6))
+                            }
+                            Spacer()
+                            Button(action: { store.removeBookmark(bm.id) }) {
+                                Image(systemName: "trash").foregroundColor(.red)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        }
+                        .listRowBackground(bgColor)
+                    }
+                }
+                .listStyle(.plain).frame(maxHeight: 180)
+            }
+        }
+        .background(bgColor)
+    }
 
     // MARK: - Status Bar (immersive)
 

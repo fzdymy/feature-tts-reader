@@ -2140,7 +2140,56 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
 }
-    
+
+/// S15: 滑窗预取器 —— 提前发出 HTTP 请求，不等响应，结果按 index 缓存
+actor AudioPrefetcher {
+    private var buffer: [Int: Data] = [:]
+    private var inflight: Set<Int> = []
+    private var pending: [Int: CheckedContinuation<Data?, Never>] = [:]
+
+    func prefetch(index: Int, text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?) {
+        guard !inflight.contains(index), buffer[index] == nil else { return }
+        inflight.insert(index)
+        Task.detached { [weak self] in
+            let audioData = try? await EdgeTTSService.shared.synthesize(
+                text: text, voice: voice, rate: rate,
+                pitch: pitch, emotionTag: emotionTag
+            )
+            await self?.store(index: index, audioData: audioData)
+        }
+    }
+
+    func waitFor(index: Int, timeout: TimeInterval = 15) async -> Data? {
+        if let cached = buffer[index] { return cached }
+        if inflight.contains(index) {
+            return await withCheckedContinuation { cont in
+                pending[index] = cont
+                Task.detached { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    await self?.timeout(index: index)
+                }
+            }
+        }
+        return nil
+    }
+
+    private func timeout(index: Int) {
+        guard pending[index] != nil else { return }
+        inflight.remove(index)
+        pending[index]?.resume(returning: nil)
+        pending[index] = nil
+    }
+
+    private func store(index: Int, audioData: Data?) {
+        inflight.remove(index)
+        if let audioData = audioData {
+            buffer[index] = audioData
+            pending[index]?.resume(returning: audioData)
+            pending[index] = nil
+        }
+    }
+}
+
 private final class SpeechSynthesizerDelegateProxy: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
     weak var owner: ReaderStore?
 

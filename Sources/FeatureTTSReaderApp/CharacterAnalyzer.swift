@@ -393,7 +393,7 @@ final class CharacterAnalyzer: @unchecked Sendable {
                     let name = String(chunk[r])
                     guard name.count >= 2 && name.count <= 4 &&
                           name.unicodeScalars.allSatisfy({ CharacterSet.ideographicCharacters.contains($0) }) &&
-                          !isStopWord(name) else { continue }
+                           !Self.isStopWord(name) else { continue }
                     found.insert(name)
                     if i == 2 { colonNames.insert(name) }
                     if i == 3 { commaNames.insert(name) }

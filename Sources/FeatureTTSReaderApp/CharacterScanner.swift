@@ -47,7 +47,7 @@ struct CharacterScanner {
             let freq = freqResult[n, default: 0]
             guard CharacterAnalyzer.looksLikeRealName(n) ||
                   CharacterAnalyzer.titleSuffixes.contains(where: { n.hasSuffix($0) }) ||
-                  (freq >= 10 && n.count >= 2 && n.count <= 4 && !analyzer.isStopWord(n))
+                   (freq >= 10 && n.count >= 2 && n.count <= 4 && !CharacterAnalyzer.isStopWord(n))
             else { continue }
             names.append(n)
         }

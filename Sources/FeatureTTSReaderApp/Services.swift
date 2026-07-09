@@ -173,7 +173,7 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         clearPlaybackState()
         DispatchQueue.global(qos: .utility).async {
-            for url in urls { try? FileManager.default.removeItem(at: url) }
+            for url in urls { if let url = url { try? FileManager.default.removeItem(at: url) } }
         }
         playbackContinuation?.resume()
         playbackContinuation = nil
