@@ -338,6 +338,11 @@ struct TTSView: View {
             await MainActor.run {
                 testResult = result
                 isTestingSynthesis = false
+                if result.contains("成功"), let url = store.ttsTestAudioURL {
+                    Task {
+                        await store.audioController.playFilesAndWait([url])
+                    }
+                }
             }
         }
     }
