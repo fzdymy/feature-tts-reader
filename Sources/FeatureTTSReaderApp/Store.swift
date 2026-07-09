@@ -1120,7 +1120,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     private func cancelPlaybackTaskAndWait() async {
         playbackTask?.cancel()
-        await playbackTask?.value
+        try? await playbackTask?.value
         playbackTask = nil
     }
 

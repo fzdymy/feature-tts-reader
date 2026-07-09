@@ -88,7 +88,8 @@ actor CosyVoiceService {
     private var ttsModel: CosyVoiceTTSModel?
     private var camppSpeaker: CamPlusPlusSpeaker?
 
-    @MainActor @Published private(set) var synthesisProgress: Double = 0.0
+    nonisolated(unsafe) var synthesisProgress: Double = 0.0
+    // Published actor property — use nonisolated access via Task { @MainActor in }
 
     var isAvailable: Bool { ttsModel != nil }
     private(set) var downloadPhase: DownloadPhase = .idle
@@ -164,9 +165,10 @@ actor CosyVoiceService {
         return Data(digest).base64EncodedString()
     }
 
-    private func updateSynthesisProgress(_ progress: Double) {
-        Task { @MainActor in
-            synthesisProgress = max(0, min(1, progress))
+    nonisolated private func updateSynthesisProgress(_ progress: Double) {
+        let value = max(0, min(1, progress))
+        Task { @MainActor [value] in
+            self.synthesisProgress = value
         }
     }
 
@@ -997,16 +999,19 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let wavData = try await synthesizeAndCache(key: key) {
-            updateSynthesisProgress(0.4)
+        let segsCopy1 = dialogueSegments
+        let modelRef1 = model
+        let embeddingsCopy1 = embeddings
+        let wavData = try await synthesizeAndCache(key: key) { @Sendable in
+            self.updateSynthesisProgress(0.4)
             let samples = try DialogueSynthesizer.synthesize(
-                segments: dialogueSegments,
-                speakerEmbeddings: embeddings,
-                model: model,
+                segments: segsCopy1,
+                speakerEmbeddings: embeddingsCopy1,
+                model: modelRef1,
                 language: "chinese",
                 config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
             )
-            updateSynthesisProgress(0.8)
+            self.updateSynthesisProgress(0.8)
             return AudioConverter.floatToWAV(samples, sampleRate: 24_000)
         }
         return wavData
@@ -1045,16 +1050,19 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let wavData = try await synthesizeAndCache(key: key) {
-            updateSynthesisProgress(0.4)
+        let segsCopy2 = dialogueSegments
+        let modelRef2 = model
+        let embeddingsCopy2 = embeddings
+        let wavData = try await synthesizeAndCache(key: key) { @Sendable in
+            self.updateSynthesisProgress(0.4)
             let samples = try DialogueSynthesizer.synthesize(
-                segments: dialogueSegments,
-                speakerEmbeddings: embeddings,
-                model: model,
+                segments: segsCopy2,
+                speakerEmbeddings: embeddingsCopy2,
+                model: modelRef2,
                 language: "chinese",
                 config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
             )
-            updateSynthesisProgress(0.8)
+            self.updateSynthesisProgress(0.8)
             return AudioConverter.floatToWAV(samples, sampleRate: 24_000)
         }
         return wavData

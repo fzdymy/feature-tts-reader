@@ -152,7 +152,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
-        currentAnchor = nil
+        self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
         stopRMS()
@@ -177,13 +177,13 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     func skipBackward() { flushPlayback() }
 
     func skipPreviousSentence() {
-        guard let currentAnchor else { return }
-        let targetParagraph = currentAnchor.paragraphIndex ?? 0
-        let targetSentence = currentAnchor.sentenceIndex ?? 0
+        guard let anchor = currentAnchor else { return }
+        let targetParagraph = anchor.paragraphIndex ?? 0
+        let targetSentence = anchor.sentenceIndex ?? 0
         guard let previousIndex = playbackHistory.lastIndex(where: { item in
-            guard let anchor = item.anchor else { return false }
-            let paragraph = anchor.paragraphIndex ?? 0
-            let sentence = anchor.sentenceIndex ?? 0
+            guard let a = item.anchor else { return false }
+            let paragraph = a.paragraphIndex ?? 0
+            let sentence = a.sentenceIndex ?? 0
             return paragraph < targetParagraph || (paragraph == targetParagraph && sentence < targetSentence)
         }) else { return }
         let target = playbackHistory.remove(at: previousIndex)
@@ -192,7 +192,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
-        currentAnchor = nil
+        self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
         stopRMS()
@@ -200,11 +200,11 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func skipPreviousParagraph() {
-        guard let currentAnchor else { return }
-        let target = (currentAnchor.paragraphIndex ?? 0) - 1
+        guard let anchor = currentAnchor else { return }
+        let target = (anchor.paragraphIndex ?? 0) - 1
         guard let previousIndex = playbackHistory.lastIndex(where: { item in
-            guard let anchor = item.anchor else { return false }
-            return (anchor.paragraphIndex ?? 0) <= target
+            guard let a = item.anchor else { return false }
+            return (a.paragraphIndex ?? 0) <= target
         }) else { return }
         let targetItem = playbackHistory.remove(at: previousIndex)
         queue.insert(targetItem, at: 0)
@@ -212,7 +212,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
-        currentAnchor = nil
+        self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
         stopRMS()
@@ -220,10 +220,10 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     private func advanceQueueToNextMatch(_ predicate: (PlaybackAnchor) -> Bool) {
-        guard let currentAnchor else { return }
+        guard let anchor = currentAnchor else { return }
         let matched = queue.filter { item in
-            guard let anchor = item.anchor else { return false }
-            return predicate(anchor)
+            guard let a = item.anchor else { return false }
+            return predicate(a)
         }
         guard !matched.isEmpty else {
             stop()
@@ -235,7 +235,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
-        currentAnchor = nil
+        self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
         stopRMS()
@@ -243,21 +243,21 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func skipCurrentSentence() {
-        guard let currentAnchor else { return }
-        let targetParagraph = currentAnchor.paragraphIndex ?? 0
-        let targetSentence = (currentAnchor.sentenceIndex ?? 0) + 1
-        advanceQueueToNextMatch { anchor in
-            let paragraph = anchor.paragraphIndex ?? 0
-            let sentence = anchor.sentenceIndex ?? 0
+        guard let anchor = currentAnchor else { return }
+        let targetParagraph = anchor.paragraphIndex ?? 0
+        let targetSentence = (anchor.sentenceIndex ?? 0) + 1
+        advanceQueueToNextMatch { a in
+            let paragraph = a.paragraphIndex ?? 0
+            let sentence = a.sentenceIndex ?? 0
             return paragraph > targetParagraph || (paragraph == targetParagraph && sentence >= targetSentence)
         }
     }
 
     func skipCurrentParagraph() {
-        guard let currentAnchor else { return }
-        let target = (currentAnchor.paragraphIndex ?? 0) + 1
-        advanceQueueToNextMatch { anchor in
-            (anchor.paragraphIndex ?? 0) >= target
+        guard let anchor = currentAnchor else { return }
+        let target = (anchor.paragraphIndex ?? 0) + 1
+        advanceQueueToNextMatch { a in
+            (a.paragraphIndex ?? 0) >= target
         }
     }
     func seek(to time: TimeInterval) {
