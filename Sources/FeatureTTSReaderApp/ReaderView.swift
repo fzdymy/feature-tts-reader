@@ -320,7 +320,8 @@ struct ReaderView: View {
             onAddCharacter: { name in
                 selectedTextForCharacter = name
                 showCharacterFromText = true
-            }
+            },
+            onCancelTap: { [tapCoordinator] in tapCoordinator.cancel() }
         )
         .equatable()
     }
@@ -857,6 +858,7 @@ struct ReaderView: View {
     let estimatedMinHeight: CGFloat
     let onSentenceTap: (Int, Int, String) -> Void
     let onAddCharacter: (String) -> Void
+    let onCancelTap: () -> Void
 
     @State private var paragraphs: [String] = []
     @State private var sentenceCache: [Int: [String]] = [:]
@@ -970,7 +972,7 @@ struct ReaderView: View {
                 .cornerRadius(6)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
-                    tapCoordinator.cancel()
+                    onCancelTap()
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                     onSentenceTap(pi, si, sentenceText)
