@@ -114,6 +114,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var enableLongPressSelect: Bool = true
     @Published var keepScreenOn: Bool = false
     @Published var ttsTestAudioURL: URL? = nil
+    @Published var edgeTTSLastHealth: String = ""
     @Published var bookmarks: [BookBookmark] = []
     @Published var bookProgressByChapter: [UUID: Double] = [:]
     @Published var lastReadChapterIndexByBook: [UUID: Int] = [:]
@@ -1298,166 +1299,150 @@ final class ReaderStore: NSObject, ObservableObject {
         let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
         let blocks = Self.buildDialogueBlocks(paragraphs)
 
-        let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        let audioDir = cachesDir.appendingPathComponent("edge_audio", isDirectory: true)
-        try? FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
-
+        // S14: 单遍扫描 —— 解析所有句子，构建 DramaDirector 上下文（不再有第 2 遍全量扫描）
         let director = DramaDirector()
         var lastSpeakerID: UUID?
         var lastEmotionTag: String?
         var previousDialogueContext: DramaDirector.SentenceContext?
-        var allUpcomingSentenceContexts: [DramaDirector.SentenceContext] = []
         var lastSpeaker: String? = nil
 
-        // Build upcoming sentence contexts for DramaDirector lookahead
+        struct PendingUnit {
+            let sentence: String
+            let characterName: String
+            let speakerID: UUID?
+            let voice: String?
+            let rate: Double
+            let pitch: Double
+            let emotionTag: String
+            let paragraphIndex: Int
+            let sentenceIndex: Int
+        }
+        var pendingUnits: [PendingUnit] = []
+        // 滑动前瞻窗口：仅缓存当前及后续 5 句的上下文（不再需要 allUpcomingSentenceContexts 全量数组）
+        var upcomingWindow: [DramaDirector.SentenceContext] = []
+
         for block in blocks {
             guard block.globalStart + block.texts.count > startParaIndex else { continue }
             let pIdx = block.globalStart
             let mergedText = block.texts.joined(separator: "\n\n")
             let sentences = Self.splitBlockIntoSentences(mergedText)
-            for s in sentences {
-                let parts = Self.parseDialogueSegments(in: s, characters: characters, lastSpeaker: nil)
+
+            for (sIdx, sentence) in sentences.enumerated() {
+                if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
+
+                let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
                 let speaker = parts.first?.speaker ?? "叙述者"
                 let canonical = characters.first(where: { $0.name == speaker || $0.aliases.contains(speaker) })?.name ?? speaker
                 let profile = characters.first(where: { $0.name == canonical })
-                allUpcomingSentenceContexts.append(
-                    DramaDirector.SentenceContext(
-                        text: s, speakerID: profile?.id,
-                        emotionTag: parts.first?.emotionTag ?? "neutral",
-                        isNarrator: profile?.isNarrator ?? (speaker == "叙述者" || speaker == "旁白"),
-                        speed: 1.0, pitch: 1.0, paragraphIndex: pIdx
-                    )
+                let isNarrator = profile?.isNarrator ?? (speaker == "叙述者" || speaker == "旁白")
+                let speakerID = profile?.id
+                if !isNarrator { lastSpeaker = speaker }
+
+                let unit = SentenceUnit(
+                    text: sentence, speakerID: speakerID,
+                    emotionTag: parts.first?.emotionTag ?? "neutral",
+                    anchor: PlaybackAnchor(
+                        bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                        paragraphIndex: pIdx, sentenceIndex: sIdx, speakerID: speakerID
+                    ),
+                    estimatedDuration: 2.0, estimatedSpeed: 1.0, estimatedPitch: 1.0
                 )
-            }
-        }
 
-        // Track completed items for cleanup
-        let allItemsLock = OSAllocatedUnfairLock(initialState: [TTSQueueItem]())
-        var upcomingContextIndex = 0
-
-        // AsyncStream: producer side
-        let stream = AsyncStream<TTSQueueItem> { continuation in
-            Task {
-                let semaphore = AsyncSemaphore(maxConcurrent: 3)
-                await withTaskGroup(of: TTSQueueItem?.self) { group in
-                    for (blockIdx, block) in blocks.enumerated() {
-                        guard block.globalStart + block.texts.count > startParaIndex else { continue }
-                        let pIdx = block.globalStart
-                        let mergedText = block.texts.joined(separator: "\n\n")
-                        let sentences = Self.splitBlockIntoSentences(mergedText)
-
-                        for (sIdx, sentence) in sentences.enumerated() {
-                            if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
-                            let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
-                            let speaker = parts.first?.speaker ?? "叙述者"
-                            let canonical = characters.first(where: { $0.name == speaker || $0.aliases.contains(speaker) })?.name ?? speaker
-                            let profile = characters.first(where: { $0.name == canonical })
-                            let isNarrator = profile?.isNarrator ?? (speaker == "叙述者" || speaker == "旁白")
-                            let speakerID = profile?.id
-
-                            if !isNarrator { lastSpeaker = speaker }
-
-                            let unit = SentenceUnit(
-                                text: sentence, speakerID: speakerID,
-                                emotionTag: parts.first?.emotionTag ?? "neutral",
-                                anchor: PlaybackAnchor(
-                                    bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
-                                    paragraphIndex: pIdx, sentenceIndex: sIdx, speakerID: speakerID
-                                ),
-                                estimatedDuration: 2.0, estimatedSpeed: 1.0, estimatedPitch: 1.0
-                            )
-
-                            let upcomingWindow = Array(allUpcomingSentenceContexts.dropFirst(upcomingContextIndex).prefix(5))
-                            let contextWindow = DramaDirector.ContextWindow(
-                                previousDialogue: previousDialogueContext,
-                                upcomingSentences: upcomingWindow,
-                                lastSpeakerID: lastSpeakerID,
-                                lastEmotionTag: lastEmotionTag,
-                                paragraphIndex: pIdx,
-                                totalParagraphs: paragraphs.count
-                            )
-
-                            let refined = director.contextualize(unit, context: contextWindow)
-
-                            if let sid = refined.speakerID { lastSpeakerID = sid; lastEmotionTag = refined.emotionTag }
-                            previousDialogueContext = DramaDirector.SentenceContext(
-                                text: refined.text, speakerID: refined.speakerID,
-                                emotionTag: refined.emotionTag, isNarrator: isNarrator,
-                                speed: refined.estimatedSpeed, pitch: refined.estimatedPitch,
-                                paragraphIndex: pIdx
-                            )
-                            upcomingContextIndex += 1
-
-                            group.addTask {
-                                await semaphore.wait()
-                                defer { semaphore.signal() }
-
-                                guard !Task.isCancelled else { return nil }
-
-                                let audioData: Data
-                                do {
-                                    await MainActor.run { self.ttsProgressMessage = "Edge TTS 请求中..." }
-                                    audioData = try await EdgeTTSService.shared.synthesize(
-                                        text: sentence,
-                                        voice: profile?.voice.isEmpty == false ? profile?.voice : nil,
-                                        rate: Double(profile?.rate ?? 0),
-                                        pitch: Double(profile?.pitch ?? 0),
-                                        emotionTag: refined.emotionTag
-                                    )
-                                } catch {
-                                    await MainActor.run {
-                                        self.statusMessage = "Edge TTS 合成失败，切换至系统语音"
-                                    }
-                                    await self.playLocalSpeech(sentence)
-                                    return nil
-                                }
-
-                                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
-                                let audioURL = audioDir.appendingPathComponent("blk-\(blockIdx)-s-\(sIdx)-\(UUID().uuidString).\(ext)")
-                                try? audioData.write(to: audioURL, options: .atomic)
-
-                                let anchor = PlaybackAnchor(
-                                    bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
-                                    paragraphIndex: pIdx, sentenceIndex: sIdx, speakerID: speakerID
-                                )
-
-                                let seg = ScriptSegment(
-                                    id: UUID(), characterName: canonical,
-                                    voice: "", rate: 0, pitch: 0, style: "neutral",
-                                    text: sentence, paragraphIndex: pIdx
-                                )
-
-                                let item = TTSQueueItem(
-                                    segment: seg, audioURL: audioURL,
-                                    chapterTitle: chapter.title, bookTitle: bookTitle,
-                                    bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
-                                    segmentIndex: 0, totalSegments: 0,
-                                    paragraphIndex: pIdx, sentenceIndex: sIdx, anchor: anchor
-                                )
-                                allItemsLock.withLock { $0.append(item) }
-                                return item
-                            }
-                        }
-                    }
-                    for await item in group {
-                        if let item { continuation.yield(item) }
-                    }
-                    continuation.finish()
+                // 惰性填充前瞻窗口（最多 5 句）
+                let ctxSentence = DramaDirector.SentenceContext(
+                    text: sentence, speakerID: speakerID,
+                    emotionTag: parts.first?.emotionTag ?? "neutral",
+                    isNarrator: isNarrator, speed: 1.0, pitch: 1.0, paragraphIndex: pIdx
+                )
+                if upcomingWindow.count < 5 {
+                    upcomingWindow.append(ctxSentence)
                 }
+
+                let contextWindow = DramaDirector.ContextWindow(
+                    previousDialogue: previousDialogueContext,
+                    upcomingSentences: upcomingWindow,
+                    lastSpeakerID: lastSpeakerID,
+                    lastEmotionTag: lastEmotionTag,
+                    paragraphIndex: pIdx,
+                    totalParagraphs: paragraphs.count
+                )
+                let refined = director.contextualize(unit, context: contextWindow)
+                if let sid = refined.speakerID { lastSpeakerID = sid; lastEmotionTag = refined.emotionTag }
+                previousDialogueContext = DramaDirector.SentenceContext(
+                    text: refined.text, speakerID: refined.speakerID,
+                    emotionTag: refined.emotionTag, isNarrator: isNarrator,
+                    speed: refined.estimatedSpeed, pitch: refined.estimatedPitch,
+                    paragraphIndex: pIdx
+                )
+                // 消费窗口头部
+                if !upcomingWindow.isEmpty { upcomingWindow.removeFirst() }
+
+                pendingUnits.append(PendingUnit(
+                    sentence: sentence, characterName: canonical, speakerID: speakerID,
+                    voice: (profile?.voice.isEmpty == false) ? profile?.voice : nil,
+                    rate: Double(profile?.rate ?? 0), pitch: Double(profile?.pitch ?? 0),
+                    emotionTag: refined.emotionTag,
+                    paragraphIndex: pIdx, sentenceIndex: sIdx
+                ))
             }
         }
 
-        // Consumer: play items as they arrive, first starts immediately
+        guard !pendingUnits.isEmpty else {
+            await MainActor.run { statusMessage = "没有可朗读的内容。" }
+            await MainActor.run { isBusy = false }
+            return
+        }
+
+        // S15: AudioPrefetcher —— 滑动窗口预取前 N 句音频
+        let prefetcher = AudioPrefetcher()
+        let prefetchWindowSize = 5
+        // 立即预取前 N 句（HTTP 并行发出，不等响应）
+        for i in 0..<min(prefetchWindowSize, pendingUnits.count) {
+            let u = pendingUnits[i]
+            prefetcher.prefetch(index: i, text: u.sentence, voice: u.voice,
+                                rate: u.rate, pitch: u.pitch, emotionTag: u.emotionTag)
+        }
+
+        // S16: 消费循环 —— 每句异步等待音频数据，立即入队播放，同步预取后续句子
         var consumed = 0
         var isFirst = true
-        for await item in stream {
+        for (index, u) in pendingUnits.enumerated() {
+            guard !Task.isCancelled else { break }
+            let audioData = await prefetcher.waitFor(index: index)
+            // 滑窗：预取后续句子
+            let nextIndex = index + prefetchWindowSize
+            if nextIndex < pendingUnits.count {
+                let nu = pendingUnits[nextIndex]
+                prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voice,
+                                    rate: nu.rate, pitch: nu.pitch, emotionTag: nu.emotionTag)
+            }
+            guard let audioData = audioData else { continue }
+
+            let anchor = PlaybackAnchor(
+                bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                paragraphIndex: u.paragraphIndex, sentenceIndex: u.sentenceIndex, speakerID: u.speakerID
+            )
+            let seg = ScriptSegment(
+                id: UUID(), characterName: u.characterName,
+                voice: "", rate: 0, pitch: 0, style: "neutral",
+                text: u.sentence, paragraphIndex: u.paragraphIndex
+            )
+            // S16: 内存 Data 播放，不再写临时文件
+            let item = TTSQueueItem(
+                segment: seg, audioURL: nil, audioData: audioData,
+                chapterTitle: chapter.title, bookTitle: bookTitle,
+                bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                segmentIndex: index, totalSegments: pendingUnits.count,
+                paragraphIndex: u.paragraphIndex, sentenceIndex: u.sentenceIndex, anchor: anchor
+            )
+
             await MainActor.run {
                 ttsChapterTitle = chapter.title
-                ttsSegmentTitle = item.segment.characterName
+                ttsSegmentTitle = u.characterName
                 ttsIsPlaying = true; isSpeaking = true
-                currentParagraphIndex = item.paragraphIndex
-                currentSentenceIndex = item.sentenceIndex
-                currentSentenceText = item.segment.text
+                currentParagraphIndex = u.paragraphIndex
+                currentSentenceIndex = u.sentenceIndex
+                currentSentenceText = u.sentence
                 statusMessage = "朗读中..."; ttsProgressMessage = ""
             }
             if isFirst {
@@ -1471,6 +1456,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
         guard consumed > 0 else {
             await MainActor.run { statusMessage = "没有可朗读的内容。" }
+            await MainActor.run { isBusy = false }
             return
         }
 
@@ -1491,10 +1477,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
         playbackContinuationCancellable = nil
 
-        let files = allItemsLock.withLock { $0 }
-        DispatchQueue.global(qos: .utility).async {
-            for item in files { try? FileManager.default.removeItem(at: item.audioURL) }
-        }
+        // S16: 无需 cleanup 临时音频文件（已全部内存播放）
 
         await MainActor.run {
             isSpeaking = false; isBusy = false; ttsIsPlaying = false

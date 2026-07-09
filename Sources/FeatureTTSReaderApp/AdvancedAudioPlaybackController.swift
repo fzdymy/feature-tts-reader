@@ -120,10 +120,19 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
-            if let data = try? Data(contentsOf: item.audioURL), let audioPlayer = try? AVAudioPlayer(data: data) {
+            // Prefer in-memory audio data when available (skips file I/O entirely)
+            if let data = item.audioData, let audioPlayer = try? AVAudioPlayer(data: data) {
                 player = audioPlayer
+            } else if let url = item.audioURL {
+                if let data = try? Data(contentsOf: url), let audioPlayer = try? AVAudioPlayer(data: data) {
+                    player = audioPlayer
+                } else {
+                    player = try AVAudioPlayer(contentsOf: url)
+                }
             } else {
-                player = try AVAudioPlayer(contentsOf: item.audioURL)
+                // Both audioData and audioURL are nil; move on
+                playNextSeamlessly()
+                return
             }
             player?.delegate = self
             player?.rate = playbackRate

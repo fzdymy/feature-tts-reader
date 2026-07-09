@@ -212,7 +212,7 @@ struct ReaderView: View {
                 }
                 .scrollTargetLayout()
                 .simultaneousGesture(
-                    TapGesture(count: 2).onEnded { toggleImmersiveMode() }
+                    TapGesture(count: 3).onEnded { toggleImmersiveMode() }
                 )
             }
             .scrollPosition(id: $scrollPositionID)
@@ -499,91 +499,37 @@ struct ReaderView: View {
 
     // MARK: - Chapter Content
 
-    private var currentSegmentParagraphs: [String]? {
-        guard let pi = store.currentParagraphIndex, currentChapterIndex < chaptersList.count else { return nil }
-        let ch = chaptersList[currentChapterIndex]
-        let paragraphs = paragraphCache(for: ch)
-        guard pi < paragraphs.count else { return nil }
-        let blockStart = max(0, pi - 1)
-        let blockEnd = min(paragraphs.count, pi + 2)
-        return Array(paragraphs[blockStart..<blockEnd])
-    }
-
     @ViewBuilder
     private func chapterContent(index: Int) -> some View {
         let ch = chaptersList[index]
-        let paragraphs = paragraphCache(for: ch)
         let isCurrentChapter = index == currentChapterIndex && (store.ttsIsPlaying || store.currentSentenceText != nil)
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 8) {
-                Text(ch.title)
-                    .font(.title2).fontWeight(.bold)
-                    .foregroundColor(textColor)
-                if isCurrentChapter {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 8, height: 8)
-                        Text("正在朗读")
-                            .font(.caption2)
-                            .foregroundColor(.accentColor)
+        ChapterContentView(
+            index: index,
+            chapter: ch,
+            isCurrentChapter: isCurrentChapter,
+            playbackParagraphIndex: isCurrentChapter ? store.currentParagraphIndex : nil,
+            playbackSentenceIndex: isCurrentChapter ? store.currentSentenceIndex : nil,
+            isPlaybackActive: store.ttsIsPlaying || store.currentSentenceText != nil,
+            readerFontName: store.readerFontName,
+            readerFontSize: store.readerFontSize,
+            readerLineSpacing: store.readerLineSpacing,
+            textColor: textColor,
+            estimatedMinHeight: estimatedChapterHeight(ch),
+            onSentenceTap: { pi, si, sentenceText in
+                selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
+                if !store.ttsIsPlaying {
+                    Task {
+                        let chapter = chaptersList[currentChapterIndex]
+                        await store.immediateInterruptAndSeek(chapter: chapter, fromParagraphIndex: pi, sentenceIndex: si)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12))
-                    .cornerRadius(999)
                 }
+            },
+            onAddCharacter: { name in
+                selectedTextForCharacter = name
+                showCharacterFromText = true
             }
-            .padding(.top, 24)
-            .padding(.bottom, 12)
-
-            ForEach(Array(0..<paragraphs.count), id: \.self) { pi in
-                let isActiveParagraph = isCurrentChapter && store.currentParagraphIndex == pi
-                VStack(alignment: .leading, spacing: 0) {
-                    if isActiveParagraph {
-                        HStack(spacing: 6) {
-                            Circle().fill(Color.accentColor).frame(width: 6, height: 6)
-                            Text("当前段落")
-                                .font(.caption2)
-                                .foregroundColor(.accentColor)
-                        }
-                        .padding(.bottom, 4)
-                    }
-                    paragraphView(pi: pi, paraText: paragraphs[pi], isCurrentChapter: isCurrentChapter)
-                }
-            }
-
-            Divider()
-                .foregroundColor(textColor.opacity(0.2))
-                .padding(.vertical, 16)
-        }
-        .padding(.horizontal, 20)
-        .frame(minHeight: estimatedChapterHeight(ch))
-    }
-
-    private func extractCandidateNames(from text: String) -> [String] {
-        var nameCounts: [String: Int] = [:]
-        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        let runPattern = try? NSRegularExpression(pattern: "[\\p{Han}]+")
-        runPattern?.enumerateMatches(in: text, range: nsRange) { match, _, _ in
-            guard let m = match, let r = Range(m.range, in: text) else { return }
-            let run = text[r]
-            let chars = Array(run)
-            for start in 0..<chars.count {
-                for length in [2, 3, 4] where start + length <= chars.count {
-                    let candidate = String(chars[start..<start+length])
-                    if CharacterAnalyzer().isStopWord(candidate) { continue }
-                    if store.characters.contains(where: { $0.name == candidate || $0.aliases.contains(candidate) }) { continue }
-                    // 2-char candidates: must pass name filter (too noisy otherwise)
-                    if candidate.count == 2 && !CharacterAnalyzer.looksLikeRealName(candidate) { continue }
-                    nameCounts[candidate, default: 0] += 1
-                }
-            }
-        }
-        // Sort by frequency descending, limit to top 15
-        return nameCounts.sorted { a, b in
-            a.value > b.value || (a.value == b.value && a.key < b.key)
-        }.prefix(15).map(\.key)
+        )
+        .equatable()
     }
 
     private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
@@ -1435,13 +1381,106 @@ struct ReaderView: View {
         cachedParagraphs[chapter.id] = result
         return result
     }
+}
 
-    private func paragraphView(pi: Int, paraText: String, isCurrentChapter: Bool) -> some View {
-        let sentences = ReaderStore.splitBlockIntoSentences(paraText)
-        let isReading = isParagraphReading(pi: pi, isCurrentChapter: isCurrentChapter)
-        return VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(sentences.enumerated()), id: \.offset) { index, sentenceText in
-                sentenceView(pi: pi, si: index, sentenceText: sentenceText, paraText: paraText, isCurrentChapter: isCurrentChapter)
+// MARK: - ChapterContentView (Equatable, isolated re-render)
+
+struct ChapterContentView: View, Equatable {
+    let index: Int
+    let chapter: BookChapter
+    let isCurrentChapter: Bool
+    let playbackParagraphIndex: Int?
+    let playbackSentenceIndex: Int?
+    let isPlaybackActive: Bool
+    let readerFontName: String
+    let readerFontSize: Double
+    let readerLineSpacing: Double
+    let textColor: Color
+    let estimatedMinHeight: CGFloat
+    let onSentenceTap: (Int, Int, String) -> Void
+    let onAddCharacter: (String) -> Void
+
+    @State private var paragraphs: [String] = []
+    @State private var sentenceCache: [Int: [String]] = [:]
+
+    static func == (lhs: ChapterContentView, rhs: ChapterContentView) -> Bool {
+        lhs.index == rhs.index &&
+        lhs.isCurrentChapter == rhs.isCurrentChapter &&
+        lhs.playbackParagraphIndex == rhs.playbackParagraphIndex &&
+        lhs.playbackSentenceIndex == rhs.playbackSentenceIndex &&
+        lhs.isPlaybackActive == rhs.isPlaybackActive &&
+        lhs.readerFontSize == rhs.readerFontSize &&
+        lhs.readerLineSpacing == rhs.readerLineSpacing
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(chapter.title)
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundColor(textColor)
+                if isCurrentChapter && isPlaybackActive {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 8, height: 8)
+                        Text("正在朗读")
+                            .font(.caption2)
+                            .foregroundColor(.accentColor)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12))
+                    .cornerRadius(999)
+                }
+            }
+            .padding(.top, 24)
+            .padding(.bottom, 12)
+
+            ForEach(paragraphs.indices, id: \.self) { pi in
+                paragraphRow(pi: pi)
+            }
+
+            Divider()
+                .foregroundColor(textColor.opacity(0.2))
+                .padding(.vertical, 16)
+        }
+        .padding(.horizontal, 20)
+        .frame(minHeight: estimatedMinHeight)
+        .onAppear {
+            if paragraphs.isEmpty {
+                paragraphs = chapter.text
+                    .components(separatedBy: "\n\n")
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func paragraphRow(pi: Int) -> some View {
+        let paraText = paragraphs[pi]
+        let isActiveParagraph = isCurrentChapter && isPlaybackActive && playbackParagraphIndex == pi
+        VStack(alignment: .leading, spacing: 0) {
+            if isActiveParagraph {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.accentColor).frame(width: 6, height: 6)
+                    Text("当前段落")
+                        .font(.caption2)
+                        .foregroundColor(.accentColor)
+                }
+                .padding(.bottom, 4)
+            }
+            paragraphView(pi: pi, paraText: paraText)
+        }
+    }
+
+    @ViewBuilder
+    private func paragraphView(pi: Int, paraText: String) -> some View {
+        let sentences = sentences(for: pi, paraText: paraText)
+        let isReading = isCurrentChapter && isPlaybackActive && playbackParagraphIndex == pi
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(sentences.indices, id: \.self) { si in
+                sentenceView(pi: pi, si: si, sentenceText: sentences[si])
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1449,79 +1488,97 @@ struct ReaderView: View {
         .background(isReading ? Color.accentColor.opacity(0.15) : Color.clear)
         .cornerRadius(4)
         .contextMenu {
-            let names = extractCandidateNames(from: paraText)
-            if !names.isEmpty {
-                Text("添加为角色").font(.caption).foregroundColor(.secondary)
-                ForEach(names, id: \.self) { name in
-                    Button(name) {
-                        selectedTextForCharacter = name
-                        showCharacterFromText = true
-                    }
-                }
-            }
-            Button("复制段落") {
-                UIPasteboard.general.string = paraText
-            }
+            ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
         }
     }
 
-    private func sentenceView(pi: Int, si: Int, sentenceText: String, paraText: String, isCurrentChapter: Bool) -> some View {
-        let isHighlighted = isSentenceReading(pi: pi, si: si, isCurrentChapter: isCurrentChapter)
-        return HStack(alignment: .top, spacing: 6) {
-            if isHighlighted {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 6, height: 6)
-                    .padding(.top, 9)
-            } else {
-                Circle()
-                    .fill(Color.clear)
-                    .frame(width: 6, height: 6)
-                    .padding(.top, 9)
-            }
-            Text(indentedText(sentenceText))
-                .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+    @ViewBuilder
+    private func sentenceView(pi: Int, si: Int, sentenceText: String) -> some View {
+        let isHighlighted = isCurrentChapter && isPlaybackActive &&
+            playbackParagraphIndex == pi && playbackSentenceIndex == si
+        HStack(alignment: .top, spacing: 6) {
+            Circle()
+                .fill(isHighlighted ? Color.accentColor : Color.clear)
+                .frame(width: 6, height: 6)
+                .padding(.top, 9)
+            Text(sentenceText)
+                .font(Font.custom(readerFontName, size: readerFontSize))
                 .foregroundColor(textColor)
-                .lineSpacing(store.readerLineSpacing + 2)
+                .lineSpacing(readerLineSpacing + 2)
                 .textSelection(.enabled)
                 .padding(.vertical, 2)
                 .padding(.horizontal, 4)
-                .background(isHighlighted ? Color.accentColor.opacity(0.2) : Color.clear)
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isHighlighted ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
-                )
-                .scaleEffect(isHighlighted ? 1.01 : 1.0)
-                .animation(.easeInOut(duration: 0.2), value: isHighlighted)
-                .onTapGesture {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
-                }
+                .background(isHighlighted ? Color.accentColor.opacity(0.18) : Color.clear)
+                .cornerRadius(6)
+                .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
-                    guard store.enableDoubleTapToSpeak else { return }
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
-                    selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
-                    Task {
-                        let chapter = chaptersList[currentChapterIndex]
-                        await store.immediateInterruptAndSeek(chapter: chapter, fromParagraphIndex: pi, sentenceIndex: si)
-                    }
+                    onSentenceTap(pi, si, sentenceText)
                 }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func isParagraphReading(pi: Int, isCurrentChapter: Bool) -> Bool {
-        guard isCurrentChapter, let paraIdx = store.currentParagraphIndex else { return false }
-        return paraIdx == pi && (store.ttsIsPlaying || store.currentSentenceText != nil)
+    private func sentences(for pi: Int, paraText: String) -> [String] {
+        if let cached = sentenceCache[pi] { return cached }
+        let result = ReaderStore.splitBlockIntoSentences(paraText)
+        sentenceCache[pi] = result
+        return result
+    }
+}
+
+// MARK: - ContextMenuContent (lazy candidate extraction)
+
+private struct ContextMenuContent: View {
+    let paraText: String
+    let onAddCharacter: (String) -> Void
+    @State private var names: [String] = []
+    @State private var loaded = false
+
+    var body: some View {
+        Group {
+            if !loaded {
+                ProgressView().onAppear {
+                    Task.detached(priority: .userInitiated) {
+                        let result = extractCandidateNamesStatic(from: paraText)
+                        await MainActor.run { names = result; loaded = true }
+                    }
+                }
+            } else {
+                if !names.isEmpty {
+                    Text("添加为角色").font(.caption).foregroundColor(.secondary)
+                    ForEach(names, id: \.self) { name in
+                        Button(name) { onAddCharacter(name) }
+                    }
+                }
+                Button("复制段落") {
+                    UIPasteboard.general.string = paraText
+                }
+            }
+        }
     }
 
-    private func isSentenceReading(pi: Int, si: Int, isCurrentChapter: Bool) -> Bool {
-        guard isCurrentChapter else { return false }
-        let isActive = store.ttsIsPlaying || store.currentSentenceText != nil
-        return isActive && store.currentParagraphIndex == pi && store.currentSentenceIndex == si
+    private static func extractCandidateNamesStatic(from text: String) -> [String] {
+        var nameCounts: [String: Int] = [:]
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        let runPattern = try? NSRegularExpression(pattern: "[\\p{Han}]+")
+        runPattern?.enumerateMatches(in: text, range: nsRange) { match, _, _ in
+            guard let m = match, let r = Range(m.range, in: text) else { return }
+            let run = text[r]
+            let chars = Array(run)
+            for start in 0..<chars.count {
+                for length in [2, 3, 4] where start + length <= chars.count {
+                    let candidate = String(chars[start..<start+length])
+                    if CharacterAnalyzer.isStopWord(candidate) { continue }
+                    if candidate.count == 2 && !CharacterAnalyzer.looksLikeRealName(candidate) { continue }
+                    nameCounts[candidate, default: 0] += 1
+                }
+            }
+        }
+        return nameCounts.sorted { a, b in
+            a.value > b.value || (a.value == b.value && a.key < b.key)
+        }.prefix(15).map(\.key)
     }
 }
 

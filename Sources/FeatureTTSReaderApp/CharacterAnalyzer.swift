@@ -867,7 +867,7 @@ final class CharacterAnalyzer: @unchecked Sendable {
         }
     }
 
-    func isStopWord(_ word: String) -> Bool {
+    static func isStopWord(_ word: String) -> Bool {
         let stops: Set<String> = [
             "第一", "第二", "第三", "第四", "第五", "第十", "最后", "开始", "结束",
             "不过", "突然", "然后", "但是", "因为", "所以", "虽然", "如果",

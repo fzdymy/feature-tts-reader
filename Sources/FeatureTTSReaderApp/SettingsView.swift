@@ -315,6 +315,7 @@ struct SettingsView: View {
                     await calculateCacheSize()
                     let health = await EdgeTTSService.shared.healthCheck()
                     edgeStatus = health.contains("就绪") || health.contains("服务") ? health : "未就绪"
+                    await MainActor.run { store.edgeTTSLastHealth = edgeStatus }
                 }
             }
         }

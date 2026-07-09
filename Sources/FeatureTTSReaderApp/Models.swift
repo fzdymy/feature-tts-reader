@@ -217,9 +217,10 @@ struct BookBookmark: Identifiable, Hashable, Codable {
 }
 
 struct TTSQueueItem: Identifiable, Codable, Hashable {
-    let id = UUID()
+    var id: UUID
     let segment: ScriptSegment
-    let audioURL: URL
+    let audioURL: URL?
+    let audioData: Data?  // optional in-memory audio; preferred over audioURL when present
     let chapterTitle: String
     let bookTitle: String
     let bookID: String
@@ -230,8 +231,58 @@ struct TTSQueueItem: Identifiable, Codable, Hashable {
     let sentenceIndex: Int?   // index within paragraph sentences
     let anchor: PlaybackAnchor?  // unified cross-stack sync anchor
 
+    init(id: UUID = UUID(), segment: ScriptSegment, audioURL: URL? = nil, audioData: Data? = nil, chapterTitle: String, bookTitle: String, bookID: String, chapterIndex: Int, segmentIndex: Int, totalSegments: Int, paragraphIndex: Int? = nil, sentenceIndex: Int? = nil, anchor: PlaybackAnchor? = nil) {
+        self.id = id
+        self.segment = segment
+        self.audioURL = audioURL
+        self.audioData = audioData
+        self.chapterTitle = chapterTitle
+        self.bookTitle = bookTitle
+        self.bookID = bookID
+        self.chapterIndex = chapterIndex
+        self.segmentIndex = segmentIndex
+        self.totalSegments = totalSegments
+        self.paragraphIndex = paragraphIndex
+        self.sentenceIndex = sentenceIndex
+        self.anchor = anchor
+    }
+
     enum CodingKeys: String, CodingKey {
-        case segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments, paragraphIndex, sentenceIndex, anchor
+        case id, segment, audioURL, chapterTitle, bookTitle, bookID, chapterIndex, segmentIndex, totalSegments, paragraphIndex, sentenceIndex, anchor
+        // audioData intentionally excluded: never persist large audio buffers
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        segment = try c.decode(ScriptSegment.self, forKey: .segment)
+        audioURL = try c.decodeIfPresent(URL.self, forKey: .audioURL)
+        audioData = nil
+        chapterTitle = try c.decode(String.self, forKey: .chapterTitle)
+        bookTitle = try c.decode(String.self, forKey: .bookTitle)
+        bookID = try c.decode(String.self, forKey: .bookID)
+        chapterIndex = try c.decode(Int.self, forKey: .chapterIndex)
+        segmentIndex = try c.decode(Int.self, forKey: .segmentIndex)
+        totalSegments = try c.decode(Int.self, forKey: .totalSegments)
+        paragraphIndex = try c.decodeIfPresent(Int.self, forKey: .paragraphIndex)
+        sentenceIndex = try c.decodeIfPresent(Int.self, forKey: .sentenceIndex)
+        anchor = try c.decodeIfPresent(PlaybackAnchor.self, forKey: .anchor)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(segment, forKey: .segment)
+        try c.encodeIfPresent(audioURL, forKey: .audioURL)
+        try c.encode(chapterTitle, forKey: .chapterTitle)
+        try c.encode(bookTitle, forKey: .bookTitle)
+        try c.encode(bookID, forKey: .bookID)
+        try c.encode(chapterIndex, forKey: .chapterIndex)
+        try c.encode(segmentIndex, forKey: .segmentIndex)
+        try c.encode(totalSegments, forKey: .totalSegments)
+        try c.encodeIfPresent(paragraphIndex, forKey: .paragraphIndex)
+        try c.encodeIfPresent(sentenceIndex, forKey: .sentenceIndex)
+        try c.encodeIfPresent(anchor, forKey: .anchor)
     }
 }
 

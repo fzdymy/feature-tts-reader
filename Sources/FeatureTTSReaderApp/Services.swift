@@ -108,7 +108,7 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
 
         let item = queue[currentIndex]
         do {
-            player = try AVAudioPlayer(contentsOf: item.audioURL)
+            player = try AVAudioPlayer(contentsOf: item.audioURL ?? URL(fileURLWithPath: "/dev/null"))
             player?.delegate = self
             player?.enableRate = true
             player?.rate = playbackRate
@@ -299,7 +299,7 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
               let state = try? JSONDecoder().decode(PlaybackState.self, from: data) else { return }
 
         // Check if audio files still exist before restoring
-        let staleFiles = state.queue.contains { !FileManager.default.fileExists(atPath: $0.audioURL.path) }
+        let staleFiles = state.queue.contains { $0.audioURL.map { !FileManager.default.fileExists(atPath: $0.path) } ?? true }
         guard !staleFiles else {
             clearPlaybackState()
             return
@@ -312,7 +312,7 @@ final class AudioPlaybackController: NSObject, ObservableObject, @unchecked Send
         if !queue.isEmpty && currentIndex < queue.count {
             let item = queue[currentIndex]
             do {
-                player = try AVAudioPlayer(contentsOf: item.audioURL)
+                player = try AVAudioPlayer(contentsOf: item.audioURL ?? URL(fileURLWithPath: "/dev/null"))
                 player?.delegate = self
                 player?.prepareToPlay()
                 player?.currentTime = state.currentTime
@@ -411,7 +411,7 @@ extension AudioPlaybackController: AVAudioPlayerDelegate {
 
     private func deleteCurrentAudioFile() {
         guard currentIndex < queue.count else { return }
-        let url = queue[currentIndex].audioURL
+        guard let url = queue[currentIndex].audioURL else { return }
         DispatchQueue.global(qos: .utility).async {
             try? FileManager.default.removeItem(at: url)
         }
