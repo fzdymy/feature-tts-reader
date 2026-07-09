@@ -172,7 +172,7 @@ actor CosyVoiceService {
         }
     }
 
-    private func synthesizeAndCache(key: String, synthesize: @escaping @Sendable () async throws -> Data) async throws -> Data {
+    private func synthesizeAndCache(key: String, synthesize: @escaping () async throws -> Data) async throws -> Data {
         if let cached = cachedAudio(key: key) {
             updateSynthesisProgress(1.0)
             return cached
@@ -999,15 +999,12 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let segsCopy1 = dialogueSegments
-        let modelRef1 = model
-        let embeddingsCopy1 = embeddings
-        let wavData = try await synthesizeAndCache(key: key) { @Sendable in
+        let wavData = try await synthesizeAndCache(key: key) {
             self.updateSynthesisProgress(0.4)
             let samples = try DialogueSynthesizer.synthesize(
-                segments: segsCopy1,
-                speakerEmbeddings: embeddingsCopy1,
-                model: modelRef1,
+                segments: dialogueSegments,
+                speakerEmbeddings: embeddings,
+                model: model,
                 language: "chinese",
                 config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
             )
@@ -1050,15 +1047,12 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let segsCopy2 = dialogueSegments
-        let modelRef2 = model
-        let embeddingsCopy2 = embeddings
-        let wavData = try await synthesizeAndCache(key: key) { @Sendable in
+        let wavData = try await synthesizeAndCache(key: key) {
             self.updateSynthesisProgress(0.4)
             let samples = try DialogueSynthesizer.synthesize(
-                segments: segsCopy2,
-                speakerEmbeddings: embeddingsCopy2,
-                model: modelRef2,
+                segments: dialogueSegments,
+                speakerEmbeddings: embeddings,
+                model: model,
                 language: "chinese",
                 config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
             )
