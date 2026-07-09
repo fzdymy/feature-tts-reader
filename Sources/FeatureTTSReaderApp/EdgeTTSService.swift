@@ -141,7 +141,7 @@ actor EdgeTTSService {
         let servers = configuredServers
         guard !servers.isEmpty else { throw EdgeTTSError.missingServerURL }
 
-        let ssmlText = buildSSML(text: trimmed, voice: voice, rate: rate, pitch: pitch, emotionTag: emotionTag)
+        let ssmlText = Self.buildSSML(text: trimmed, voice: voice, rate: rate, pitch: pitch, emotionTag: emotionTag)
 
         let candidates: [EdgeTTSServerConfig]
         if let serverID {
