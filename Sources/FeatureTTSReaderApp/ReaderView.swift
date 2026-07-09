@@ -971,7 +971,7 @@ struct ReaderView: View {
                 .cornerRadius(6)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
-                    pendingTapWorkItem?.cancel()
+                    self.pendingTapWorkItem?.cancel()
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                     onSentenceTap(pi, si, sentenceText)
