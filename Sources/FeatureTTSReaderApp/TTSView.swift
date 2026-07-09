@@ -6,8 +6,8 @@ struct TTSView: View {
     @State private var modelStatus = "检查中…"
     @State private var isTesting = false
     @State private var testResult: String?
-    @State private var serverListText = EdgeTTSService.shared.serverListText
-    @State private var apiKey = EdgeTTSService.shared.apiKey
+    @State private var serverListText = ""
+    @State private var apiKey = ""
     @State private var healthMessage = ""
     @State private var showCopied = false
 
@@ -25,8 +25,10 @@ struct TTSView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("语音")
             .onAppear {
-                serverListText = EdgeTTSService.shared.serverListText
-                apiKey = EdgeTTSService.shared.apiKey
+                Task {
+                    serverListText = await EdgeTTSService.shared.serverListText
+                    apiKey = await EdgeTTSService.shared.apiKey
+                }
                 refreshStatus()
             }
             .onReceive(timer) { _ in refreshStatus() }
@@ -164,9 +166,11 @@ struct TTSView: View {
     }
 
     private func saveServerURL() {
-        EdgeTTSService.shared.setServerList(serverListText)
-        EdgeTTSService.shared.setAPIKey(apiKey)
-        refreshStatus()
+        Task {
+            await EdgeTTSService.shared.setServerList(serverListText)
+            await EdgeTTSService.shared.setAPIKey(apiKey)
+            refreshStatus()
+        }
     }
 
     private var voiceSamples: [URL] {
