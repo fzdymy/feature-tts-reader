@@ -172,7 +172,7 @@ actor CosyVoiceService {
         }
     }
 
-    private func synthesizeAndCache(key: String, synthesize: @escaping () async throws -> Data) async throws -> Data {
+    private func synthesizeAndCache(key: String, synthesize: @escaping @Sendable () async throws -> Data) async throws -> Data {
         if let cached = cachedAudio(key: key) {
             updateSynthesisProgress(1.0)
             return cached
@@ -999,12 +999,15 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let wavData = try await synthesizeAndCache(key: key) {
+        nonisolated(unsafe) let modelRef = model
+        let embeddingsCopy = embeddings
+        let dialogueSegmentsCopy = dialogueSegments
+        let wavData = try await synthesizeAndCache(key: key) { @Sendable in
             self.updateSynthesisProgress(0.4)
             let samples = try DialogueSynthesizer.synthesize(
-                segments: dialogueSegments,
-                speakerEmbeddings: embeddings,
-                model: model,
+                segments: dialogueSegmentsCopy,
+                speakerEmbeddings: embeddingsCopy,
+                model: modelRef,
                 language: "chinese",
                 config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
             )
@@ -1047,12 +1050,15 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let wavData = try await synthesizeAndCache(key: key) {
+        nonisolated(unsafe) let modelRef2 = model
+        let embeddingsCopy2 = embeddings
+        let dialogueSegmentsCopy2 = dialogueSegments
+        let wavData = try await synthesizeAndCache(key: key) { @Sendable in
             self.updateSynthesisProgress(0.4)
             let samples = try DialogueSynthesizer.synthesize(
-                segments: dialogueSegments,
-                speakerEmbeddings: embeddings,
-                model: model,
+                segments: dialogueSegmentsCopy2,
+                speakerEmbeddings: embeddingsCopy2,
+                model: modelRef2,
                 language: "chinese",
                 config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
             )
