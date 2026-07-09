@@ -88,6 +88,8 @@ actor CosyVoiceService {
     private var ttsModel: CosyVoiceTTSModel?
     private var camppSpeaker: CamPlusPlusSpeaker?
 
+    @MainActor @Published private(set) var synthesisProgress: Double = 0.0
+
     var isAvailable: Bool { ttsModel != nil }
     private(set) var downloadPhase: DownloadPhase = .idle
     private(set) var isDownloading = false
@@ -160,6 +162,35 @@ actor CosyVoiceService {
         let combined = textData + embedData
         let digest = SHA256.hash(data: combined)
         return Data(digest).base64EncodedString()
+    }
+
+    private func updateSynthesisProgress(_ progress: Double) {
+        Task { @MainActor in
+            synthesisProgress = max(0, min(1, progress))
+        }
+    }
+
+    private func synthesizeAndCache(key: String, synthesize: @escaping @Sendable () async throws -> Data) async throws -> Data {
+        if let cached = cachedAudio(key: key) {
+            updateSynthesisProgress(1.0)
+            return cached
+        }
+        updateSynthesisProgress(0.1)
+        let data = try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask {
+                try await synthesize()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(30 * 1_000_000_000))
+                throw TTSError.timeout
+            }
+            let result = try await group.next() ?? { throw TTSError.timeout }()
+            group.cancelAll()
+            return result
+        }
+        updateSynthesisProgress(1.0)
+        storeCache(key: key, data: data)
+        return data
     }
 
     private func cachedAudio(key: String) -> Data? {
@@ -943,7 +974,10 @@ private static func _hfHubCacheCandidates() -> [URL] {
             let embedKeys = Array(speakerEmbeddings.keys).sorted().joined(separator: ",") + "|" + Array(speakerSamples.keys).sorted().joined(separator: ",")
             key = cacheKey(text: "dialogue:\(segmentText)|samples:\(embedKeys)", embedding: nil)
         }
-        if let cached = cachedAudio(key: key) { return cached }
+        if let cached = cachedAudio(key: key) {
+            updateSynthesisProgress(1.0)
+            return cached
+        }
 
         // 2. Merge pre-computed embeddings with URL-based enrollments
         var embeddings = speakerEmbeddings
@@ -963,17 +997,18 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let samples = try DialogueSynthesizer.synthesize(
-            segments: dialogueSegments,
-            speakerEmbeddings: embeddings,
-            model: model,
-            language: "chinese",
-            config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
-        )
-
-        // 5. Convert to WAV and cache
-        let wavData = AudioConverter.floatToWAV(samples, sampleRate: 24_000)
-        storeCache(key: key, data: wavData)
+        let wavData = try await synthesizeAndCache(key: key) {
+            updateSynthesisProgress(0.4)
+            let samples = try DialogueSynthesizer.synthesize(
+                segments: dialogueSegments,
+                speakerEmbeddings: embeddings,
+                model: model,
+                language: "chinese",
+                config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
+            )
+            updateSynthesisProgress(0.8)
+            return AudioConverter.floatToWAV(samples, sampleRate: 24_000)
+        }
         return wavData
     }
 
@@ -989,7 +1024,10 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let segmentText = segments.map { "\($0.speaker)|\($0.emotion ?? "")|\($0.text)" }.joined(separator: "\n")
         let embedKeys = speakerSamples.keys.sorted().joined(separator: ",")
         let key = cacheKey(text: "dialogue:\(segmentText)|samples:\(embedKeys)", embedding: nil)
-        if let cached = cachedAudio(key: key) { return cached }
+        if let cached = cachedAudio(key: key) {
+            updateSynthesisProgress(1.0)
+            return cached
+        }
 
         // 2. Enroll speakers (CAM++ embeddings)
         var embeddings: [String: [Float]] = [:]
@@ -1007,17 +1045,18 @@ private static func _hfHubCacheCandidates() -> [URL] {
         let dialogueSegments = DialogueParser.parse(dialogueText)
 
         // 4. Synthesize
-        let samples = try DialogueSynthesizer.synthesize(
-            segments: dialogueSegments,
-            speakerEmbeddings: embeddings,
-            model: model,
-            language: "chinese",
-            config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
-        )
-
-        // 5. Convert [Float] samples to WAV data and cache
-        let wavData = AudioConverter.floatToWAV(samples, sampleRate: 24_000)
-        storeCache(key: key, data: wavData)
+        let wavData = try await synthesizeAndCache(key: key) {
+            updateSynthesisProgress(0.4)
+            let samples = try DialogueSynthesizer.synthesize(
+                segments: dialogueSegments,
+                speakerEmbeddings: embeddings,
+                model: model,
+                language: "chinese",
+                config: DialogueSynthesisConfig(turnGapSeconds: 0.2)
+            )
+            updateSynthesisProgress(0.8)
+            return AudioConverter.floatToWAV(samples, sampleRate: 24_000)
+        }
         return wavData
     }
 
@@ -1208,13 +1247,14 @@ private extension Data {
 
 // MARK: - Errors
 
-enum TTSError: LocalizedError {
+enum TTSError: LocalizedError, Equatable {
     case modelNotAvailable
     case synthesisFailed(String)
     case importFailed(String)
     case invalidURL(String)
     case downloadFailed(String)
     case extractionFailed(String)
+    case timeout
 
     var errorDescription: String? {
         switch self {
@@ -1224,6 +1264,7 @@ enum TTSError: LocalizedError {
         case .invalidURL(let url): return "无效的下载地址: \(url)"
         case .downloadFailed(let msg): return "下载失败: \(msg)"
         case .extractionFailed(let msg): return "解压失败: \(msg)"
+        case .timeout: return "CosyVoice 合成超时"
         }
     }
 }

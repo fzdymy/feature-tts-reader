@@ -143,6 +143,42 @@ struct ReaderView: View {
         return chaptersList[currentChapterIndex].title
     }
 
+    private var currentPlaybackInfoText: String {
+        if let sentence = store.currentSentenceText, !sentence.isEmpty {
+            return sentence
+        }
+        if store.ttsIsPlaying {
+            return store.ttsSegmentTitle.isEmpty ? "正在朗读..." : store.ttsSegmentTitle
+        }
+        return ""
+    }
+
+    private var playbackStatusSummary: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(store.ttsIsPlaying ? Color.green : Color.orange)
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(store.ttsIsPlaying ? "正在朗读" : "已暂停")
+                    .font(.caption2).fontWeight(.semibold)
+                Text(currentPlaybackInfoText.isEmpty ? "轻点任意句子，从这里开始朗读" : currentPlaybackInfoText)
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.75))
+                    .lineLimit(2)
+            }
+            Spacer()
+            if let paragraphIndex = store.currentParagraphIndex, let sentenceIndex = store.currentSentenceIndex {
+                Text("第\(paragraphIndex + 1)段 · 第\(sentenceIndex + 1)句")
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.65))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(textColor.opacity(0.06))
+        .cornerRadius(10)
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -208,16 +244,11 @@ struct ReaderView: View {
             .onChange(of: chaptersList.count) { _, _ in
                 chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
             }
-            .onChange(of: store.currentParagraphIndex) { _, newIndex in
-                if !scrolledAway, let idx = newIndex, let offset = autoScrollOffset(for: idx) {
-                    lastAutoScrollTime = Date()
-                    scrollCoordinator.scrollTo(offset: offset, animated: true)
-                    segmentStartOffset = offset
-                } else {
-                    segmentStartOffset = scrollOffset
-                }
-                scrolledAway = false
-                withAnimation { isPlaying = store.ttsIsPlaying }
+            .onChange(of: store.currentParagraphIndex) { _, _ in
+                updateAutoScrollForCurrentPlayback()
+            }
+            .onChange(of: store.currentSentenceIndex) { _, _ in
+                updateAutoScrollForCurrentPlayback()
             }
             .onChange(of: store.ttsIsPlaying) { _, newValue in
                 isPlaying = newValue
@@ -247,10 +278,20 @@ struct ReaderView: View {
                     VStack(spacing: 12) {
                         Spacer()
                         Button(action: {
-                            store.audioController.playPrevious()
+                            store.audioController.skipCurrentParagraph()
                         }) {
-                            Image(systemName: "backward.fill")
-                                .font(.system(size: 20))
+                            Image(systemName: "forward.end")
+                                .font(.system(size: 18))
+                                .foregroundColor(textColor)
+                                .frame(width: 40, height: 40)
+                                .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
+                        }
+                        .buttonStyle(.borderless)
+                        Button(action: {
+                            store.audioController.skipCurrentSentence()
+                        }) {
+                            Image(systemName: "forward")
+                                .font(.system(size: 18))
                                 .foregroundColor(textColor)
                                 .frame(width: 40, height: 40)
                                 .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
@@ -279,13 +320,23 @@ struct ReaderView: View {
                                 .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
                         }
                         .buttonStyle(.borderless)
-                        if !store.ttsProgressMessage.isEmpty {
-                            Text(store.ttsProgressMessage)
-                                .font(.system(size: 8))
-                                .foregroundColor(textColor.opacity(0.6))
-                                .lineLimit(2)
-                                .frame(width: 60)
-                                .multilineTextAlignment(.center)
+                        VStack(spacing: 2) {
+                            if !store.ttsProgressMessage.isEmpty {
+                                Text(store.ttsProgressMessage)
+                                    .font(.system(size: 8))
+                                    .foregroundColor(textColor.opacity(0.6))
+                                    .lineLimit(2)
+                                    .frame(width: 60)
+                                    .multilineTextAlignment(.center)
+                            }
+                            if let paragraphIndex = store.currentParagraphIndex, let sentenceIndex = store.currentSentenceIndex {
+                                Text("段\(paragraphIndex + 1)-句\(sentenceIndex + 1)")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(textColor.opacity(0.6))
+                                    .lineLimit(2)
+                                    .frame(width: 60)
+                                    .multilineTextAlignment(.center)
+                            }
                         }
                     }
                     .padding(.trailing, 8)
@@ -452,14 +503,42 @@ struct ReaderView: View {
         let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let isCurrentChapter = index == currentChapterIndex && store.ttsIsPlaying
         VStack(alignment: .leading, spacing: 0) {
-            Text(ch.title)
-                .font(.title2).fontWeight(.bold)
-                .foregroundColor(textColor)
-                .padding(.top, 24)
-                .padding(.bottom, 12)
+            HStack(alignment: .center, spacing: 8) {
+                Text(ch.title)
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundColor(textColor)
+                if isCurrentChapter {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 8, height: 8)
+                        Text("正在朗读")
+                            .font(.caption2)
+                            .foregroundColor(.accentColor)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12))
+                    .cornerRadius(999)
+                }
+            }
+            .padding(.top, 24)
+            .padding(.bottom, 12)
 
             ForEach(Array(0..<paragraphs.count), id: \.self) { pi in
-                paragraphView(pi: pi, paraText: paragraphs[pi], isCurrentChapter: isCurrentChapter)
+                let isActiveParagraph = isCurrentChapter && store.currentParagraphIndex == pi
+                VStack(alignment: .leading, spacing: 0) {
+                    if isActiveParagraph {
+                        HStack(spacing: 6) {
+                            Circle().fill(Color.accentColor).frame(width: 6, height: 6)
+                            Text("当前段落")
+                                .font(.caption2)
+                                .foregroundColor(.accentColor)
+                        }
+                        .padding(.bottom, 4)
+                    }
+                    paragraphView(pi: pi, paraText: paragraphs[pi], isCurrentChapter: isCurrentChapter)
+                }
             }
 
             Divider()
@@ -593,6 +672,15 @@ struct ReaderView: View {
 
     private var immersiveAudioBottomBar: some View {
         VStack(spacing: 0) {
+            if !currentPlaybackInfoText.isEmpty {
+                Text(currentPlaybackInfoText)
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.8))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+            }
             Divider()
             if scrolledAway {
                 HStack(spacing: 32) {
@@ -610,9 +698,9 @@ struct ReaderView: View {
                     Button(action: {
                         scrolledAway = false
                         store.stopPlayback()
-                        let paraText = segmentTextForCurrentPosition()
+                        let paraIndex = currentParagraphIndexForCurrentPosition()
                         segmentStartOffset = scrollOffset
-                        Task { await startPlayback(fromParagraphText: paraText) }
+                        Task { await startPlayback(fromParagraphIndex: paraIndex) }
                     }) {
                         HStack(spacing: 6) {
                             Image(systemName: "headphones.circle")
@@ -689,9 +777,39 @@ struct ReaderView: View {
             .padding(.horizontal, 16).padding(.vertical, 6)
             .foregroundColor(textColor)
 
+            if !currentPlaybackInfoText.isEmpty {
+                Text(currentPlaybackInfoText)
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.8))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+            }
+
             Divider()
 
-            HStack(spacing: 0) {
+            playbackStatusSummary
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+
+            HStack(spacing: 8) {
+                Button(action: {
+                    store.audioController.skipPreviousSentence()
+                }) {
+                    Label("上一句", systemImage: "backward")
+                        .font(.caption2)
+                        .frame(minWidth: 70, minHeight: 36)
+                }
+                .buttonStyle(.borderless)
+                Button(action: {
+                    store.audioController.skipCurrentSentence()
+                }) {
+                    Label("下一句", systemImage: "forward")
+                        .font(.caption2)
+                        .frame(minWidth: 70, minHeight: 36)
+                }
+                .buttonStyle(.borderless)
                 Button(action: {
                     if store.ttsIsPlaying {
                         store.audioController.pause()
@@ -709,7 +827,29 @@ struct ReaderView: View {
                     .frame(minHeight: 40)
                 }
                 .buttonStyle(.borderless)
-                Divider().frame(height: 20)
+                Button(action: {
+                    store.audioController.skipPreviousParagraph()
+                }) {
+                    Label("上一段", systemImage: "backward.end")
+                        .font(.caption2)
+                        .frame(minWidth: 70, minHeight: 36)
+                }
+                .buttonStyle(.borderless)
+                Button(action: {
+                    store.audioController.skipCurrentParagraph()
+                }) {
+                    Label("下一段", systemImage: "forward.end")
+                        .font(.caption2)
+                        .frame(minWidth: 70, minHeight: 36)
+                }
+                .buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+
+            Divider()
+
+            HStack(spacing: 0) {
                 barButton("list.bullet", label: "目录", action: { showTOC = true })
                 Divider().frame(height: 20)
                 barButton(themeIcon(store.readerTheme), label: "主题", action: {
@@ -1149,8 +1289,8 @@ struct ReaderView: View {
         return nil
     }
 
-    /// Compute scroll offset to bring the paragraph at `paragraphIndex` into view.
-    private func autoScrollOffset(for paragraphIndex: Int) -> CGFloat? {
+    /// Compute scroll offset to bring the current paragraph and sentence into view.
+    private func autoScrollOffset(for paragraphIndex: Int, sentenceIndex: Int? = nil) -> CGFloat? {
         guard currentChapterIndex < chaptersList.count else { return nil }
         let ch = chaptersList[currentChapterIndex]
         let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -1158,23 +1298,62 @@ struct ReaderView: View {
         let cached = chapterHeights
         let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
         let titleHeight: CGFloat = 58
-        let hPad: CGFloat = 40
-        let containerWidth = UIScreen.main.bounds.width - hPad
+        var y: CGFloat = titleHeight
+        let containerWidth = UIScreen.main.bounds.width - 40
         let fontSize = store.readerFontSize
         let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
         let cjkCharWidth = fontSize
         let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        var y: CGFloat = titleHeight
         for i in 0..<paragraphIndex {
-            let trimmed = paragraphs[i].trimmingCharacters(in: .whitespacesAndNewlines)
-            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
-            y += CGFloat(paraLineCount) * lineHeight + 8
+            y += estimatedParagraphHeight(for: paragraphs[i], charsPerLine: charsPerLine, lineHeight: lineHeight)
+        }
+        let targetParagraph = paragraphs[paragraphIndex]
+        let sentences = ReaderStore.splitBlockIntoSentences(targetParagraph)
+        if let sentenceIndex, sentenceIndex >= 0, sentenceIndex < sentences.count {
+            for i in 0..<sentenceIndex {
+                y += estimatedParagraphHeight(for: sentences[i], charsPerLine: charsPerLine, lineHeight: lineHeight)
+            }
         }
         return pastHeight + y - 2 * lineHeight
     }
 
-    private func startPlayback(fromParagraphText: String? = nil) async {
+    private func estimatedParagraphHeight(for text: String, charsPerLine: Int, lineHeight: CGFloat) -> CGFloat {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
+        return CGFloat(paraLineCount) * lineHeight + 8
+    }
+
+    private func scrollToSentenceCenter(paragraphIndex: Int, sentenceIndex: Int?) {
+        guard let offset = autoScrollOffset(for: paragraphIndex, sentenceIndex: sentenceIndex) else { return }
+        let centeredOffset = max(0, offset - UIScreen.main.bounds.height * 0.25)
+        lastAutoScrollTime = Date()
+        scrollCoordinator.scrollTo(offset: centeredOffset, animated: true)
+        segmentStartOffset = centeredOffset
+        scrolledAway = false
+    }
+
+    private func selectSentence(paragraphIndex: Int, sentenceIndex: Int, sentenceText: String) {
+        store.currentParagraphIndex = paragraphIndex
+        store.currentSentenceIndex = sentenceIndex
+        store.currentSentenceText = sentenceText
+        scrollToSentenceCenter(paragraphIndex: paragraphIndex, sentenceIndex: sentenceIndex)
+    }
+
+    private func updateAutoScrollForCurrentPlayback() {
+        if !scrolledAway, let paragraphIndex = store.currentParagraphIndex, let offset = autoScrollOffset(for: paragraphIndex, sentenceIndex: store.currentSentenceIndex) {
+            lastAutoScrollTime = Date()
+            scrollCoordinator.scrollTo(offset: offset, animated: true)
+            segmentStartOffset = offset
+        } else {
+            segmentStartOffset = scrollOffset
+        }
+        scrolledAway = false
+        withAnimation { isPlaying = store.ttsIsPlaying }
+    }
+
+    private func startPlayback(fromParagraphIndex: Int? = nil) async {
         guard currentChapterIndex < chaptersList.count else { return }
         guard !store.bookText.isEmpty else {
             await MainActor.run { store.statusMessage = "文本尚未加载，请稍后再试。" }
@@ -1190,7 +1369,16 @@ struct ReaderView: View {
         if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
             await store.buildScript(for: false)
         }
-        store.startPlaybackTask(chapter: chapter, fromParagraph: fromParagraphText)
+        await store.startPlaybackTask(chapter: chapter, fromParagraphIndex: fromParagraphIndex)
+    }
+
+    private func currentParagraphIndexForCurrentPosition() -> Int? {
+        guard currentChapterIndex < chaptersList.count else { return nil }
+        let ch = chaptersList[currentChapterIndex]
+        let paragraphs = ch.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard let currentText = segmentTextForCurrentPosition() else { return store.currentParagraphIndex }
+        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return paragraphs.firstIndex(where: { $0.contains(trimmed) || trimmed.contains($0) })
     }
 
     // MARK: - Helpers
@@ -1212,31 +1400,79 @@ struct ReaderView: View {
     }
 
     private func paragraphView(pi: Int, paraText: String, isCurrentChapter: Bool) -> some View {
+        let sentences = ReaderStore.splitBlockIntoSentences(paraText)
         let isReading = isParagraphReading(pi: pi, isCurrentChapter: isCurrentChapter)
-        return Text(indentedText(paraText))
-            .font(Font.custom(store.readerFontName, size: store.readerFontSize))
-            .foregroundColor(textColor)
-            .lineSpacing(store.readerLineSpacing + 2)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-            .background(isReading ? Color.accentColor.opacity(0.3) : Color.clear)
-            .cornerRadius(4)
-            .contextMenu {
-                let names = extractCandidateNames(from: paraText)
-                if !names.isEmpty {
-                    Text("添加为角色").font(.caption).foregroundColor(.secondary)
-                    ForEach(names, id: \.self) { name in
-                        Button(name) {
-                            selectedTextForCharacter = name
-                            showCharacterFromText = true
-                        }
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(sentences.enumerated()), id: \.offset) { index, sentenceText in
+                sentenceView(pi: pi, si: index, sentenceText: sentenceText, paraText: paraText, isCurrentChapter: isCurrentChapter)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+        .background(isReading ? Color.accentColor.opacity(0.15) : Color.clear)
+        .cornerRadius(4)
+        .contextMenu {
+            let names = extractCandidateNames(from: paraText)
+            if !names.isEmpty {
+                Text("添加为角色").font(.caption).foregroundColor(.secondary)
+                ForEach(names, id: \.self) { name in
+                    Button(name) {
+                        selectedTextForCharacter = name
+                        showCharacterFromText = true
                     }
                 }
-                Button("复制段落") {
-                    UIPasteboard.general.string = paraText
-                }
             }
+            Button("复制段落") {
+                UIPasteboard.general.string = paraText
+            }
+        }
+    }
+
+    private func sentenceView(pi: Int, si: Int, sentenceText: String, paraText: String, isCurrentChapter: Bool) -> some View {
+        let isHighlighted = isCurrentChapter && store.currentParagraphIndex == pi && store.currentSentenceIndex == si
+        return HStack(alignment: .top, spacing: 6) {
+            if isHighlighted {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 9)
+            } else {
+                Circle()
+                    .fill(Color.clear)
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 9)
+            }
+            Text(indentedText(sentenceText))
+                .font(Font.custom(store.readerFontName, size: store.readerFontSize))
+                .foregroundColor(textColor)
+                .lineSpacing(store.readerLineSpacing + 2)
+                .textSelection(.enabled)
+                .padding(.vertical, 2)
+                .padding(.horizontal, 4)
+                .background(isHighlighted ? Color.accentColor.opacity(0.2) : Color.clear)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isHighlighted ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
+                )
+                .scaleEffect(isHighlighted ? 1.01 : 1.0)
+                .animation(.easeInOut(duration: 0.2), value: isHighlighted)
+                .onTapGesture {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
+                }
+                .onTapGesture(count: 2) {
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
+                    selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
+                    Task {
+                        let chapter = chaptersList[currentChapterIndex]
+                        await store.immediateInterruptAndSeek(chapter: chapter, fromParagraphIndex: pi, sentenceIndex: si)
+                    }
+                }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func isParagraphReading(pi: Int, isCurrentChapter: Bool) -> Bool {

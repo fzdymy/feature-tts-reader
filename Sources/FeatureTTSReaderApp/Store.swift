@@ -47,6 +47,8 @@ final class ReaderStore: NSObject, ObservableObject {
 
     @Published var ttsProgressMessage: String = ""
     @Published var currentParagraphIndex: Int?
+    @Published var currentSentenceIndex: Int?
+    @Published var currentSentenceText: String?
 
     @Published var activeServerTestResult: String = ""
     @Published var isTestingServer: Bool = false
@@ -185,6 +187,8 @@ final class ReaderStore: NSObject, ObservableObject {
             .sink { [weak self] anchor in
                 Task { @MainActor [weak self] in
                     self?.currentParagraphIndex = anchor?.paragraphIndex
+                    self?.currentSentenceIndex = anchor?.sentenceIndex
+                    self?.currentSentenceText = nil
                     self?.ttsCurrentIndex = anchor.map { $0.paragraphIndex } ?? 0
                     self?.ttsSegmentTitle = anchor.map { "段 \($0.paragraphIndex):句 \($0.sentenceIndex)" } ?? ""
                 }
@@ -1114,27 +1118,62 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
+    private func cancelPlaybackTaskAndWait() async {
+        playbackTask?.cancel()
+        await playbackTask?.value
+        playbackTask = nil
+    }
+
     func stopPlayback() {
         playbackTask?.cancel()
         playbackTask = nil
         audioController.stop()
+        AdvancedAudioPlaybackController.cleanupAllAudioFiles()
         speechSynthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
         ttsIsPlaying = false
+        currentParagraphIndex = nil
+        currentSentenceIndex = nil
+        currentSentenceText = nil
         statusMessage = "已停止播放。"
         ttsProgressMessage = ""
     }
 
-    func startPlaybackTask(chapter: BookChapter, fromParagraph: String? = nil) {
-        playbackTask?.cancel()
+    func immediateInterruptAndSeek(chapter: BookChapter, fromParagraphIndex: Int, sentenceIndex: Int? = nil) async {
+        await cancelPlaybackTaskAndWait()
+        audioController.stop()
+        AdvancedAudioPlaybackController.cleanupAllAudioFiles()
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        isSpeaking = false
+        ttsIsPlaying = false
+        currentParagraphIndex = nil
+        currentSentenceIndex = nil
+        currentSentenceText = nil
+        ttsProgressMessage = ""
+
+        playbackTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try Task.checkCancellation()
+                try await self.playChapterStreaming(chapter: chapter, fromParagraphIndex: max(0, fromParagraphIndex), fromSentenceIndex: sentenceIndex)
+            } catch {
+                if !Task.isCancelled {
+                    await MainActor.run { self.statusMessage = "朗读失败：\(error.localizedDescription)" }
+                }
+            }
+        }
+    }
+
+    func startPlaybackTask(chapter: BookChapter, fromParagraphIndex: Int? = nil, sentenceIndex: Int? = nil) async {
+        await cancelPlaybackTaskAndWait()
         playbackTask = Task { [weak self] in
             guard let self = self else { return }
             do {
                 try Task.checkCancellation()
-                try await self.playChapterStreaming(chapter: chapter, fromParagraph: fromParagraph)
+                try await self.playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: sentenceIndex)
             } catch {
                 if !Task.isCancelled {
-                    await MainActor.run { statusMessage = "朗读失败：\(error.localizedDescription)" }
+                    await MainActor.run { self.statusMessage = "朗读失败：\(error.localizedDescription)" }
                 }
             }
         }
@@ -1199,7 +1238,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     /// 逐段落流水线：高亮段落 → 识别对白 → CosyVoice 合成 → 播放
-    func playChapterStreaming(chapter: BookChapter, fromParagraph: String? = nil) async throws {
+    func playChapterStreaming(chapter: BookChapter, fromParagraphIndex: Int? = nil, fromSentenceIndex: Int? = nil) async throws {
         await MainActor.run {
             isBusy = true
             statusMessage = "正在朗读 \(chapter.title)..."
@@ -1211,12 +1250,8 @@ final class ReaderStore: NSObject, ObservableObject {
             return
         }
 
-        let startParaIndex: Int
-        if let paraText = fromParagraph, !paraText.isEmpty {
-            startParaIndex = paragraphs.firstIndex(where: { $0.contains(paraText) || paraText.contains($0) }) ?? 0
-        } else {
-            startParaIndex = 0
-        }
+        let startParaIndex = max(0, min(paragraphs.count - 1, fromParagraphIndex ?? 0))
+        let startSentenceIndex = max(0, fromSentenceIndex ?? 0)
 
         let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
         let bookUUID = UUID(uuidString: currentBookID) ?? UUID()
@@ -1296,6 +1331,7 @@ final class ReaderStore: NSObject, ObservableObject {
                         let sentences = Self.splitBlockIntoSentences(mergedText)
 
                         for (sIdx, sentence) in sentences.enumerated() {
+                            if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
                             let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
                             let speaker = parts.first?.speaker ?? "叙述者"
                             let canonical = characters.first(where: { $0.name == speaker || $0.aliases.contains(speaker) })?.name ?? speaker
@@ -1347,6 +1383,19 @@ final class ReaderStore: NSObject, ObservableObject {
                                 guard !Task.isCancelled else { return nil }
 
                                 let audioData: Data
+                                let progressTask = Task { [weak self] in
+                                    guard let self else { return }
+                                    while !Task.isCancelled {
+                                        let progress = await CosyVoiceService.shared.synthesisProgress
+                                        if progress > 0 {
+                                            await MainActor.run { self.ttsProgressMessage = "CosyVoice 合成 [\(Int(progress * 100))%]" }
+                                        }
+                                        if progress >= 1.0 { break }
+                                        try? await Task.sleep(nanoseconds: 200_000_000)
+                                    }
+                                }
+                                defer { progressTask.cancel() }
+
                                 do {
                                     audioData = try await CosyVoiceService.shared.synthesizeDialogueWithEmbeddings(
                                         segments: cosySegments,
@@ -1355,7 +1404,10 @@ final class ReaderStore: NSObject, ObservableObject {
                                         registry: registry
                                     )
                                 } catch {
-                                    await MainActor.run { self.statusMessage = "CosyVoice 合成失败，切换至系统语音" }
+                                    let isTimeout = error.localizedDescription.contains("超时") || (error as? TTSError) == .timeout
+                                    await MainActor.run {
+                                        self.statusMessage = isTimeout ? "CosyVoice 合成超时，切换至系统语音" : "CosyVoice 合成失败，切换至系统语音"
+                                    }
                                     await self.playLocalSpeech(sentence)
                                     return nil
                                 }
@@ -1404,6 +1456,8 @@ final class ReaderStore: NSObject, ObservableObject {
                     ttsSegmentTitle = item.segment.characterName
                     ttsIsPlaying = true; isSpeaking = true
                     currentParagraphIndex = item.paragraphIndex
+                    currentSentenceIndex = item.sentenceIndex
+                    currentSentenceText = item.segment.text
                     statusMessage = "朗读中..."; ttsProgressMessage = ""
                 }
                 audioController.playQueue([item])
@@ -1441,10 +1495,10 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    func playChapterWithTTS(chapter: BookChapter, fromParagraph: String? = nil) async {
+    func playChapterWithTTS(chapter: BookChapter, fromParagraphIndex: Int? = nil) async {
         await MainActor.run { statusMessage = "正在准备朗读章节..." }
         do {
-            try await playChapterStreaming(chapter: chapter, fromParagraph: fromParagraph)
+            try await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex)
         } catch {
             await MainActor.run { statusMessage = "朗读失败: \(error.localizedDescription)" }
         }
@@ -1891,6 +1945,13 @@ final class ReaderStore: NSObject, ObservableObject {
         return firstName
     }
 
+    private func paragraphIndex(for paragraphText: String, in chapterText: String) -> Int? {
+        let paragraphs = chapterText.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let trimmed = paragraphText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return paragraphs.firstIndex(where: { $0.contains(trimmed) || trimmed.contains($0) })
+    }
+
     func playFromParagraph(_ paragraph: String) async {
         guard !bookText.isEmpty else {
             await MainActor.run { statusMessage = "请先导入小说文本。" }
@@ -1910,8 +1971,9 @@ final class ReaderStore: NSObject, ObservableObject {
             return
         }
         let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fromParagraphIndex = trimmed.isEmpty ? nil : paragraphIndex(for: trimmed, in: chapter.text)
         do {
-            try await playChapterStreaming(chapter: chapter, fromParagraph: trimmed.isEmpty ? nil : trimmed)
+            try await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex)
         } catch {
             await MainActor.run { statusMessage = "朗读失败：\(error.localizedDescription)" }
         }

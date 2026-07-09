@@ -15,6 +15,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private var queue: [TTSQueueItem] = []
     private var currentIndex = 0
     private var currentItem: TTSQueueItem?
+    private var playbackHistory: [TTSQueueItem] = []
     private var playbackContinuation: CheckedContinuation<Void, Never>?
     private let rmsQueue = DispatchQueue(label: "rms", qos: .background)
     private var rmsTimer: Timer?
@@ -81,6 +82,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queue = Array(items.dropFirst(index))
         currentIndex = 0
         queueCount = queue.count
+        playbackHistory.removeAll(keepingCapacity: false)
         playNextSeamlessly(isFirst: true)
     }
 
@@ -101,6 +103,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             playbackContinuation?.resume()
             playbackContinuation = nil
             return
+        }
+        if let currentItem {
+            playbackHistory.append(currentItem)
         }
         let item = queue.removeFirst()
         currentItem = item
@@ -134,6 +139,26 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         playbackContinuation = nil
     }
 
+    func skipToSegment(at paragraphIndex: Int) {
+        let target = max(0, paragraphIndex)
+        guard let idx = queue.firstIndex(where: { ($0.anchor?.paragraphIndex ?? $0.paragraphIndex ?? -1) >= target }) else {
+            stop()
+            return
+        }
+        let remaining = Array(queue[idx...])
+        queue.removeAll(keepingCapacity: false)
+        queue = remaining
+        currentIndex = 0
+        queueCount = queue.count
+        player?.stop()
+        player = nil
+        currentAnchor = nil
+        currentItem = nil
+        isPlaying = false
+        stopRMS()
+        playNextSeamlessly(isFirst: true)
+    }
+
     func pause() {
         player?.pause()
         isPlaying = false
@@ -150,6 +175,91 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     func playPrevious() { flushPlayback() }
     func skipForward() { playNextSeamlessly() }
     func skipBackward() { flushPlayback() }
+
+    func skipPreviousSentence() {
+        guard let currentAnchor else { return }
+        let targetParagraph = currentAnchor.paragraphIndex ?? 0
+        let targetSentence = currentAnchor.sentenceIndex ?? 0
+        guard let previousIndex = playbackHistory.lastIndex(where: { item in
+            guard let anchor = item.anchor else { return false }
+            let paragraph = anchor.paragraphIndex ?? 0
+            let sentence = anchor.sentenceIndex ?? 0
+            return paragraph < targetParagraph || (paragraph == targetParagraph && sentence < targetSentence)
+        }) else { return }
+        let target = playbackHistory.remove(at: previousIndex)
+        queue.insert(target, at: 0)
+        currentIndex = 0
+        queueCount = queue.count
+        player?.stop()
+        player = nil
+        currentAnchor = nil
+        currentItem = nil
+        isPlaying = false
+        stopRMS()
+        playNextSeamlessly(isFirst: true)
+    }
+
+    func skipPreviousParagraph() {
+        guard let currentAnchor else { return }
+        let target = (currentAnchor.paragraphIndex ?? 0) - 1
+        guard let previousIndex = playbackHistory.lastIndex(where: { item in
+            guard let anchor = item.anchor else { return false }
+            return (anchor.paragraphIndex ?? 0) <= target
+        }) else { return }
+        let targetItem = playbackHistory.remove(at: previousIndex)
+        queue.insert(targetItem, at: 0)
+        currentIndex = 0
+        queueCount = queue.count
+        player?.stop()
+        player = nil
+        currentAnchor = nil
+        currentItem = nil
+        isPlaying = false
+        stopRMS()
+        playNextSeamlessly(isFirst: true)
+    }
+
+    private func advanceQueueToNextMatch(_ predicate: (PlaybackAnchor) -> Bool) {
+        guard let currentAnchor else { return }
+        let matched = queue.filter { item in
+            guard let anchor = item.anchor else { return false }
+            return predicate(anchor)
+        }
+        guard !matched.isEmpty else {
+            stop()
+            return
+        }
+        queue.removeAll(keepingCapacity: false)
+        queue = matched
+        currentIndex = 0
+        queueCount = queue.count
+        player?.stop()
+        player = nil
+        currentAnchor = nil
+        currentItem = nil
+        isPlaying = false
+        stopRMS()
+        playNextSeamlessly(isFirst: true)
+    }
+
+    func skipCurrentSentence() {
+        guard let currentAnchor else { return }
+        let targetParagraph = currentAnchor.paragraphIndex ?? 0
+        let targetSentence = (currentAnchor.sentenceIndex ?? 0) + 1
+        advanceQueueToNextMatch { anchor in
+            let paragraph = anchor.paragraphIndex ?? 0
+            let sentence = anchor.sentenceIndex ?? 0
+            return paragraph > targetParagraph || (paragraph == targetParagraph && sentence >= targetSentence)
+        }
+    }
+
+    func skipCurrentParagraph() {
+        guard let currentAnchor else { return }
+        let target = (currentAnchor.paragraphIndex ?? 0) + 1
+        advanceQueueToNextMatch { anchor in
+            (anchor.paragraphIndex ?? 0) >= target
+        }
+    }
     func seek(to time: TimeInterval) {
         player?.currentTime = time
         updateNowPlaying()
@@ -192,6 +302,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentItem = nil
         queue.removeAll()
         queueCount = 0
+        playbackHistory.removeAll(keepingCapacity: false)
         stopRMS()
         updateNowPlaying()
     }
