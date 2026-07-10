@@ -213,6 +213,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func loadStateAsync() async {
+        guard !isStateLoaded else { return }
         let url = stateFileURL()
         let decoded: ReaderState? = await Task.detached {
             guard let data = try? Data(contentsOf: url),

@@ -6,6 +6,7 @@ struct FeatureTTSReaderApp: App {
         let s = ReaderStore()
         return s
     }()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -18,6 +19,11 @@ struct FeatureTTSReaderApp: App {
                     .tabItem { Label("设置", systemImage: "gearshape") }
             }
             .environmentObject(store)
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .background {
+                    store.saveState()
+                }
+            }
         }
     }
 }

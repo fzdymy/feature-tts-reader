@@ -32,46 +32,54 @@ struct BookshelfView: View {
 
     var body: some View {
         NavigationStack(path: $store.navigationPath) {
-            ZStack {
-                Color(UIColor.systemGroupedBackground).ignoresSafeArea()
+            Group {
+                if !store.isStateLoaded {
+                    ProgressView("载入中...")
+                        .scaleEffect(1.5)
+                } else {
+                    ZStack {
+                        Color(UIColor.systemGroupedBackground).ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    searchAndSortBar
-                        .padding(.horizontal)
-                        .padding(.top, 8)
+                        VStack(spacing: 0) {
+                            searchAndSortBar
+                                .padding(.horizontal)
+                                .padding(.top, 8)
 
-                    if showStatus && !store.statusMessage.isEmpty {
-                        Text(store.statusMessage)
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.accentColor)
-                            .cornerRadius(6)
-                            .padding(.horizontal)
-                            .padding(.top, 4)
-                            .transition(.opacity)
-                    }
+                            if showStatus && !store.statusMessage.isEmpty {
+                                Text(store.statusMessage)
+                                    .font(.subheadline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.accentColor)
+                                    .cornerRadius(6)
+                                    .padding(.horizontal)
+                                    .padding(.top, 4)
+                                    .transition(.opacity)
+                            }
 
-                    if store.books.isEmpty {
-                        emptyStateView
-                    } else if viewMode == .grid {
-                        gridView
-                    } else {
-                        listView
-                    }
-                }
-                .onChange(of: store.statusMessage) { _, newValue in
-                    guard !newValue.isEmpty else { return }
-                    showStatus = true
-                    Task {
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        withAnimation { showStatus = false }
+                            if store.books.isEmpty {
+                                emptyStateView
+                            } else if viewMode == .grid {
+                                gridView
+                            } else {
+                                listView
+                            }
+                        }
+                        .onChange(of: store.statusMessage) { _, newValue in
+                            guard !newValue.isEmpty else { return }
+                            showStatus = true
+                            Task {
+                                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                                withAnimation { showStatus = false }
+                            }
+                        }
                     }
                 }
             }
             .navigationTitle("书架")
             .searchable(text: $searchText, prompt: "搜索书籍")
+            .onAppear { store.loadState() }
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Picker("视图模式", selection: $viewMode) {
