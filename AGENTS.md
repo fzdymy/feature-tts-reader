@@ -369,3 +369,23 @@
 
 手势优先级: sentenceView 内置 ⌃ 双击 > ZStack 单击
 ```
+
+## 2026-07-09 书籍持久化修复（3 次迭代才找到根因）
+
+### 🔴 B2 最终根因
+
+| 层 | 问题 | 为什么没效果 |
+|----|------|-------------|
+| 1 | `Book.CodingKeys` 排除 `text` | JSON 不存文本，有意为之（防体积过大） |
+| 2 | `PersistenceController.saveBooks` 写 `text: ""` | Core Data 也不存文本 |
+| 3 | 文本仅存在 `book_texts/{uuid}.txt` | LiveContainer 容器切换后路径失效 |
+| 4 | `loadStateAsync` 的 `loadedTexts` 只加载 `state.books` 的文本 | 从持久化合并的书籍被漏掉 |
+| 5 | 即使 `loadAllTextsFromFiles()` 读到了文本，`books[i].text = text` 不触发 `@Published` | 数组 in-place 修改不触发 `objectWillChange` |
+
+### 最终修复（`e5a1b86`）
+
+`PersistenceController.swift`:
+- `saveBooks`: `object.setValue(book.text, forKey: "text")` — 存入 Core Data
+- `fetchBooks`: `let text = object.value(forKey: "text") as? String ?? ""` — 从 Core Data 读回
+
+**核心原则：文本必须与元数据存在同一持久化层**，不能分开存文件。JSON 不存文本（体积）可以理解，但 Core Data 必须存。

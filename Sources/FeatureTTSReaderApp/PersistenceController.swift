@@ -100,7 +100,7 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
             else {
                 return nil
             }
-            let text = object.value(forKey: "text") as? String ?? ""
+            let text = object.value(forKey: "text") as? String ?? "" // ⚠️ 必须读取 text！之前写 "" 导致二次打开书籍丢失。见 Docs/bert-sslm-edge-tts-architecture.md > 书籍持久化修复记录
             return Book(id: id, title: title, text: text, importedAt: importedAt)
         }
     }
@@ -116,7 +116,7 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
             let object = NSManagedObject(entity: entity, insertInto: context)
             object.setValue(book.id.uuidString, forKey: "id")
             object.setValue(book.title, forKey: "title")
-            object.setValue(book.text, forKey: "text")
+            object.setValue(book.text, forKey: "text") // ⚠️ 必须写 text！之前写 "" 导致二次打开书籍丢失。见 Docs/bert-sslm-edge-tts-architecture.md > 书籍持久化修复记录
             object.setValue(book.importedAt, forKey: "importedAt")
         }
         saveContext()

@@ -69,7 +69,7 @@ struct Book: Identifiable, Hashable {
 }
 
 extension Book: Codable {
-    enum CodingKeys: String, CodingKey { case id, title, importedAt }
+    enum CodingKeys: String, CodingKey { case id, title, importedAt } // ⚠️ text 故意不编入 JSON（体积太大），但必须通过 Core Data 持久化！见 PersistenceController.saveBooks/fetchBooks
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)

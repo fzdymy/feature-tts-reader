@@ -379,3 +379,49 @@ func playData(_ data: Data, ...) {
 | B2 | 书籍二次打开丢失文本 | `loadStateAsync()` 中 `loadedTexts` 只加载 `state.books`（JSON 状态文件）的文本；从 Core Data persistence 合并的书籍不加载文件 | 新增 `for i in books.indices where books[i].text.isEmpty` 循环加载缺失文本；`bookText` 空时也从文件加载 | `Store.swift` |
 | B3 | 区域单击手势消失 | S5 删除 triple-tap gesture 时未替换为 zone-based single-tap | 增加 `SpatialTapGesture` 在 ZStack：上 1/4 翻页下滚（保留末 2 行），中 1/2 沉浸切换，下 1/4 翻页上滚；250ms 延迟避免双击冲突 | `ReaderView.swift` |
 | B4 | 语音设置测试功能消失 | S13 精简 TTSView 时删除 `testSection` | 恢复 testSection：自定义文本输入 + 试听按钮 + 结果显示 | `TTSView.swift` |
+
+---
+
+## 书籍持久化修复记录（2026-07-09）
+
+### 🔴 B2 最终根因
+
+| 层 | 问题 | 为什么没效果 |
+|----|------|-------------|
+| 1 | `Book.CodingKeys` 排除 `text` (`Models.swift:72`) | JSON 不存文本，有意为之（防体积过大） |
+| 2 | `PersistenceController.saveBooks` 写 `text: ""` (`PersistenceController.swift:118`) | Core Data 也不存文本 |
+| 3 | 文本仅存在 `book_texts/{uuid}.txt` | LiveContainer 容器切换后路径失效 |
+| 4 | `loadStateAsync` 的 `loadedTexts` 只加载 `state.books` 的文本 | 从持久化合并的书籍被漏掉 |
+| 5 | 即使 `loadAllTextsFromFiles()` 读到了文本，`books[i].text = text` 不触发 `@Published` | 数组 in-place 修改不触发 `objectWillChange`，UI 不刷新 |
+
+### 最终修复（提交 `e5a1b86`）
+
+```
+PersistenceController.swift:
+
+  func saveBooks(_ books: [Book]) {
+      ...
+      object.setValue(book.text, forKey: "text")  // ← 之前写 ""
+      ...
+  }
+
+  func fetchBooks() -> [Book] {
+      ...
+      let text = object.value(forKey: "text") as? String ?? ""
+      return Book(..., text: text)                // ← 之前写 text: ""
+      ...
+  }
+```
+
+**核心原则：文本必须与元数据存在同一持久化层**，不能分开存文件。
+- JSON 不存 text（体积大）— 可接受，不要改
+- Core Data **必须存 text** — `saveBooks` 写 `book.text`，`fetchBooks` 读回
+- `book_texts/{uuid}.txt` 文件方案保留为向后兼容的 fallback（`loadAllTextsFromFiles()`）
+
+### 代码标注位置
+
+| 文件 | 行 | 标注内容 |
+|------|----|---------|
+| `Models.swift` | 72 | `CodingKeys` 排除 text 的说明 |
+| `PersistenceController.swift` | 103 | `fetchBooks` 读取 text |
+| `PersistenceController.swift` | 119 | `saveBooks` 写入 text |
