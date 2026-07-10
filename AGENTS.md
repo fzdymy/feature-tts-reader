@@ -427,15 +427,15 @@
 
 #### R2: 导入书籍格式错乱
 
-三个具体问题：
-1. **段首缩进丢失** — `TextNormalizer.normalize()` (TextNormalizer.swift:20-23) 和 `Parser.extractParagraphs()` 在分割/规范化时去掉了段首空格/缩进
-2. **标点换行** — 上一行末尾的标点符号被单独放在下一行开头，可能是断字/换行逻辑问题
-3. **两侧边距过大** — `ReaderView.swift` 中文本容器的 `.padding()` 过大，需要各减少约一个汉字宽度（约 16pt）
+三个问题在 `7d98abd` 中已全部修复：
+1. **段首缩进丢失** — `TextNormalizer.normalize()` 原用 `trimmingCharacters(in: .whitespaces)` 去掉全部首尾空白；改为 `lastIndex(where: { !$0.isWhitespace })` 仅 strip 行尾 Unicode 空白（含全角空格），保留段首缩进
+2. **标点换行** — 原文有硬换行（每行 `\n`）导致引号被拆成 `“学弟\n学弟\n”`；第 4 步从 space 改为 empty string 合并，`“学弟\n学弟\n”` → `“学弟学弟”`；新增第 7 步清理 CJK 字符间残余空格
+3. **两侧边距过大** — `ReaderView.swift:908` 将 `.padding(.horizontal, 20)` 改为 `8`，每侧减少约一个汉字宽度
 
 #### R3: 朗读界面双击高亮 BUG
 
 双击段落触发朗读时，ReaderView 中出现两层高亮：
 - 正确：当前段落背景高亮（期望效果）
-- 错误：还有一个大面积的高亮覆盖区块（不知道是什么逻辑引入的，应移除）
+- 错误：还有一个大面积的高亮覆盖区块（`paragraphView` 中的 `.background(isReading ? Color.accentColor.opacity(0.15) : Color.clear)`）
 
-此 BUG 严重干扰阅读体验。
+此 BUG 严重干扰阅读体验。已在 `7d98abd` 中移除该 `background` 修饰符，仅保留 `sentenceView` 的句子级高亮。
