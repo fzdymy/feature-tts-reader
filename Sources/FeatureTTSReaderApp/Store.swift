@@ -261,11 +261,15 @@ final class ReaderStore: NSObject, ObservableObject {
                 for persistedBook in persistedBooks where !mergedBooks.contains(where: { $0.id == persistedBook.id }) {
                     mergedBooks.append(persistedBook)
                 }
-                if mergedBooks.count != state.books.count {
-                    books = mergedBooks
+                for i in mergedBooks.indices where mergedBooks[i].text.isEmpty {
+                    if let persisted = persistedBooks.first(where: { $0.id == mergedBooks[i].id }), !persisted.text.isEmpty {
+                        mergedBooks[i].text = persisted.text
+                    }
+                }
+                let hadNewBooks = mergedBooks.count != state.books.count
+                books = mergedBooks
+                if hadNewBooks {
                     persistLibrary()
-                } else {
-                    books = mergedBooks
                 }
             } else {
                 books = state.books
@@ -348,7 +352,11 @@ final class ReaderStore: NSObject, ObservableObject {
                 books = snapshot
             }
             if bookText.isEmpty, let id = UUID(uuidString: currentBookID) {
-                bookText = loadBookTextFromFile(bookID: id) ?? ""
+                if let idx = books.firstIndex(where: { $0.id == id }), !books[idx].text.isEmpty {
+                    bookText = books[idx].text
+                } else {
+                    bookText = loadBookTextFromFile(bookID: id) ?? ""
+                }
                 lastScannedBookText = bookText
             }
             isStateLoaded = true
