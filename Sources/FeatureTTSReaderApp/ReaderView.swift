@@ -75,10 +75,9 @@ struct ReaderView: View {
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
         scrollPositionID = "ch_\(safeTarget)"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self else { return }
-            let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
-            scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
+        let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
