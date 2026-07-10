@@ -1444,7 +1444,7 @@ final class ReaderStore: NSObject, ObservableObject {
         for i in 0..<min(prefetchWindowSize, pendingUnits.count) {
             let u = pendingUnits[i]
             await prefetcher.prefetch(index: i, text: u.sentence, voice: u.voice,
-                                rate: u.rate, pitch: u.pitch, emotionTag: u.emotionTag)
+                                rate: u.rate, pitch: u.pitch, style: u.emotionTag ?? "")
         }
 
         // S16: 消费循环 —— 每句异步等待音频数据，立即入队播放，同步预取后续句子
@@ -1458,7 +1458,7 @@ final class ReaderStore: NSObject, ObservableObject {
             if nextIndex < pendingUnits.count {
                 let nu = pendingUnits[nextIndex]
                 await prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voice,
-                                    rate: nu.rate, pitch: nu.pitch, emotionTag: nu.emotionTag)
+                                    rate: nu.rate, pitch: nu.pitch, style: nu.emotionTag ?? "")
             }
             guard let audioData = audioData else { continue }
 
@@ -2191,13 +2191,13 @@ actor AudioPrefetcher {
     private var inflight: Set<Int> = []
     private var pending: [Int: CheckedContinuation<Data?, Never>] = [:]
 
-    func prefetch(index: Int, text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?) {
+    func prefetch(index: Int, text: String, voice: String?, rate: Double, pitch: Double, style: String) {
         guard !inflight.contains(index), buffer[index] == nil else { return }
         inflight.insert(index)
         Task.detached { [weak self] in
             let audioData = try? await EdgeTTSService.shared.synthesize(
                 text: text, voice: voice, rate: rate,
-                pitch: pitch, emotionTag: emotionTag
+                pitch: pitch, style: style
             )
             await self?.store(index: index, audioData: audioData)
         }
