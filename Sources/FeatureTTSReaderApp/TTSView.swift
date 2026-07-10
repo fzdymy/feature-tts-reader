@@ -295,14 +295,10 @@ struct TTSView: View {
                         .foregroundColor(.secondary)
                     let base = config.url.hasSuffix("/tts") ? config.url : config.url + "/tts"
                     let encoded = testText.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? testText
-                    var url = "\(base)?t=\(encoded)&r=0&p=0&s="
-                    if !testVoice.isEmpty {
-                        url += "&v=\(testVoice)"
-                    }
-                    if !config.apiKey.isEmpty {
-                        url += "&api_key=\(config.apiKey)"
-                    }
-                    Text(url)
+                    let voiceSuffix = testVoice.isEmpty ? "" : "&v=\(testVoice)"
+                    let keySuffix = config.apiKey.isEmpty ? "" : "&api_key=\(config.apiKey)"
+                    let fullURL = "\(base)?t=\(encoded)&r=0&p=0&s=\(voiceSuffix)\(keySuffix)"
+                    Text(fullURL)
                         .font(.caption2.monospaced())
                         .textSelection(.enabled)
                         .lineLimit(4)
