@@ -748,7 +748,7 @@ final class ReaderStore: NSObject, ObservableObject {
             await MainActor.run { isBusy = false }
             return
         }
-        text = TextNormalizer.normalize(text)
+        text = TextNormalizer.reformatChineseNovel(text)
         let title = url.deletingPathExtension().lastPathComponent
         let bookID = UUID()
         saveBookTextToFile(bookID: bookID, text: text)
@@ -915,7 +915,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func importText(_ text: String) async {
-        let trimmedText = TextNormalizer.normalize(text)
+        let trimmedText = TextNormalizer.reformatChineseNovel(text)
         guard !trimmedText.isEmpty else {
             await MainActor.run { statusMessage = "导入文本为空。" }
             return
@@ -951,7 +951,7 @@ final class ReaderStore: NSObject, ObservableObject {
     func reformatBookText(bookID: UUID) {
         guard let idx = books.firstIndex(where: { $0.id == bookID }) else { return }
         let text = loadBookTextFromFile(bookID: bookID) ?? books[idx].text
-        let normalized = TextNormalizer.normalize(text)
+        let normalized = TextNormalizer.reformatChineseNovel(text)
         saveBookTextToFile(bookID: bookID, text: normalized)
         books[idx].text = normalized
         if bookID.uuidString == currentBookID {
