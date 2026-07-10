@@ -159,7 +159,12 @@ actor EdgeTTSService {
                 lastError = EdgeTTSError.invalidServerURL
                 continue
             }
-            let endpoint = baseURL.appendingPathComponent("tts")
+            let endpoint: URL
+            if baseURL.lastPathComponent == "tts" {
+                endpoint = baseURL.deletingLastPathComponent().appendingPathComponent("tts")
+            } else {
+                endpoint = baseURL.appendingPathComponent("tts")
+            }
             do {
                 let request = try buildGetRequest(to: endpoint, ssmlText: ssmlText, apiKey: server.apiKey)
                 let (data, response) = try await session.data(for: request)
@@ -208,8 +213,14 @@ actor EdgeTTSService {
         guard let baseURL = URL(string: server.url) else {
             return "\(server.name): 无效地址"
         }
+        let healthEndpoint: URL
+        if baseURL.lastPathComponent == "tts" {
+            healthEndpoint = baseURL.deletingLastPathComponent().appendingPathComponent("health")
+        } else {
+            healthEndpoint = baseURL.appendingPathComponent("health")
+        }
         let endpoints = [
-            baseURL.appendingPathComponent("health"),
+            healthEndpoint,
             baseURL
         ]
 
@@ -321,8 +332,8 @@ actor EdgeTTSService {
     }
 
     private static let supportedEmotions: Set<String> = ["angry", "cheerful", "excited", "friendly", "hopeful", "sad", "shouting", "terrified", "unfriendly", "whispering"]
-
     /// Detect whether raw audio data is MP3: starts with ID3 header or MPEG sync word (0xFF).
+
     static func isMP3Data(_ data: Data) -> Bool {
         guard data.count >= 2 else { return false }
         let id3Header: [UInt8] = [0x49, 0x44, 0x33]
