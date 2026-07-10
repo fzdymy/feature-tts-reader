@@ -954,6 +954,14 @@ final class ReaderStore: NSObject, ObservableObject {
         let normalized = TextNormalizer.normalize(text)
         saveBookTextToFile(bookID: bookID, text: normalized)
         books[idx].text = normalized
+        if bookID.uuidString == currentBookID {
+            bookText = normalized
+            lastScannedBookText = normalized
+            chapters = []
+            scriptSegments = []
+            recommendations = []
+        }
+        bookChaptersCache.removeValue(forKey: bookID)
         let oldLen = text.count.formatted()
         let newLen = normalized.count.formatted()
         saveState()

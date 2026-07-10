@@ -265,29 +265,10 @@ struct TTSView: View {
             }
             .navigationTitle("语音设置")
             .onAppear {
-                Task {
-                    let servers = await EdgeTTSService.shared.configuredServers
-                    serverConfigs = servers
-                    if serverConfigs.isEmpty {
-                        var config = EdgeTTSServerConfig(url: EdgeTTSService.defaultServerURL, apiKey: "")
-                        config.name = "默认服务器"
-                        serverConfigs = [config]
-                    }
-                    if let savedID = UserDefaults.standard.string(forKey: "selectedTSServerID"),
-                       let id = UUID(uuidString: savedID),
-                       serverConfigs.contains(where: { $0.id == id }) {
-                        selectedServerID = id
-                    }
-                    if selectedServerID == nil {
-                        selectedServerID = serverConfigs.first?.id
-                    }
-                    connectionStatus = store.edgeTTSLastHealth.isEmpty ? "未测试" : store.edgeTTSLastHealth
-                    let voices = await EdgeTTSService.shared.fetchVoices(serverID: selectedServerID)
-                    availableVoices = voices.filter { $0.locale.hasPrefix("zh-CN") }
-                    if testVoice.isEmpty, let first = availableVoices.first {
-                        testVoice = first.id
-                    }
-                }
+                Task { await loadVoices() }
+            }
+            .onChange(of: selectedServerID) { _, _ in
+                Task { await loadVoices() }
             }
         }
     }
@@ -352,6 +333,34 @@ struct TTSView: View {
         .padding(10)
         .background(Color(.systemGray6))
         .cornerRadius(8)
+    }
+
+    private func loadVoices() async {
+        let servers = await EdgeTTSService.shared.configuredServers
+        await MainActor.run {
+            serverConfigs = servers
+            if serverConfigs.isEmpty {
+                var config = EdgeTTSServerConfig(url: EdgeTTSService.defaultServerURL, apiKey: "")
+                config.name = "默认服务器"
+                serverConfigs = [config]
+            }
+            if let savedID = UserDefaults.standard.string(forKey: "selectedTSServerID"),
+               let id = UUID(uuidString: savedID),
+               serverConfigs.contains(where: { $0.id == id }) {
+                selectedServerID = id
+            }
+            if selectedServerID == nil {
+                selectedServerID = serverConfigs.first?.id
+            }
+            connectionStatus = store.edgeTTSLastHealth.isEmpty ? "未测试" : store.edgeTTSLastHealth
+        }
+        let voices = await EdgeTTSService.shared.fetchVoices(serverID: selectedServerID)
+        await MainActor.run {
+            availableVoices = voices.filter { $0.locale.hasPrefix("zh-CN") }
+            if testVoice.isEmpty, let first = availableVoices.first {
+                testVoice = first.id
+            }
+        }
     }
 
     private func saveAndTest() {
