@@ -1,5 +1,28 @@
 import SwiftUI
 
+private let edgeVoices: [(id: String, label: String)] = [
+    ("zh-CN-XiaoxiaoNeural", "晓晓（女）"),
+    ("zh-CN-XiaoyiNeural", "晓伊（女）"),
+    ("zh-CN-YunxiNeural", "云希（男）"),
+    ("zh-CN-YunyangNeural", "云扬（男）"),
+    ("zh-CN-YunyeNeural", "云野（男）"),
+    ("zh-CN-XiaochenNeural", "晓辰（女）"),
+    ("zh-CN-XiaohanNeural", "晓涵（女）"),
+    ("zh-CN-XiaomengNeural", "晓梦（女）"),
+    ("zh-CN-XiaomoNeural", "晓墨（女）"),
+    ("zh-CN-XiaoqiuNeural", "晓秋（女）"),
+    ("zh-CN-XiaoruiNeural", "晓睿（女）"),
+    ("zh-CN-XiaoshuangNeural", "晓双（女）"),
+    ("zh-CN-XiaoxuanNeural", "晓萱（女）"),
+    ("zh-CN-XiaoyanNeural", "晓颜（女）"),
+    ("zh-CN-XiaozhenNeural", "晓甄（女）"),
+    ("zh-CN-YunfengNeural", "云枫（男）"),
+    ("zh-CN-YunhaoNeural", "云皓（男）"),
+    ("zh-CN-YunjianNeural", "云健（男）"),
+    ("zh-CN-YunxiaNeural", "云夏（男）"),
+    ("zh-CN-YunzeNeural", "云泽（男）"),
+]
+
 struct TTSView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var serverConfigs: [EdgeTTSServerConfig] = []
@@ -10,6 +33,7 @@ struct TTSView: View {
     @State private var testResult = ""
     @State private var isTestingSynthesis = false
     @State private var showPreview = false
+    @State private var testVoice = "zh-CN-YunyangNeural"
 
     private var selectedServer: Binding<EdgeTTSServerConfig>? {
         guard let id = selectedServerID,
@@ -98,15 +122,6 @@ struct TTSView: View {
                                     .font(.caption.monospaced())
                                     .autocorrectionDisabled()
                                     .textInputAutocapitalization(.never)
-                                #if os(iOS)
-                                Button {
-                                    UIPasteboard.general.string = binding.wrappedValue.url
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.borderless)
-                                #endif
                             }
                             Divider()
                             HStack(alignment: .top) {
@@ -134,6 +149,13 @@ struct TTSView: View {
                             .padding(8)
                             .background(Color(.systemGray6))
                             .cornerRadius(8)
+
+                        Picker("发音人", selection: $testVoice) {
+                            ForEach(edgeVoices, id: \.id) { v in
+                                Text(v.label).tag(v.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
 
                         HStack(spacing: 12) {
                             Button {
@@ -253,14 +275,45 @@ struct TTSView: View {
             }
 
             if let config = serverConfigs.first(where: { $0.id == selectedServerID }) {
-                let previewJSON = buildPreviewJSON(config: config)
-                if let jsonData = try? JSONSerialization.data(withJSONObject: previewJSON, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
-                   let jsonStr = String(data: jsonData, encoding: .utf8) {
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        Text(jsonStr)
+                let ssml = EdgeTTSService.buildSSML(text: testText, voice: testVoice, rate: 0, pitch: 0, emotionTag: nil)
+
+                // URL
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("URL")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.secondary)
+                    let base = config.url.hasSuffix("/tts") ? config.url : config.url + "/tts"
+                    let encoded = ssml.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? ssml
+                    let fullURL = "\(base)?t=\(encoded)" + (config.apiKey.isEmpty ? "" : "&api_key=\(config.apiKey)")
+                    Text(fullURL)
+                        .font(.caption2.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(4)
+                }
+
+                // SSML
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SSML 内容（voice = \(testVoice)）")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.secondary)
+                    Text(ssml)
+                        .font(.caption2.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(6)
+                }
+
+                // Headers
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Headers")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.secondary)
+                    Text("Accept: audio/mp3")
+                        .font(.caption2.monospaced())
+                        .textSelection(.enabled)
+                    if !config.apiKey.isEmpty {
+                        Text("X-API-Key: \(config.apiKey)")
                             .font(.caption2.monospaced())
                             .textSelection(.enabled)
-                            .lineLimit(nil)
                     }
                 }
             }
@@ -270,48 +323,6 @@ struct TTSView: View {
         .cornerRadius(8)
     }
 
-    private func buildPreviewJSON(config: EdgeTTSServerConfig) -> [String: Any] {
-        let params: [String: String] = [
-            "t": testText,
-            "v": "zh-CN-YunyangNeural",
-            "r": "16",
-            "p": "5",
-            "s": "narration-professional",
-            "api_key": config.apiKey
-        ]
-        let handle: [String: Any] = [
-            "paramsEx": "",
-            "processType": 1,
-            "maxPageCount": 1,
-            "nextPageMethod": 1,
-            "method": 1,
-            "requestByWebView": 0,
-            "parser": [:],
-            "nextPageParams": [:],
-            "url": config.url.hasSuffix("/tts") ? config.url : config.url + "/tts",
-            "params": params,
-            "httpConfigs": [
-                "useCookies": 1,
-                "headers": [:]
-            ]
-        ]
-        return [
-            "loginUrl": "",
-            "maxWordCount": "",
-            "customRules": [:],
-            "ttsConfigGroup": config.name.isEmpty ? "默认" : config.name,
-            "_TTSName": "云扬 (男)",
-            "_ClassName": "CustomTTS",
-            "_TTSConfigID": config.id.uuidString,
-            "httpConfigs": [
-                "useCookies": 1,
-                "headers": [:]
-            ],
-            "voiceList": [],
-            "ttsHandles": [handle]
-        ] as [String: Any]
-    }
-
     private func saveAndTest() {
         guard !isTesting, let id = selectedServerID else { return }
         isTesting = true
@@ -319,7 +330,6 @@ struct TTSView: View {
         Task {
             let valid = serverConfigs.filter { !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             await EdgeTTSService.shared.setServers(valid)
-            // Test only the selected server
             let result = await EdgeTTSService.shared.healthCheck(serverID: id)
             await MainActor.run {
                 connectionStatus = result
@@ -334,7 +344,7 @@ struct TTSView: View {
         isTestingSynthesis = true
         testResult = ""
         Task {
-            let result = await store.testTTSSynthesize(serverID: id, text: testText)
+            let result = await store.testTTSSynthesize(serverID: id, text: testText, voice: testVoice)
             await MainActor.run {
                 testResult = result
                 isTestingSynthesis = false
@@ -346,4 +356,13 @@ struct TTSView: View {
             }
         }
     }
+}
+
+private extension CharacterSet {
+    static let urlQueryParameterAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove("&")
+        allowed.remove("+")
+        return allowed
+    }()
 }
