@@ -389,3 +389,53 @@
 - `fetchBooks`: `let text = object.value(forKey: "text") as? String ?? ""` — 从 Core Data 读回
 
 **核心原则：文本必须与元数据存在同一持久化层**，不能分开存文件。JSON 不存文本（体积）可以理解，但 Core Data 必须存。
+
+---
+
+# 2026-07-10 Bug 修复: 书籍二次打开完全消失
+
+## 🐛 B5: `loadState()` 死代码 — 重启后书架永为空
+
+**根因**: 重构 `159d6e1` 将 `loadStateAsync` 从 `Store.init` 移至 `onAppear` 以避免 init 期竞态，但**忘记接入任何调用点**。`loadState()` (Store.swift:374) 成为死代码，从未被调用。每次 app 重启：
+- `store.books` 保持 `[]`（初始值）
+- `isStateLoaded` 永远为 `false`
+- auto-save timer 永不启动
+- Core Data、JSON state、text files 全部存在但从未被读取
+
+**诊断**: `Store.swift` 全局搜索发现 `loadState()` 定义于 line 374，零处调用。
+
+**修复** (`fca9573`):
+- `Store.swift:216`: 添加 `guard !isStateLoaded else { return }` 防重复加载
+- `BookshelfView.swift:82`: 添加 `.onAppear { store.loadState() }` 触发状态恢复
+- `FeatureTTSReaderApp.swift:22-26`: 添加 `scenePhase` 后台 `saveState()` 保底
+
+## 已知待优化问题 (2026-07-10)
+
+### P1 — 待修复
+
+| # | 问题 | 文件 | 说明 |
+|---|------|------|------|
+| R1 | TTS 测试页缺少音色/速度/风格/音调调节 | `TTSView.swift` | 从 `/api/v1/config` 加载了 voices 但测试区没有 rate(速度)、style(风格)、pitch(音调) 的 UI 控制 |
+| R2 | 导入书籍格式错乱 | `TextNormalizer.swift`, `Parser.swift`, `ReaderView.swift` | 段首缩进丢失、上一行标点被换行到下一行独占一行；阅读/朗读界面两侧空白过大（需各减少一个汉字宽度） |
+| R3 | 朗读界面双击播放高亮 BUG | `ReaderView.swift` | 双击段落播放时出现两层高亮：段落级高亮 + 大面积区块覆盖，后者应移除 |
+
+### P1 详情
+
+#### R1: TTS 测试页缺少调节控件
+
+`TTSView.swift` 当前的 testSection 只有文本输入 + 试听按钮，没有 voice 选择、rate、style、pitch 的 slider/picker。用户需要在测试时快速切换音色、调整语速/风格/音调。
+
+#### R2: 导入书籍格式错乱
+
+三个具体问题：
+1. **段首缩进丢失** — `TextNormalizer.normalize()` (TextNormalizer.swift:20-23) 和 `Parser.extractParagraphs()` 在分割/规范化时去掉了段首空格/缩进
+2. **标点换行** — 上一行末尾的标点符号被单独放在下一行开头，可能是断字/换行逻辑问题
+3. **两侧边距过大** — `ReaderView.swift` 中文本容器的 `.padding()` 过大，需要各减少约一个汉字宽度（约 16pt）
+
+#### R3: 朗读界面双击高亮 BUG
+
+双击段落触发朗读时，ReaderView 中出现两层高亮：
+- 正确：当前段落背景高亮（期望效果）
+- 错误：还有一个大面积的高亮覆盖区块（不知道是什么逻辑引入的，应移除）
+
+此 BUG 严重干扰阅读体验。

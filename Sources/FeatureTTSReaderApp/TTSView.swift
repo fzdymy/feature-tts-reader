@@ -23,6 +23,8 @@ struct TTSView: View {
     @State private var availableVoices: [EdgeVoiceInfo] = []
     @State private var testVoice = ""
     @State private var testStyle = ""
+    @State private var testRate: Double = 0
+    @State private var testPitch: Double = 0
 
     private var currentVoiceStyles: [String] {
         guard let v = availableVoices.first(where: { $0.id == testVoice }), let styles = v.styles else { return [] }
@@ -159,6 +161,19 @@ struct TTSView: View {
                                 }
                             }
                             .pickerStyle(.menu)
+                        }
+
+                        VStack(spacing: 8) {
+                            HStack {
+                                Text("语速").foregroundColor(.secondary).frame(width: 36, alignment: .leading)
+                                Slider(value: $testRate, in: -10...10, step: 1)
+                                Text("\(Int(testRate))").font(.caption.monospaced()).frame(width: 24)
+                            }
+                            HStack {
+                                Text("音调").foregroundColor(.secondary).frame(width: 36, alignment: .leading)
+                                Slider(value: $testPitch, in: -10...10, step: 1)
+                                Text("\(Int(testPitch))").font(.caption.monospaced()).frame(width: 24)
+                            }
                         }
 
                         HStack(spacing: 12) {
@@ -299,7 +314,7 @@ struct TTSView: View {
                     let styleValue = testStyle.isEmpty ? "" : testStyle
                     let voiceSuffix = testVoice.isEmpty ? "" : "&v=\(testVoice)"
                     let keySuffix = config.apiKey.isEmpty ? "" : "&api_key=\(config.apiKey)"
-                    let fullURL = "\(base)?t=\(encoded)&r=0&p=0&s=\(styleValue)\(voiceSuffix)\(keySuffix)"
+                    let fullURL = "\(base)?t=\(encoded)&r=\(Int(testRate * 4))&p=\(Int(testPitch))&s=\(styleValue)\(voiceSuffix)\(keySuffix)"
                     Text(fullURL)
                         .font(.caption2.monospaced())
                         .textSelection(.enabled)
@@ -314,9 +329,9 @@ struct TTSView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("t = \(testText)")
                             .font(.caption2.monospaced())
-                        Text("r = 0")
+                        Text("r = \(Int(testRate * 4)) (\(Int(testRate)))")
                             .font(.caption2.monospaced())
-                        Text("p = 0")
+                        Text("p = \(Int(testPitch))")
                             .font(.caption2.monospaced())
                         let sDisplay = testStyle.isEmpty ? "(空)" : testStyle
                         Text("s = \(sDisplay)")
@@ -360,7 +375,7 @@ struct TTSView: View {
         isTestingSynthesis = true
         testResult = ""
         Task {
-            let result = await store.testTTSSynthesize(serverID: id, text: testText, voice: testVoice, style: testStyle)
+            let result = await store.testTTSSynthesize(serverID: id, text: testText, voice: testVoice, style: testStyle, rate: testRate, pitch: testPitch)
             await MainActor.run {
                 testResult = result
                 isTestingSynthesis = false

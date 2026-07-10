@@ -16,25 +16,28 @@ struct TextNormalizer {
         s = s.replacingOccurrences(of: "\r\n", with: "\n")
         s = s.replacingOccurrences(of: "\r", with: "\n")
 
-        // 3. Strip trailing whitespace per line
+        // 3. Strip trailing whitespace per line (preserve leading indentation)
         var lines = s.components(separatedBy: "\n")
         for i in lines.indices {
-            lines[i] = lines[i].trimmingCharacters(in: .whitespaces)
+            lines[i] = lines[i].replacingOccurrences(of: " +$", with: "", options: .regularExpression)
         }
         s = lines.joined(separator: "\n")
 
-        // 4. Collapse excessive blank lines (≥3 consecutive → 2)
+        // 4. Collapse single newlines within paragraphs (hard line wraps) into spaces
+        s = s.replacingOccurrences(of: "(?<!\n)\n(?!\n)", with: " ", options: .regularExpression)
+
+        // 5. Collapse excessive blank lines (≥3 consecutive → 2)
         s = s.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
 
-        // 5. Collapse multiple horizontal spaces (2+ → 1)
+        // 6. Collapse multiple horizontal spaces (2+ → 1)
         s = s.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
 
-        // 6. Remove stray control characters except \n, \t
+        // 7. Remove stray control characters except \n, \t
         s = s.unicodeScalars.filter { c in
             c == "\n" || c == "\t" || !CharacterSet.controlCharacters.contains(c)
         }.map(String.init).joined()
 
-        // 7. NFC normalization (composed form) — preferred for Han text
+        // 8. NFC normalization (composed form) — preferred for Han text
         s = s.precomposedStringWithCanonicalMapping
 
         return s

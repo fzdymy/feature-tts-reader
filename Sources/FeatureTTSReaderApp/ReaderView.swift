@@ -905,7 +905,7 @@ struct ReaderView: View {
                 .foregroundColor(textColor.opacity(0.2))
                 .padding(.vertical, 16)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 8)
         .frame(minHeight: estimatedMinHeight)
         .onAppear {
             if paragraphs.isEmpty {
@@ -937,7 +937,6 @@ struct ReaderView: View {
     @ViewBuilder
     private func paragraphView(pi: Int, paraText: String) -> some View {
         let sentences = sentences(for: pi, paraText: paraText)
-        let isReading = isCurrentChapter && isPlaybackActive && playbackParagraphIndex == pi
         VStack(alignment: .leading, spacing: 6) {
             ForEach(sentences.indices, id: \.self) { si in
                 sentenceView(pi: pi, si: si, sentenceText: sentences[si])
@@ -945,8 +944,6 @@ struct ReaderView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
-        .background(isReading ? Color.accentColor.opacity(0.15) : Color.clear)
-        .cornerRadius(4)
         .contextMenu {
             ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
         }
