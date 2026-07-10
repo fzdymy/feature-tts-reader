@@ -718,7 +718,6 @@ final class ReaderStore: NSObject, ObservableObject {
             .utf16BigEndian,
             .unicode,
             .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))),
-            .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GBK.rawValue))),
             .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_2312_80.rawValue))),
         ]
         var content: String? = nil
