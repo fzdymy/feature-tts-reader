@@ -861,7 +861,7 @@ struct ReaderView: View {
     let onCancelTap: () -> Void
 
     @State private var paragraphs: [String] = []
-    @State private var sentenceCache: [Int: [String]] = [:]
+
 
     nonisolated static func == (lhs: ChapterContentView, rhs: ChapterContentView) -> Bool {
         lhs.index == rhs.index &&
@@ -936,53 +936,28 @@ struct ReaderView: View {
 
     @ViewBuilder
     private func paragraphView(pi: Int, paraText: String) -> some View {
-        let sentences = sentences(for: pi, paraText: paraText)
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(sentences.indices, id: \.self) { si in
-                sentenceView(pi: pi, si: si, sentenceText: sentences[si])
+        let isReading = isCurrentChapter && isPlaybackActive &&
+            playbackParagraphIndex == pi
+        Text(paraText)
+            .font(Font.custom(readerFontName, size: readerFontSize))
+            .foregroundColor(textColor)
+            .lineSpacing(readerLineSpacing + 2)
+            .textSelection(.enabled)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 4)
+            .background(isReading ? Color.accentColor.opacity(0.18) : Color.clear)
+            .cornerRadius(6)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                onCancelTap()
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.impactOccurred()
+                onSentenceTap(pi, 0, paraText)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
-        .contextMenu {
-            ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
-        }
-    }
-
-    @ViewBuilder
-    private func sentenceView(pi: Int, si: Int, sentenceText: String) -> some View {
-        let isHighlighted = isCurrentChapter && isPlaybackActive &&
-            playbackParagraphIndex == pi && playbackSentenceIndex == si
-        HStack(alignment: .top, spacing: 6) {
-            Circle()
-                .fill(isHighlighted ? Color.accentColor : Color.clear)
-                .frame(width: 6, height: 6)
-                .padding(.top, 9)
-            Text(sentenceText)
-                .font(Font.custom(readerFontName, size: readerFontSize))
-                .foregroundColor(textColor)
-                .lineSpacing(readerLineSpacing + 2)
-                .textSelection(.enabled)
-                .padding(.vertical, 2)
-                .padding(.horizontal, 4)
-                .background(isHighlighted ? Color.accentColor.opacity(0.18) : Color.clear)
-                .cornerRadius(6)
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) {
-                    onCancelTap()
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred()
-                    onSentenceTap(pi, si, sentenceText)
-                }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func sentences(for pi: Int, paraText: String) -> [String] {
-        if let cached = sentenceCache[pi] { return cached }
-        let result = ReaderStore.splitBlockIntoSentences(paraText)
-        sentenceCache[pi] = result
-        return result
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
+            }
     }
 }
 
