@@ -1110,10 +1110,13 @@ private struct ReaderOverlayView: View {
         let cjkCharWidth = store.readerFontSize
         let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let paragraphs = paragraphCache(for: ch)
+        let paragraphs = ch.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
         var totalH: CGFloat = 0
         for p in paragraphs {
-            totalH += estimatedParagraphHeight(for: p, charsPerLine: charsPerLine, lineHeight: lineHeight)
+            let trimmed = p.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
+            guard !trimmed.isEmpty else { continue }
+            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
+            totalH += CGFloat(paraLineCount) * lineHeight + 8
         }
         return titleHeight + totalH + bottomPad
     }
