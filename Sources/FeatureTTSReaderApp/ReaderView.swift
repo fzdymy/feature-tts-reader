@@ -75,6 +75,8 @@ struct ReaderView: View {
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
         scrollPositionID = "ch_\(safeTarget)"
+        let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
+        scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
         }
@@ -331,9 +333,15 @@ struct ReaderView: View {
         let cjkCharWidth = fontSize
         let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let totalChars = ch.text.count
-        let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
-        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
+        let paragraphs = paragraphCache(for: ch)
+        var totalH: CGFloat = 0
+        for p in paragraphs {
+            let trimmed = p.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
+            guard !trimmed.isEmpty else { continue }
+            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
+            totalH += CGFloat(paraLineCount) * lineHeight + 8
+        }
+        return titleHeight + totalH + bottomPad
     }
 
     // MARK: - Character Panel
@@ -1048,9 +1056,6 @@ private struct ReaderOverlayView: View {
                 }
             }
         }
-        .allowsHitTesting(!isImmersive)
-        .contentShape(Rectangle())
-        .onTapGesture {}
     }
 
     // MARK: - Computed Properties
@@ -1246,6 +1251,7 @@ private struct ReaderOverlayView: View {
                     }
                 ))
                     .tint(.blue)
+                    .highPriorityGesture(TapGesture().onEnded {})
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
@@ -1390,6 +1396,7 @@ private struct ReaderOverlayView: View {
                     }
                 ))
                     .tint(.blue)
+                    .highPriorityGesture(TapGesture().onEnded {})
 
                 Button(action: {
                     guard currentChapterIndex < chaptersList.count - 1 else { return }
