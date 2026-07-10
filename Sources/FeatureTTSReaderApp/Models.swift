@@ -388,7 +388,7 @@ struct ReaderState: Codable {
     private enum CodingKeys: String, CodingKey {
         case characters, scriptSegments, selectedChapterID,
              books, currentBookTitle, currentBookID, currentBookProgress, readerFontSize, readerLineSpacing,
-             readerTheme, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking, defaultMaleVoiceID, defaultFemaleVoiceID, defaultFallbackRateOffset, defaultFallbackPitchOffset, defaultFallbackStyle
+             readerTheme, defaultVoice, defaultRate, defaultPitch, defaultStyle, bookmarks, bookProgressByChapter, lastReadChapterIndexByBook, defaultSensitivity, playTimeoutSeconds, readerFontName, readerParagraphSpacing, readerFirstLineIndent, customBackgroundImage, showChapterTitle, showProgressBar, showPageNumber, showTime, showBattery, showBookCover, showReadingProgress, ttsQueue, ttsCurrentIndex, ttsIsPlaying, ttsChapterTitle, ttsSegmentTitle, recommendations, statusMessage, isBusy, currentPlayingLine, playProgress, isSpeaking, defaultMaleVoiceID, defaultFemaleVoiceID, defaultFallbackRateOffset, defaultFallbackPitchOffset, defaultFallbackStyle
     }
 
     init(
@@ -414,9 +414,10 @@ struct ReaderState: Codable {
         defaultSensitivity: Int = 50,
         lastScannedBookText: String = "",
         playTimeoutSeconds: Double = 30.0,
-        readerFontName: String = "PingFang SC",
-        readerParagraphSpacing: Double = 8,
-        customBackgroundImage: Data? = nil,
+         readerFontName: String = "PingFang SC",
+         readerParagraphSpacing: Double = 8,
+         readerFirstLineIndent: Double = 0,
+         customBackgroundImage: Data? = nil,
         showChapterTitle: Bool = true,
         showProgressBar: Bool = true,
         showPageNumber: Bool = true,
@@ -465,6 +466,7 @@ struct ReaderState: Codable {
         self.playTimeoutSeconds = playTimeoutSeconds
         self.readerFontName = readerFontName
         self.readerParagraphSpacing = readerParagraphSpacing
+        self.readerFirstLineIndent = readerFirstLineIndent
         self.customBackgroundImage = customBackgroundImage
         self.showChapterTitle = showChapterTitle
         self.showProgressBar = showProgressBar
