@@ -94,7 +94,6 @@ actor EdgeTTSService {
         }
         set {
             UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Self.apiKeyKey)
-            // 不再覆盖各服务器的独立 apiKey（由 TTSView 逐服务器管理）
         }
     }
 
@@ -141,8 +140,6 @@ actor EdgeTTSService {
         let servers = configuredServers
         guard !servers.isEmpty else { throw EdgeTTSError.missingServerURL }
 
-        let ssmlText = Self.buildSSML(text: trimmed, voice: voice, rate: rate, pitch: pitch, emotionTag: emotionTag)
-
         let candidates: [EdgeTTSServerConfig]
         if let serverID {
             candidates = servers.filter { $0.id == serverID }
@@ -166,7 +163,7 @@ actor EdgeTTSService {
                 endpoint = baseURL.appendingPathComponent("tts")
             }
             do {
-                let request = try buildGetRequest(to: endpoint, ssmlText: ssmlText, apiKey: server.apiKey)
+                let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), apiKey: server.apiKey)
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     throw EdgeTTSError.invalidResponse("无效响应")
@@ -228,9 +225,6 @@ actor EdgeTTSService {
             var request = URLRequest(url: endpoint)
             request.httpMethod = "GET"
             request.timeoutInterval = 3
-            if !server.apiKey.isEmpty {
-                request.setValue(server.apiKey, forHTTPHeaderField: "X-API-Key")
-            }
             do {
                 let (_, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { continue }
@@ -273,23 +267,26 @@ actor EdgeTTSService {
         return result.isEmpty ? [EdgeTTSServerConfig(name: "默认", url: Self.defaultServerURL, apiKey: apiKey)] : result
     }
 
-    private func buildGetRequest(to endpoint: URL, ssmlText: String, apiKey: String) throws -> URLRequest {
+    private func buildGetRequest(to endpoint: URL, text: String, voice: String?, rate: Int, pitch: Int, apiKey: String) throws -> URLRequest {
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw EdgeTTSError.invalidServerURL
         }
-        components.queryItems = [
-            URLQueryItem(name: "t", value: ssmlText),
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "t", value: text),
+            URLQueryItem(name: "r", value: "\(rate * 4)"),
+            URLQueryItem(name: "p", value: "\(pitch)"),
+            URLQueryItem(name: "s", value: ""),
         ]
-        if !apiKey.isEmpty {
-            components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
+        if let voice = voice, !voice.isEmpty {
+            items.append(URLQueryItem(name: "v", value: voice))
         }
+        if !apiKey.isEmpty {
+            items.append(URLQueryItem(name: "api_key", value: apiKey))
+        }
+        components.queryItems = items
         var request = URLRequest(url: components.url ?? endpoint)
         request.httpMethod = "GET"
-        request.setValue("audio/mp3", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 20
-        if !apiKey.isEmpty {
-            request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
-        }
         return request
     }
 
@@ -332,7 +329,6 @@ actor EdgeTTSService {
     }
 
     private static let supportedEmotions: Set<String> = ["angry", "cheerful", "excited", "friendly", "hopeful", "sad", "shouting", "terrified", "unfriendly", "whispering"]
-    /// Detect whether raw audio data is MP3: starts with ID3 header or MPEG sync word (0xFF).
 
     static func isMP3Data(_ data: Data) -> Bool {
         guard data.count >= 2 else { return false }

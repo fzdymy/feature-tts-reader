@@ -288,46 +288,50 @@ struct TTSView: View {
             }
 
             if let config = serverConfigs.first(where: { $0.id == selectedServerID }) {
-                let ssml = EdgeTTSService.buildSSML(text: testText, voice: testVoice, rate: 0, pitch: 0, emotionTag: nil)
-
                 // URL
                 VStack(alignment: .leading, spacing: 2) {
                     Text("URL")
                         .font(.caption2.weight(.medium))
                         .foregroundColor(.secondary)
                     let base = config.url.hasSuffix("/tts") ? config.url : config.url + "/tts"
-                    let encoded = ssml.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? ssml
-                    let fullURL = "\(base)?t=\(encoded)" + (config.apiKey.isEmpty ? "" : "&api_key=\(config.apiKey)")
-                    Text(fullURL)
+                    let encoded = testText.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? testText
+                    var url = "\(base)?t=\(encoded)&r=0&p=0&s="
+                    if !testVoice.isEmpty {
+                        url += "&v=\(testVoice)"
+                    }
+                    if !config.apiKey.isEmpty {
+                        url += "&api_key=\(config.apiKey)"
+                    }
+                    Text(url)
                         .font(.caption2.monospaced())
                         .textSelection(.enabled)
                         .lineLimit(4)
                 }
 
-                // SSML
+                // Query Parameters
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("SSML 内容（voice = \(testVoice)）")
+                    Text("请求参数")
                         .font(.caption2.weight(.medium))
                         .foregroundColor(.secondary)
-                    Text(ssml)
-                        .font(.caption2.monospaced())
-                        .textSelection(.enabled)
-                        .lineLimit(6)
-                }
-
-                // Headers
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Headers")
-                        .font(.caption2.weight(.medium))
-                        .foregroundColor(.secondary)
-                    Text("Accept: audio/mp3")
-                        .font(.caption2.monospaced())
-                        .textSelection(.enabled)
-                    if !config.apiKey.isEmpty {
-                        Text("X-API-Key: \(config.apiKey)")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("t = \(testText)")
                             .font(.caption2.monospaced())
-                            .textSelection(.enabled)
+                        Text("r = 0")
+                            .font(.caption2.monospaced())
+                        Text("p = 0")
+                            .font(.caption2.monospaced())
+                        Text("s = (空)")
+                            .font(.caption2.monospaced())
+                        if !testVoice.isEmpty {
+                            Text("v = \(testVoice)")
+                                .font(.caption2.monospaced())
+                        }
+                        if !config.apiKey.isEmpty {
+                            Text("api_key = \(config.apiKey)")
+                                .font(.caption2.monospaced())
+                        }
                     }
+                    .textSelection(.enabled)
                 }
             }
         }
