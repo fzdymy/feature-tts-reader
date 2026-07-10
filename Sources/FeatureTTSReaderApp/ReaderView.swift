@@ -75,10 +75,6 @@ struct ReaderView: View {
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
         scrollPositionID = "ch_\(safeTarget)"
-        let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            self.scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
-        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
         }
@@ -924,11 +920,13 @@ struct ReaderView: View {
     private func paragraphView(pi: Int, paraText: String) -> some View {
         let isReading = isCurrentChapter && isPlaybackActive &&
             playbackParagraphIndex == pi
-        Text(paraText)
+        let indentStr = readerFirstLineIndent > 0 && !paraText.isEmpty
+            ? String(repeating: "\u{3000}", count: Int(readerFirstLineIndent))
+            : ""
+        Text(indentStr + paraText)
             .font(Font.custom(readerFontName, size: readerFontSize))
             .foregroundColor(textColor)
             .lineSpacing(readerLineSpacing + 2)
-            .padding(.leading, CGFloat(readerFirstLineIndent))
             .textSelection(.enabled)
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
@@ -1050,6 +1048,9 @@ private struct ReaderOverlayView: View {
                 }
             }
         }
+        .allowsHitTesting(!isImmersive)
+        .contentShape(Rectangle())
+        .onTapGesture {}
     }
 
     // MARK: - Computed Properties
