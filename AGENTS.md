@@ -457,38 +457,54 @@
 
 ## 修复记录 (2026-07-11)
 
-| 提交 | 描述 |
+### 第一次提交 (e363b03) — 编译失败 ❌
+
+| # | 变更 | 问题 |
+|---|------|------|
+| P1(1) | normalize() strip `\u{3000}` | ✅ 正确 |
+| P0(1) | 移除 paragraphView 双击手势 | ✅ 正确 |
+| P1(2) | toggleImmersiveMode 0.25s→0.08s | ✅ 正确 |
+| P0(2) | 移除"正在朗读"徽章 | ✅ 正确 |
+| P1(3) | chHeight 改为 paragraphCache + estimatedParagraphHeight | ❌ chHeight 定义在 ReaderOverlayView(非 ReaderView)，无法访问 ReaderView 私有方法 |
+
+### 第二次提交 (fa69f03) — 编译通过，功能失败 ❌
+
+修复: chHeight 内联 paragraph 高度计算（避免调用 ReaderView 私有方法）
+
+测试结果: 阅读速度变快 ✅ | P1(3) 游标不动 ❌ | P1(4) 区域点击失效 ❌
+
+| 问题 | 根因 |
 |------|------|
-| — | P1(1): `normalize()` strips leading `\u{3000}` (app manages indentation via ReaderSettings) |
-| — | P0(1): Removed `onTapGesture(count:2)` from `paragraphView` (only floatingPlayButton triggers playback) |
-| — | P1(2): Fullscreen toggle `withAnimation(.easeInOut(duration: 0.08))` — reduced from 0.25s |
-| — | P0(2): Removed "正在朗读" green dot badge from `readerHeader` |
-| — | P1(3): `chHeight` now uses `paragraphCache` + `estimatedParagraphHeight` for accurate progress bar |
-| — | P1(4): Fixed `handleZoneTap` — top 1/4 = `scrollPageUp()`, bottom 1/4 = `scrollPageDown()` (5/6 screen) |
-| — | TapCoordinator delay reduced from 0.25s → 0.05s (no longer needs double-tap guard) |
+| P1(3) 游标不动 | chHeight 段落级计算产生的总高度与 scrollOffset 偏差过大，且 SpatialTapGesture 可能拦截 Slider 触摸 |
+| P1(4) 点击失效 | TapCoordinator 0.05s 延迟让区域点击响应迟钝 |
 
-### 变更详情
+### 第三次提交 (0a6f61c) — 全面修复 ✅
 
-**P1(1) — 导入时去除全角缩进** (`TextNormalizer.swift`):
-- `normalize()` 现在 strip 每行开头的 `\u{3000}`，因为 app 通过 ReaderSettings.firstLineIndent 管理缩进
-- 存储文本不包含硬编码缩进，避免导入后显示双层缩进
+**修复内容:**
 
-**P0(1) — 移除双击播放** (`ReaderView.swift`):
-- 删除 `paragraphView` 中的 `.onTapGesture(count: 2)` + haptic + `onSentenceTap` 调用
-- 朗读入口统一为右下角 `floatingPlayButton`
+1. **chHeight 回归** — 恢复总字符数/每行字符数估算 `titleHeight + lineCount * lineHeight + bottomPad`，不再用段落级计算（ReaderOverlayView 无法访问 ReaderView 的 paragraphCache）
+2. **TapCoordinator 完全删除** — SpatialTapGesture 直接调用 `handleZoneTap`，不再经过 0.05s DispatchWorkItem；`onCancelTap` 闭包一并移除
+3. **P1(1) firstLineIndent 实际生效**:
+   - `Store.swift` 新增 `@Published var readerFirstLineIndent: Double = 0`
+   - `Models.swift` `ReaderState` 新增 `readerFirstLineIndent`
+   - `ReaderSettingsViews.swift` slider 绑定 `store.readerFirstLineIndent`（替代本地 @State + UserDefaults）
+   - `ChapterContentView.paragraphView` 增加 `.padding(.leading, CGFloat(readerFirstLineIndent))`
+4. **`navigateToChapter` 改用 `.scrollPosition(id:anchor:.top)`** — 设置 `scrollPositionID = "ch_\(index)"` 后 0.05s 延时补充 `scrollCoordinator.scrollTo` offset 修复定位
 
-**P1(2) — 切换动画加速** (`ReaderView.swift:771`):
-- `withAnimation(.easeInOut(duration: 0.08))` 替代 0.25
+### 第四次提交 (53d2b1c) — 章节定位修复 ✅
 
-**P0(2) — 移除"正在朗读"徽章** (`ReaderView.swift`):
-- 删除 `readerHeader` 中的 `if isCurrentChapter && isPlaybackActive` 绿色圆点 + 文字
-- 章节标题保持简洁
+- `.scrollPosition(id: $scrollPositionID)` → `.scrollPosition(id: $scrollPositionID, anchor: .top)`
+- `navigateToChapter` 中 offset 滚动延迟到 0.05s 后执行，避免与 scrollPosition 冲突
+- 加入 `[weak self]` 防止闭包强引用
 
-**P1(3) — 进度条改用段落级高度计算** (`ReaderView.swift`):
-- `chHeight()` 从旧的总字符数 ÷ charsPerLine 估算改为遍历 `paragraphCache` + `estimatedParagraphHeight`
-- 与 `autoScrollOffset` 使用相同的段落高度计算逻辑，消除不一致
+### 当前状态 ✅
 
-**P1(4) — 点击区域滚动修复** (`ReaderView.swift`):
-- `handleZoneTap`: 上 1/4 → `scrollPageUp()` (向前翻), 下 1/4 → `scrollPageDown()` (向后翻)
-- `scrollPageUp/Down` 滚动距离从 0.8 屏改为 5/6 屏
-- `TapCoordinator.schedule` 延迟从 0.25s 改为 0.05s (双击防护已移除)
+| # | 功能 | 状态 |
+|---|------|------|
+| P0(1) | 删除双击播放 | ✅ 编译通过，测试通过 |
+| P1(1) | firstLineIndent 生效 | ✅ 编译通过，测试通过 |
+| P1(2) | 全屏切换动画 0.08s | ✅ 编译通过，测试通过（阅读速度变快） |
+| P0(2) | 移除"正在朗读" | ✅ 编译通过，测试通过 |
+| P1(3) | 进度条游标可拖动 | ✅ chHeight 回归简单估算，SpatialTapGesture 不再拦截 Slider |
+| P1(4) | 区域点击滚动 | ✅ TapCoordinator 移除，handleZoneTap 直接响应；方向修正（上→前翻，下→后翻）；滚动距离 5/6 屏 |
+| P0(0) | 章节跳转定位 | ✅ anchor:.top + 延时 offset 补充 |
