@@ -251,6 +251,9 @@ final class ReaderStore: NSObject, ObservableObject {
                     bookText = loadBookTextFromFile(bookID: id) ?? ""
                     lastScannedBookText = bookText
                 }
+                if books.contains(where: { !$0.text.isEmpty }) {
+                    persistLibrary()
+                }
                 isStateLoaded = true
                 startAutoSaveTimer()
                 return
@@ -358,6 +361,10 @@ final class ReaderStore: NSObject, ObservableObject {
                     bookText = loadBookTextFromFile(bookID: id) ?? ""
                 }
                 lastScannedBookText = bookText
+            }
+            // 持久化任何从文件备份加载的文本到 Core Data，确保下次启动 Core Data 中有文本
+            if books.contains(where: { !$0.text.isEmpty }) {
+                persistLibrary()
             }
             isStateLoaded = true
             startAutoSaveTimer()
