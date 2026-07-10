@@ -1,27 +1,6 @@
 import SwiftUI
 
-private let edgeVoices: [(id: String, label: String)] = [
-    ("zh-CN-XiaoxiaoNeural", "晓晓（女）"),
-    ("zh-CN-XiaoyiNeural", "晓伊（女）"),
-    ("zh-CN-YunxiNeural", "云希（男）"),
-    ("zh-CN-YunyangNeural", "云扬（男）"),
-    ("zh-CN-YunyeNeural", "云野（男）"),
-    ("zh-CN-XiaochenNeural", "晓辰（女）"),
-    ("zh-CN-XiaohanNeural", "晓涵（女）"),
-    ("zh-CN-XiaomengNeural", "晓梦（女）"),
-    ("zh-CN-XiaomoNeural", "晓墨（女）"),
-    ("zh-CN-XiaoqiuNeural", "晓秋（女）"),
-    ("zh-CN-XiaoruiNeural", "晓睿（女）"),
-    ("zh-CN-XiaoshuangNeural", "晓双（女）"),
-    ("zh-CN-XiaoxuanNeural", "晓萱（女）"),
-    ("zh-CN-XiaoyanNeural", "晓颜（女）"),
-    ("zh-CN-XiaozhenNeural", "晓甄（女）"),
-    ("zh-CN-YunfengNeural", "云枫（男）"),
-    ("zh-CN-YunhaoNeural", "云皓（男）"),
-    ("zh-CN-YunjianNeural", "云健（男）"),
-    ("zh-CN-YunxiaNeural", "云夏（男）"),
-    ("zh-CN-YunzeNeural", "云泽（男）"),
-]
+
 
 struct TTSView: View {
     @EnvironmentObject private var store: ReaderStore
@@ -41,7 +20,14 @@ struct TTSView: View {
     @State private var testResult = ""
     @State private var isTestingSynthesis = false
     @State private var showPreview = false
-    @State private var testVoice = "zh-CN-YunyangNeural"
+    @State private var availableVoices: [EdgeVoiceInfo] = []
+    @State private var testVoice = ""
+    @State private var testStyle = ""
+
+    private var currentVoiceStyles: [String] {
+        guard let v = availableVoices.first(where: { $0.id == testVoice }), let styles = v.styles else { return [] }
+        return styles
+    }
 
     private var selectedServer: Binding<EdgeTTSServerConfig>? {
         guard let id = selectedServerID,
@@ -159,11 +145,21 @@ struct TTSView: View {
                             .cornerRadius(8)
 
                         Picker("发音人", selection: $testVoice) {
-                            ForEach(edgeVoices, id: \.id) { v in
-                                Text(v.label).tag(v.id)
+                            ForEach(availableVoices) { v in
+                                Text(v.displayName).tag(v.id)
                             }
                         }
                         .pickerStyle(.menu)
+
+                        if !currentVoiceStyles.isEmpty {
+                            Picker("风格", selection: $testStyle) {
+                                Text("无").tag("")
+                                ForEach(currentVoiceStyles, id: \.self) { s in
+                                    Text(s).tag(s)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
 
                         HStack(spacing: 12) {
                             Button {
@@ -271,6 +267,11 @@ struct TTSView: View {
                         selectedServerID = serverConfigs.first?.id
                     }
                     connectionStatus = store.edgeTTSLastHealth.isEmpty ? "未测试" : store.edgeTTSLastHealth
+                    let voices = await EdgeTTSService.shared.fetchVoices(serverID: selectedServerID)
+                    availableVoices = voices.filter { $0.locale.hasPrefix("zh-CN") }
+                    if testVoice.isEmpty, let first = availableVoices.first {
+                        testVoice = first.id
+                    }
                 }
             }
         }
@@ -295,9 +296,10 @@ struct TTSView: View {
                         .foregroundColor(.secondary)
                     let base = config.url.hasSuffix("/tts") ? config.url : config.url + "/tts"
                     let encoded = testText.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? testText
+                    let styleValue = testStyle.isEmpty ? "" : testStyle
                     let voiceSuffix = testVoice.isEmpty ? "" : "&v=\(testVoice)"
                     let keySuffix = config.apiKey.isEmpty ? "" : "&api_key=\(config.apiKey)"
-                    let fullURL = "\(base)?t=\(encoded)&r=0&p=0&s=\(voiceSuffix)\(keySuffix)"
+                    let fullURL = "\(base)?t=\(encoded)&r=0&p=0&s=\(styleValue)\(voiceSuffix)\(keySuffix)"
                     Text(fullURL)
                         .font(.caption2.monospaced())
                         .textSelection(.enabled)
@@ -316,7 +318,8 @@ struct TTSView: View {
                             .font(.caption2.monospaced())
                         Text("p = 0")
                             .font(.caption2.monospaced())
-                        Text("s = (空)")
+                        let sDisplay = testStyle.isEmpty ? "(空)" : testStyle
+                        Text("s = \(sDisplay)")
                             .font(.caption2.monospaced())
                         if !testVoice.isEmpty {
                             Text("v = \(testVoice)")
@@ -357,7 +360,7 @@ struct TTSView: View {
         isTestingSynthesis = true
         testResult = ""
         Task {
-            let result = await store.testTTSSynthesize(serverID: id, text: testText, voice: testVoice)
+            let result = await store.testTTSSynthesize(serverID: id, text: testText, voice: testVoice, style: testStyle)
             await MainActor.run {
                 testResult = result
                 isTestingSynthesis = false

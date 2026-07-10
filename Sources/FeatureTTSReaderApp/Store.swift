@@ -613,9 +613,9 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    func testTTSSynthesize(serverID: UUID? = nil, text: String = "这是个多角色语音阅读器！", voice: String? = nil) async -> String {
+    func testTTSSynthesize(serverID: UUID? = nil, text: String = "这是个多角色语音阅读器！", voice: String? = nil, style: String = "") async -> String {
         do {
-            let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: voice, serverID: serverID)
+            let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: voice, style: style, serverID: serverID)
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
             let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
             let audioURL = cachesDir.appendingPathComponent("edge-test-\(UUID().uuidString).\(ext)")

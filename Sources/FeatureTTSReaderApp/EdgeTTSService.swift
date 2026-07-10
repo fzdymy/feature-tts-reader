@@ -1,5 +1,21 @@
 import Foundation
 
+struct EdgeVoiceInfo: Codable, Sendable, Identifiable {
+    var id: String
+    var name: String
+    var gender: String
+    var locale: String
+    var styles: [String]?
+
+    var displayName: String {
+        "\(name)（\(gender == "Male" ? "男" : "女")）"
+    }
+}
+
+private struct ServerConfigResponse: Decodable {
+    var voices: [EdgeVoiceInfo]
+}
+
 struct EdgeTTSServerConfig: Codable, Equatable, Sendable, Identifiable {
     var id: UUID
     var name: String
@@ -133,7 +149,32 @@ actor EdgeTTSService {
         apiKey = raw
     }
 
-    func synthesize(text: String, voice: String? = nil, rate: Double = 0, pitch: Double = 0, emotionTag: String? = nil, serverID: UUID? = nil) async throws -> Data {
+    func fetchVoices(serverID: UUID? = nil) async -> [EdgeVoiceInfo] {
+        let servers = configuredServers
+        let candidates: [EdgeTTSServerConfig]
+        if let serverID {
+            candidates = servers.filter { $0.id == serverID }
+        } else {
+            candidates = servers
+        }
+        for server in candidates {
+            guard let baseURL = URL(string: server.url) else { continue }
+            let configURL = baseURL.appendingPathComponent("api/v1/config")
+            var request = URLRequest(url: configURL)
+            request.timeoutInterval = 5
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { continue }
+                let config = try JSONDecoder().decode(ServerConfigResponse.self, from: data)
+                return config.voices
+            } catch {
+                continue
+            }
+        }
+        return []
+    }
+
+    func synthesize(text: String, voice: String? = nil, rate: Double = 0, pitch: Double = 0, style: String = "", serverID: UUID? = nil) async throws -> Data {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EdgeTTSError.emptyResponse }
 
@@ -163,7 +204,7 @@ actor EdgeTTSService {
                 endpoint = baseURL.appendingPathComponent("tts")
             }
             do {
-                let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), apiKey: server.apiKey)
+                let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), style: style, apiKey: server.apiKey)
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     throw EdgeTTSError.invalidResponse("无效响应")
@@ -267,7 +308,7 @@ actor EdgeTTSService {
         return result.isEmpty ? [EdgeTTSServerConfig(name: "默认", url: Self.defaultServerURL, apiKey: apiKey)] : result
     }
 
-    private func buildGetRequest(to endpoint: URL, text: String, voice: String?, rate: Int, pitch: Int, apiKey: String) throws -> URLRequest {
+    private func buildGetRequest(to endpoint: URL, text: String, voice: String?, rate: Int, pitch: Int, style: String, apiKey: String) throws -> URLRequest {
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw EdgeTTSError.invalidServerURL
         }
@@ -275,7 +316,7 @@ actor EdgeTTSService {
             URLQueryItem(name: "t", value: text),
             URLQueryItem(name: "r", value: "\(rate * 4)"),
             URLQueryItem(name: "p", value: "\(pitch)"),
-            URLQueryItem(name: "s", value: ""),
+            URLQueryItem(name: "s", value: style),
         ]
         if let voice = voice, !voice.isEmpty {
             items.append(URLQueryItem(name: "v", value: voice))
