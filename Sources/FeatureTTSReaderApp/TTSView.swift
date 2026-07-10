@@ -26,7 +26,15 @@ private let edgeVoices: [(id: String, label: String)] = [
 struct TTSView: View {
     @EnvironmentObject private var store: ReaderStore
     @State private var serverConfigs: [EdgeTTSServerConfig] = []
-    @State private var selectedServerID: UUID?
+    @State private var selectedServerID: UUID? {
+        didSet {
+            if let id = selectedServerID {
+                UserDefaults.standard.set(id.uuidString, forKey: "selectedTSServerID")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "selectedTSServerID")
+            }
+        }
+    }
     @State private var connectionStatus = "未测试"
     @State private var isTesting = false
     @State private var testText = "你好，欢迎使用语音合成。这是一个测试。"
@@ -253,6 +261,11 @@ struct TTSView: View {
                         var config = EdgeTTSServerConfig(url: EdgeTTSService.defaultServerURL, apiKey: "")
                         config.name = "默认服务器"
                         serverConfigs = [config]
+                    }
+                    if let savedID = UserDefaults.standard.string(forKey: "selectedTSServerID"),
+                       let id = UUID(uuidString: savedID),
+                       serverConfigs.contains(where: { $0.id == id }) {
+                        selectedServerID = id
                     }
                     if selectedServerID == nil {
                         selectedServerID = serverConfigs.first?.id

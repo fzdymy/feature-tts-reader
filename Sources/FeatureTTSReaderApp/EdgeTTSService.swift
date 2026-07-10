@@ -306,6 +306,9 @@ actor EdgeTTSService {
         if !emotion.isEmpty && Self.supportedEmotions.contains(emotion) {
             result += "</mstts:express-as>"
         }
+        if let voice = voice, !voice.isEmpty {
+            result = "<voice name=\"\(voice)\">\(result)</voice>"
+        }
         return result
     }
 
