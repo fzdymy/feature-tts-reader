@@ -19,12 +19,17 @@ struct TextNormalizer {
         // 3. Strip trailing whitespace per line (preserve leading indentation)
         var lines = s.components(separatedBy: "\n")
         for i in lines.indices {
-            lines[i] = lines[i].replacingOccurrences(of: " +$", with: "", options: .regularExpression)
+            // Strip trailing whitespace (all Unicode whitespace, not just ASCII space)
+            if let lastNonSpace = lines[i].lastIndex(where: { !$0.isWhitespace }) {
+                lines[i] = String(lines[i][...lastNonSpace])
+            } else {
+                lines[i] = ""
+            }
         }
         s = lines.joined(separator: "\n")
 
-        // 4. Collapse single newlines within paragraphs (hard line wraps) into spaces
-        s = s.replacingOccurrences(of: "(?<!\n)\n(?!\n)", with: " ", options: .regularExpression)
+        // 4. Collapse single newlines within paragraphs (hard line wraps) — concatenate directly (CJK text has no word spacing)
+        s = s.replacingOccurrences(of: "(?<!\n)\n(?!\n)", with: "", options: .regularExpression)
 
         // 5. Collapse excessive blank lines (≥3 consecutive → 2)
         s = s.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
@@ -32,12 +37,16 @@ struct TextNormalizer {
         // 6. Collapse multiple horizontal spaces (2+ → 1)
         s = s.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
 
-        // 7. Remove stray control characters except \n, \t
+        // 7. Remove spaces between CJK characters (Chinese text doesn't use word separation)
+        let cjk = "\\u4E00-\\u9FFF\\u3400-\\u4DBF\\uF900-\\uFAFF\\u3000-\\u303F\\uFF00-\\uFFEF"
+        s = s.replacingOccurrences(of: "([\(cjk)]) ([\(cjk)])", with: "$1$2", options: .regularExpression)
+
+        // 9. Remove stray control characters except \n, \t
         s = s.unicodeScalars.filter { c in
             c == "\n" || c == "\t" || !CharacterSet.controlCharacters.contains(c)
         }.map(String.init).joined()
 
-        // 8. NFC normalization (composed form) — preferred for Han text
+        // 10. NFC normalization (composed form) — preferred for Han text
         s = s.precomposedStringWithCanonicalMapping
 
         return s
