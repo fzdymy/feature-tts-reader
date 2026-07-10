@@ -508,7 +508,26 @@
 - 修复 `readerFirstLineIndent` 的 CodingKeys 和 init 参数
 - CI 全部通过 ✅
 
+### 第七次提交 (33aa347) — 全部功能修复 ✅
+
+| # | 变更 | 说明 |
+|---|------|------|
+| P0(0) | `navigateToChapter` 移除 offset 滚动 | 仅用 `.scrollPosition(id:anchor:.top)`，iOS 17+ 自动定位章节顶部 |
+| P1(1) | `paragraphView` 首行缩进 | 移除 `.padding(.leading)`，改为在段前拼接 `\u{3000}`×`readerFirstLineIndent` 字符；单位 = 汉字字符宽度 |
+| P1(3) | ReaderOverlayView 非沉浸时吃掉触摸 | 添加 `.allowsHitTesting(!isImmersive)` + `.contentShape(Rectangle())` + `.onTapGesture {}` |
+| P1(4) | 沉浸模式触摸穿透到 SpatialTapGesture | `allowsHitTesting(true)` 时，空白区域触摸穿透到 ZStack zone gesture |
+
 ### 最终状态 ✅
+
+| # | 功能 | 方案 |
+|---|------|------|
+| P0(0) | 章节跳转 | `.scrollPosition(id: $scrollPositionID, anchor: .top)` — 系统级精准定位 |
+| P0(1) | 双击播放删除 | 段落移除 `onTapGesture(count:2)`，朗读入口仅 `floatingPlayButton` |
+| P1(1) | 首行缩进 | 导入时 strip `\u{3000}`；显示时根据 `readerFirstLineIndent` 拼接 `\u{3000}`×N |
+| P1(2) | 全屏切换动画 | `0.25s` → `0.08s` |
+| P0(2) | 移除"正在朗读" | 删除 header 中绿色圆点 + 文字徽章 |
+| P1(3) | 进度条滑块 | 非沉浸时 overlay 吃掉触摸 → Slider 不受 SpatialTapGesture 干扰；可拖动 + 可点击 |
+| P1(4) | 区域点击滚屏 | 沉浸时 overlay 触摸穿透 → zone gesture 生效；上 1/4→前翻，下 1/4→后翻，5/6 屏 |
 
 | # | 功能 | 状态 |
 |---|------|------|
