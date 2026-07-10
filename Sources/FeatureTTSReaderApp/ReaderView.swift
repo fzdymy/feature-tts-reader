@@ -75,8 +75,11 @@ struct ReaderView: View {
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
         scrollPositionID = "ch_\(safeTarget)"
-        let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
-        scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
+            let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
+            scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
         }
@@ -142,7 +145,7 @@ struct ReaderView: View {
                 }
                 .scrollTargetLayout()
             }
-            .scrollPosition(id: $scrollPositionID)
+            .scrollPosition(id: $scrollPositionID, anchor: .top)
             .background(ScrollViewAccessor(coordinator: scrollCoordinator))
             .onChange(of: scrollPositionID) { _, newID in
                 // Hysteresis: ignore scroll-position changes within 0.15s of auto-scroll
