@@ -517,17 +517,28 @@
 | P1(3) | ReaderOverlayView 非沉浸时吃掉触摸 | 添加 `.allowsHitTesting(!isImmersive)` + `.contentShape(Rectangle())` + `.onTapGesture {}` |
 | P1(4) | 沉浸模式触摸穿透到 SpatialTapGesture | `allowsHitTesting(true)` 时，空白区域触摸穿透到 ZStack zone gesture |
 
-### 最终状态 ✅
+### 第八次提交 (ef2076e) — 全面回归修复 ✅
+
+33aa347 过度激进：`.allowsHitTesting(!isImmersive)` + `.onTapGesture {}` 导致沉浸切换和全部区域点击失效。
+
+**修复内容:**
+1. **移除 overlay 触摸屏蔽** — 恢复 ReaderOverlayView 原始透明状态，不做全局手势拦截
+2. **Slider 添加 `.highPriorityGesture(TapGesture().onEnded {})`** — Slider 自身的拖拽手势正常，但 tap 事件被高优先级空手势消费，不再穿透到 ZStack 的 SpatialTapGesture 触发 zone action
+3. **恢复 `navigateToChapter` 的 offset 滚动** — `scrollPositionID` + `estimatedChapterHeight` 双保险；`estimatedChapterHeight` 改用段落级计算（`paragraphCache`），精度匹配实际排版
+4. **沉浸/非沉浸切换恢复** — 无遮蔽时 middle zone tap 正常触发 `toggleImmersiveMode()`
+5. **区域点击恢复** — 沉浸模式下 top/bottom zone tap 正常触发 scrollPageUp/Down
+
+### 当前状态 ✅
 
 | # | 功能 | 方案 |
 |---|------|------|
-| P0(0) | 章节跳转 | `.scrollPosition(id: $scrollPositionID, anchor: .top)` — 系统级精准定位 |
+| P0(0) | 章节跳转 | `scrollPositionID` + 段落级 `estimatedChapterHeight` offset 双保险 |
 | P0(1) | 双击播放删除 | 段落移除 `onTapGesture(count:2)`，朗读入口仅 `floatingPlayButton` |
 | P1(1) | 首行缩进 | 导入时 strip `\u{3000}`；显示时根据 `readerFirstLineIndent` 拼接 `\u{3000}`×N |
 | P1(2) | 全屏切换动画 | `0.25s` → `0.08s` |
 | P0(2) | 移除"正在朗读" | 删除 header 中绿色圆点 + 文字徽章 |
-| P1(3) | 进度条滑块 | 非沉浸时 overlay 吃掉触摸 → Slider 不受 SpatialTapGesture 干扰；可拖动 + 可点击 |
-| P1(4) | 区域点击滚屏 | 沉浸时 overlay 触摸穿透 → zone gesture 生效；上 1/4→前翻，下 1/4→后翻，5/6 屏 |
+| P1(3) | 进度条滑块 | Slider 添加 `.highPriorityGesture(TapGesture())` 防止穿透；可拖动 + 可点击 |
+| P1(4) | 区域点击滚屏 | 无遮蔽时 middle→切换沉浸，top/bottom→scrollPageUp/Down 5/6 屏 |
 
 | # | 功能 | 状态 |
 |---|------|------|
