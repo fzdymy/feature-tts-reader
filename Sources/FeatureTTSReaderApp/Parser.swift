@@ -1,7 +1,7 @@
 import Foundation
 
 func parseChapters(text: String) -> [BookChapter] {
-    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = text.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
     guard !trimmed.isEmpty else { return [] }
     let headingPattern = "(?m)^(第[零一二三四五六七八九十百千0-9]{1,8}[章节].*)"
     guard let headingRegex = try? NSRegularExpression(pattern: headingPattern) else { return [] }
@@ -25,8 +25,8 @@ func parseChapters(text: String) -> [BookChapter] {
                m.numberOfRanges > 1,
                let titleRange = Range(m.range(at: 1), in: line) {
                 let firstHead = String(line[titleRange])
-                if let title = currentTitle, !currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    chapters.append(BookChapter(id: UUID(), title: title, text: currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
+                if let title = currentTitle, !currentText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty {
+                    chapters.append(BookChapter(id: UUID(), title: title, text: currentText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)))
                 }
                 currentTitle = firstHead
                 currentText = ""
@@ -34,17 +34,17 @@ func parseChapters(text: String) -> [BookChapter] {
                 currentText.append(line + "\n")
             }
         }
-        if let title = currentTitle, !currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            chapters.append(BookChapter(id: UUID(), title: title, text: currentText.trimmingCharacters(in: .whitespacesAndNewlines)))
+        if let title = currentTitle, !currentText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty {
+            chapters.append(BookChapter(id: UUID(), title: title, text: currentText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)))
         }
         return chapters
     }
 
-    var parts = trimmed.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var parts = trimmed.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
     if parts.count < 3 {
         parts = trimmed.chunked(into: 12000)
     }
     return parts.enumerated().map { index, piece in
-        BookChapter(id: UUID(), title: "章节 \(index + 1)", text: piece.trimmingCharacters(in: .whitespacesAndNewlines))
+        BookChapter(id: UUID(), title: "章节 \(index + 1)", text: piece.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace))
     }
 }

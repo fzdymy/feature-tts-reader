@@ -685,7 +685,7 @@ struct ReaderView: View {
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
         var y: CGFloat = titleHeight
         for paraText in paragraphs {
-            let trimmed = paraText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = paraText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
             let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
             let paraHeight = CGFloat(paraLineCount) * lineHeight + 8
             if offsetInChapter >= y && offsetInChapter < y + paraHeight {
@@ -726,7 +726,7 @@ struct ReaderView: View {
     }
 
     private func estimatedParagraphHeight(for text: String, charsPerLine: Int, lineHeight: CGFloat) -> CGFloat {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
         guard !trimmed.isEmpty else { return 0 }
         let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
         return CGFloat(paraLineCount) * lineHeight + 8
@@ -830,13 +830,13 @@ struct ReaderView: View {
         let ch = chaptersList[currentChapterIndex]
         let paragraphs = paragraphCache(for: ch)
         guard let currentText = segmentTextForCurrentPosition() else { return store.currentParagraphIndex }
-        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = currentText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
         return paragraphs.firstIndex(where: { $0.contains(trimmed) || trimmed.contains($0) })
     }
 
     private func paragraphCache(for chapter: BookChapter) -> [String] {
         if let cached = cachedParagraphs[chapter.id] { return cached }
-        let result = chapter.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let result = chapter.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
         cachedParagraphs[chapter.id] = result
         return result
     }
@@ -910,8 +910,8 @@ struct ReaderView: View {
         .onAppear {
             if paragraphs.isEmpty {
                 paragraphs = chapter.text
-                    .components(separatedBy: "\n\n")
-                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .components(separatedBy: "\n")
+                    .filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
             }
         }
     }

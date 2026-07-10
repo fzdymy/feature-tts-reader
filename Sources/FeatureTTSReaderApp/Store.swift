@@ -1281,18 +1281,23 @@ final class ReaderStore: NSObject, ObservableObject {
         dialogueOpenQuotes.contains(where: s.contains)
     }
 
-    /// G8: 全标点断句，支持 CJK 引号结尾
+    /// Split block into sentences at 。！？ preserving the punctuation.
+    /// Does NOT strip \u{3000} (full‑width space) — indentation must survive.
     nonisolated static func splitBlockIntoSentences(_ text: String) -> [String] {
-        let pattern = "[^。！？\n\r]+([。！？\n\r]\"|'|」|』|〗|”)?|[\n\r]"
-        let regex = try? NSRegularExpression(pattern: pattern, options: [])
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let terminators = "。！？"
+        let nonIndentWs = CharacterSet.whitespacesAndNewlines.subtracting(CharacterSet(charactersIn: "\u{3000}"))
         var sentences: [String] = []
-        regex?.enumerateMatches(in: text, range: range) { match, _, _ in
-            if let matchRange = match?.range, let swiftRange = Range(matchRange, in: text) {
-                let sentence = text[swiftRange].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !sentence.isEmpty { sentences.append(sentence) }
+        var current = ""
+        for ch in text {
+            current.append(ch)
+            if terminators.contains(ch) {
+                let trimmed = current.trimmingCharacters(in: nonIndentWs)
+                if !trimmed.isEmpty { sentences.append(trimmed) }
+                current = ""
             }
         }
+        let trimmed = current.trimmingCharacters(in: nonIndentWs)
+        if !trimmed.isEmpty { sentences.append(trimmed) }
         return sentences.isEmpty ? [text] : sentences
     }
 
@@ -1340,7 +1345,7 @@ final class ReaderStore: NSObject, ObservableObject {
             statusMessage = "正在朗读 \(chapter.title)..."
         }
 
-        let paragraphs = chapter.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let paragraphs = chapter.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
         guard !paragraphs.isEmpty else {
             await MainActor.run { statusMessage = "当前章节为空，无法朗读。" }
             return
@@ -1555,7 +1560,7 @@ final class ReaderStore: NSObject, ObservableObject {
         isSpeaking = true
         statusMessage = "正在使用系统语音朗读..."
 
-        let textBlocks = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let textBlocks = text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
         if textBlocks.isEmpty {
             isSpeaking = false
             statusMessage = "当前内容为空，无法朗读。"
@@ -1668,7 +1673,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {
-        let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
         var segments: [ScriptSegment] = []
         var lastSpeaker: String? = nil
         let maxLength = 350
@@ -1968,8 +1973,8 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     private func paragraphIndex(for paragraphText: String, in chapterText: String) -> Int? {
-        let paragraphs = chapterText.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let trimmed = paragraphText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let paragraphs = chapterText.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
+        let trimmed = paragraphText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
         guard !trimmed.isEmpty else { return nil }
         // 精确匹配整段内容，避免子串歧义
         if let exact = paragraphs.firstIndex(where: { $0 == trimmed }) { return exact }
@@ -2001,7 +2006,7 @@ final class ReaderStore: NSObject, ObservableObject {
             await MainActor.run { statusMessage = "未找到当前章节。" }
             return
         }
-        let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = paragraph.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
         let fromParagraphIndex = trimmed.isEmpty ? nil : paragraphIndex(for: trimmed, in: chapter.text)
         do {
             try await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex)
