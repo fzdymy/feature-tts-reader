@@ -491,13 +491,24 @@
    - `ChapterContentView.paragraphView` 增加 `.padding(.leading, CGFloat(readerFirstLineIndent))`
 4. **`navigateToChapter` 改用 `.scrollPosition(id:anchor:.top)`** — 设置 `scrollPositionID = "ch_\(index)"` 后 0.05s 延时补充 `scrollCoordinator.scrollTo` offset 修复定位
 
-### 第四次提交 (53d2b1c) — 章节定位修复 ✅
+### 第四次提交 (53d2b1c) — 章节定位修复部分编译失败 ❌
 
-- `.scrollPosition(id: $scrollPositionID)` → `.scrollPosition(id: $scrollPositionID, anchor: .top)`
-- `navigateToChapter` 中 offset 滚动延迟到 0.05s 后执行，避免与 scrollPosition 冲突
-- 加入 `[weak self]` 防止闭包强引用
+- 添加 `.scrollPosition(id: $scrollPositionID, anchor: .top)` 
+- `navigateToChapter` 中 offset 滚动延迟到 0.05s 后执行
+- CI 报错: `[weak self]` 不适用于 struct
 
-### 当前状态 ✅
+### 第五次提交 (ebe0b68) — ReaderState 缺少 CodingKeys 编译失败 ❌
+
+- 给 `ReaderState` 的 custom init 和 CodingKeys 添加 `readerFirstLineIndent`
+- CI 完整通过 ✅
+
+### 第六次提交 (efddf07) — 最终编译通过 ✅
+
+- 修复 `[weak self]` → 直接 `self.scrollCoordinator.scrollTo`
+- 修复 `readerFirstLineIndent` 的 CodingKeys 和 init 参数
+- CI 全部通过 ✅
+
+### 最终状态 ✅
 
 | # | 功能 | 状态 |
 |---|------|------|
