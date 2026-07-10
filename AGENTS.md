@@ -439,3 +439,18 @@
 - 错误：还有一个大面积的高亮覆盖区块（`paragraphView` 中的 `.background(isReading ? Color.accentColor.opacity(0.15) : Color.clear)`）
 
 此 BUG 严重干扰阅读体验。已在 `7d98abd` 中移除该 `background` 修饰符，仅保留 `sentenceView` 的句子级高亮。
+
+## 修复记录 (2026-07-10)
+
+| 提交 | 描述 |
+|------|------|
+| `edb4573` | fix: wire reformatChineseNovel into import/reformat pipeline + fix terminators |
+
+### reformatChineseNovel 实现
+
+`TextNormalizer.reformatChineseNovel()` 三阶段:
+- **Phase 1**: 基础清理 — 行首尾空白删除 (`trimmingCharacters`), 标准行尾
+- **Phase 2**: 段落检测 — 。！？触发换段, 行首 `“` 触发换段, 连续短行 (≤6CJK字符) 触发换段
+- **Phase 3**: 添加　　indent + CJK 空间清理 + NFC
+
+三个接入点: `importFile` (文件导入), `importText` (文本粘贴), `reformatBookText` (重新格式化按钮) 全部改为使用 `reformatChineseNovel`。
