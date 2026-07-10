@@ -100,7 +100,8 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
             else {
                 return nil
             }
-            return Book(id: id, title: title, text: "", importedAt: importedAt)
+            let text = object.value(forKey: "text") as? String ?? ""
+            return Book(id: id, title: title, text: text, importedAt: importedAt)
         }
     }
 
@@ -115,7 +116,7 @@ final class PersistenceController: ObservableObject, @unchecked Sendable {
             let object = NSManagedObject(entity: entity, insertInto: context)
             object.setValue(book.id.uuidString, forKey: "id")
             object.setValue(book.title, forKey: "title")
-            object.setValue("", forKey: "text")
+            object.setValue(book.text, forKey: "text")
             object.setValue(book.importedAt, forKey: "importedAt")
         }
         saveContext()
