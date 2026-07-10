@@ -454,3 +454,41 @@
 - **Phase 3**: 添加　　indent + CJK 空间清理 + NFC
 
 三个接入点: `importFile` (文件导入), `importText` (文本粘贴), `reformatBookText` (重新格式化按钮) 全部改为使用 `reformatChineseNovel`。
+
+## 修复记录 (2026-07-11)
+
+| 提交 | 描述 |
+|------|------|
+| — | P1(1): `normalize()` strips leading `\u{3000}` (app manages indentation via ReaderSettings) |
+| — | P0(1): Removed `onTapGesture(count:2)` from `paragraphView` (only floatingPlayButton triggers playback) |
+| — | P1(2): Fullscreen toggle `withAnimation(.easeInOut(duration: 0.08))` — reduced from 0.25s |
+| — | P0(2): Removed "正在朗读" green dot badge from `readerHeader` |
+| — | P1(3): `chHeight` now uses `paragraphCache` + `estimatedParagraphHeight` for accurate progress bar |
+| — | P1(4): Fixed `handleZoneTap` — top 1/4 = `scrollPageUp()`, bottom 1/4 = `scrollPageDown()` (5/6 screen) |
+| — | TapCoordinator delay reduced from 0.25s → 0.05s (no longer needs double-tap guard) |
+
+### 变更详情
+
+**P1(1) — 导入时去除全角缩进** (`TextNormalizer.swift`):
+- `normalize()` 现在 strip 每行开头的 `\u{3000}`，因为 app 通过 ReaderSettings.firstLineIndent 管理缩进
+- 存储文本不包含硬编码缩进，避免导入后显示双层缩进
+
+**P0(1) — 移除双击播放** (`ReaderView.swift`):
+- 删除 `paragraphView` 中的 `.onTapGesture(count: 2)` + haptic + `onSentenceTap` 调用
+- 朗读入口统一为右下角 `floatingPlayButton`
+
+**P1(2) — 切换动画加速** (`ReaderView.swift:771`):
+- `withAnimation(.easeInOut(duration: 0.08))` 替代 0.25
+
+**P0(2) — 移除"正在朗读"徽章** (`ReaderView.swift`):
+- 删除 `readerHeader` 中的 `if isCurrentChapter && isPlaybackActive` 绿色圆点 + 文字
+- 章节标题保持简洁
+
+**P1(3) — 进度条改用段落级高度计算** (`ReaderView.swift`):
+- `chHeight()` 从旧的总字符数 ÷ charsPerLine 估算改为遍历 `paragraphCache` + `estimatedParagraphHeight`
+- 与 `autoScrollOffset` 使用相同的段落高度计算逻辑，消除不一致
+
+**P1(4) — 点击区域滚动修复** (`ReaderView.swift`):
+- `handleZoneTap`: 上 1/4 → `scrollPageUp()` (向前翻), 下 1/4 → `scrollPageDown()` (向后翻)
+- `scrollPageUp/Down` 滚动距离从 0.8 屏改为 5/6 屏
+- `TapCoordinator.schedule` 延迟从 0.25s 改为 0.05s (双击防护已移除)

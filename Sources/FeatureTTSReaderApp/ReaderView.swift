@@ -755,9 +755,9 @@ struct ReaderView: View {
         let screenH = UIScreen.main.bounds.height
         let yRatio = location.y / screenH
         if yRatio < 0.25 {
-            scrollPageDown()
-        } else if yRatio > 0.75 {
             scrollPageUp()
+        } else if yRatio > 0.75 {
+            scrollPageDown()
         } else {
             toggleImmersiveMode()
         }
@@ -767,19 +767,19 @@ struct ReaderView: View {
         let screenH = UIScreen.main.bounds.height
         let currentOffset = scrollCoordinator.scrollView?.contentOffset.y ?? 0
         let maxOffset = max(0, (scrollCoordinator.scrollView?.contentSize.height ?? 0) - screenH)
-        let target = min(currentOffset + screenH * 0.8, maxOffset)
+        let target = min(currentOffset + screenH * 5 / 6, maxOffset)
         scrollCoordinator.scrollTo(offset: target, animated: true)
     }
 
     private func scrollPageUp() {
         let screenH = UIScreen.main.bounds.height
         let currentOffset = scrollCoordinator.scrollView?.contentOffset.y ?? 0
-        let target = max(0, currentOffset - screenH * 0.8)
+        let target = max(0, currentOffset - screenH * 5 / 6)
         scrollCoordinator.scrollTo(offset: target, animated: true)
     }
 
     private func toggleImmersiveMode() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(.easeInOut(duration: 0.08)) {
             isImmersive.toggle()
         }
     }
@@ -879,20 +879,6 @@ struct ReaderView: View {
                 Text(chapter.title)
                     .font(.title2).fontWeight(.bold)
                     .foregroundColor(textColor)
-                if isCurrentChapter && isPlaybackActive {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 8, height: 8)
-                        Text("正在朗读")
-                            .font(.caption2)
-                            .foregroundColor(.accentColor)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor.opacity(0.12))
-                    .cornerRadius(999)
-                }
             }
             .padding(.top, 24)
             .padding(.bottom, 12)
@@ -948,12 +934,6 @@ struct ReaderView: View {
             .background(isReading ? Color.accentColor.opacity(0.18) : Color.clear)
             .cornerRadius(6)
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                onCancelTap()
-                let generator = UIImpactFeedbackGenerator(style: .light)
-                generator.impactOccurred()
-                onSentenceTap(pi, 0, paraText)
-            }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contextMenu {
                 ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
@@ -1130,9 +1110,12 @@ private struct ReaderOverlayView: View {
         let cjkCharWidth = store.readerFontSize
         let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let totalChars = ch.text.count
-        let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
-        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
+        let paragraphs = paragraphCache(for: ch)
+        var totalH: CGFloat = 0
+        for p in paragraphs {
+            totalH += estimatedParagraphHeight(for: p, charsPerLine: charsPerLine, lineHeight: lineHeight)
+        }
+        return titleHeight + totalH + bottomPad
     }
 
     private var chapterProgressInChapter: Double {
@@ -1674,7 +1657,7 @@ class TapCoordinator: ObservableObject {
 
     func schedule(_ item: DispatchWorkItem) {
         workItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
     }
 }
 
