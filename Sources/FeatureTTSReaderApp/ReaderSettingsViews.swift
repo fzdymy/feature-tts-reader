@@ -13,7 +13,6 @@ struct ReaderSettingsView: View {
     @State private var showBackgroundPicker: Bool = false
     @State private var enableHyphenation: Bool = false
     @State private var enableKerning: Bool = true
-    @State private var firstLineIndent: Double = 0
     @State private var textAlignment: TextAlign = .leading
 
     var body: some View {
@@ -46,8 +45,8 @@ struct ReaderSettingsView: View {
                     }
                     HStack {
                         Text("首行缩进")
-                        Slider(value: $firstLineIndent, in: 0...40, step: 2)
-                        Text("\(Int(firstLineIndent))")
+                        Slider(value: Binding(get: { store.readerFirstLineIndent }, set: { store.readerFirstLineIndent = $0 }), in: 0...40, step: 2)
+                        Text("\(Int(store.readerFirstLineIndent))")
                     }
                     Picker("对齐方式", selection: $textAlignment) {
                         Text("左对齐").tag(TextAlign.leading)
@@ -145,7 +144,6 @@ struct ReaderSettingsView: View {
                 customBrightness = UserDefaults.standard.object(forKey: "readerBrightness") as? Double ?? 0.5
                 keepScreenOn = store.keepScreenOn
                 pageMode = PageMode(rawValue: UserDefaults.standard.string(forKey: "pageMode") ?? "scroll") ?? .scroll
-                firstLineIndent = UserDefaults.standard.object(forKey: "firstLineIndent") as? Double ?? 0
                 textAlignment = TextAlign(rawValue: UserDefaults.standard.integer(forKey: "textAlignment")) ?? .leading
                 enableKerning = UserDefaults.standard.object(forKey: "enableKerning") as? Bool ?? true
                 enableHyphenation = UserDefaults.standard.object(forKey: "enableHyphenation") as? Bool ?? false
@@ -154,7 +152,6 @@ struct ReaderSettingsView: View {
                 UserDefaults.standard.set(useSystemBrightness, forKey: "useSystemBrightness")
                 UserDefaults.standard.set(customBrightness, forKey: "readerBrightness")
                 UserDefaults.standard.set(pageMode.rawValue, forKey: "pageMode")
-                UserDefaults.standard.set(firstLineIndent, forKey: "firstLineIndent")
                 UserDefaults.standard.set(textAlignment.rawValue, forKey: "textAlignment")
                 UserDefaults.standard.set(enableKerning, forKey: "enableKerning")
                 UserDefaults.standard.set(enableHyphenation, forKey: "enableHyphenation")

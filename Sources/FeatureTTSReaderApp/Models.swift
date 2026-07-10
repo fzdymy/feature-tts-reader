@@ -359,6 +359,7 @@ struct ReaderState: Codable {
     var lastScannedBookText: String = ""
     var readerFontName: String = "PingFang SC"
     var readerParagraphSpacing: Double = 8
+    var readerFirstLineIndent: Double = 0
     var customBackgroundImage: Data?
     var showChapterTitle: Bool = true
     var showProgressBar: Bool = true

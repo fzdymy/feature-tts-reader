@@ -62,7 +62,6 @@ struct ReaderView: View {
     @State private var chapterHeights: [CGFloat] = []  // cached heights
     @State private var cachedParagraphs: [UUID: [String]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
-    @StateObject private var tapCoordinator = TapCoordinator()
 
     private func navigateToChapter(_ target: Int) {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
@@ -223,9 +222,7 @@ struct ReaderView: View {
         .gesture(
             SpatialTapGesture()
                 .onEnded { value in
-                    tapCoordinator.cancel()
-                    let item = DispatchWorkItem { handleZoneTap(at: value.location) }
-                    tapCoordinator.schedule(item)
+                    handleZoneTap(at: value.location)
                 }
         )
         .sheet(isPresented: $showCharacterPanel) {
@@ -306,6 +303,7 @@ struct ReaderView: View {
             readerFontName: store.readerFontName,
             readerFontSize: store.readerFontSize,
             readerLineSpacing: store.readerLineSpacing,
+            readerFirstLineIndent: store.readerFirstLineIndent,
             textColor: textColor,
             estimatedMinHeight: estimatedChapterHeight(ch),
             onSentenceTap: { pi, si, sentenceText in
@@ -320,8 +318,7 @@ struct ReaderView: View {
             onAddCharacter: { name in
                 selectedTextForCharacter = name
                 showCharacterFromText = true
-            },
-            onCancelTap: { [tapCoordinator] in tapCoordinator.cancel() }
+            }
         )
         .equatable()
     }
@@ -854,11 +851,11 @@ struct ReaderView: View {
     let readerFontName: String
     let readerFontSize: Double
     let readerLineSpacing: Double
+    let readerFirstLineIndent: Double
     let textColor: Color
     let estimatedMinHeight: CGFloat
     let onSentenceTap: (Int, Int, String) -> Void
     let onAddCharacter: (String) -> Void
-    let onCancelTap: () -> Void
 
     @State private var paragraphs: [String] = []
 
@@ -870,7 +867,8 @@ struct ReaderView: View {
         lhs.playbackSentenceIndex == rhs.playbackSentenceIndex &&
         lhs.isPlaybackActive == rhs.isPlaybackActive &&
         lhs.readerFontSize == rhs.readerFontSize &&
-        lhs.readerLineSpacing == rhs.readerLineSpacing
+        lhs.readerLineSpacing == rhs.readerLineSpacing &&
+        lhs.readerFirstLineIndent == rhs.readerFirstLineIndent
     }
 
     var body: some View {
@@ -928,6 +926,7 @@ struct ReaderView: View {
             .font(Font.custom(readerFontName, size: readerFontSize))
             .foregroundColor(textColor)
             .lineSpacing(readerLineSpacing + 2)
+            .padding(.leading, CGFloat(readerFirstLineIndent))
             .textSelection(.enabled)
             .padding(.vertical, 4)
             .padding(.horizontal, 4)
@@ -1110,15 +1109,9 @@ private struct ReaderOverlayView: View {
         let cjkCharWidth = store.readerFontSize
         let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let paragraphs = ch.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
-        var totalH: CGFloat = 0
-        for p in paragraphs {
-            let trimmed = p.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
-            guard !trimmed.isEmpty else { continue }
-            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
-            totalH += CGFloat(paraLineCount) * lineHeight + 8
-        }
-        return titleHeight + totalH + bottomPad
+        let totalChars = ch.text.count
+        let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
+        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
     }
 
     private var chapterProgressInChapter: Double {
@@ -1646,21 +1639,6 @@ private struct ReaderOverlayView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 4)
         .background(bgColor.opacity(0.9))
-    }
-}
-
-@MainActor
-class TapCoordinator: ObservableObject {
-    private var workItem: DispatchWorkItem?
-
-    func cancel() {
-        workItem?.cancel()
-        workItem = nil
-    }
-
-    func schedule(_ item: DispatchWorkItem) {
-        workItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
     }
 }
 

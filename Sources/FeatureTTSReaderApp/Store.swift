@@ -99,6 +99,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var readerFontSize: Double = 18
     @Published var readerLineSpacing: Double = 8
     @Published var readerParagraphSpacing: Double = 8
+    @Published var readerFirstLineIndent: Double = 0
     @Published var readerTheme: ReaderTheme = .light
     @Published var readerFontName: String = "PingFang SC"
     @Published var customBackgroundImage: Data?
@@ -288,6 +289,7 @@ final class ReaderStore: NSObject, ObservableObject {
             readerFontSize = state.readerFontSize
             readerLineSpacing = state.readerLineSpacing
             readerParagraphSpacing = state.readerParagraphSpacing
+            readerFirstLineIndent = state.readerFirstLineIndent
             readerTheme = state.readerTheme
             readerFontName = state.readerFontName
             customBackgroundImage = state.customBackgroundImage
@@ -393,6 +395,7 @@ final class ReaderStore: NSObject, ObservableObject {
         readerFontSize = state.readerFontSize
         readerLineSpacing = state.readerLineSpacing
         readerParagraphSpacing = state.readerParagraphSpacing
+        readerFirstLineIndent = state.readerFirstLineIndent
         readerTheme = state.readerTheme
         readerFontName = state.readerFontName
         customBackgroundImage = state.customBackgroundImage
@@ -500,6 +503,7 @@ final class ReaderStore: NSObject, ObservableObject {
             playTimeoutSeconds: playTimeoutSeconds,
             readerFontName: readerFontName,
             readerParagraphSpacing: readerParagraphSpacing,
+            readerFirstLineIndent: readerFirstLineIndent,
             customBackgroundImage: customBackgroundImage,
             showChapterTitle: showChapterTitle,
             showProgressBar: showProgressBar,
