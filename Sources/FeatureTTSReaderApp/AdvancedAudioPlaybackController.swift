@@ -244,7 +244,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         guard let idx = previousIndex else { return }
         let targetItem = playbackHistory.remove(at: idx)
         queue.insert(targetItem, at: 0)
-        currentIndex = 0
         queueCount = queue.count
         player?.stop()
         player = nil
