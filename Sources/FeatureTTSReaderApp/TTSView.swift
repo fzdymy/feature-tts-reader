@@ -563,12 +563,13 @@ struct TTSView: View {
 
             for scene in multiRoleTestScenes {
                 do {
-                    let combinedRate = Int(scene.rate + multiRoleGlobalRate)
+                    let combinedRate = scene.rate + multiRoleGlobalRate
+                    let combinedPitch = scene.pitch
                     let audioData = try await EdgeTTSService.shared.synthesize(
                         text: scene.text,
                         voice: scene.voice,
                         rate: combinedRate,
-                        pitch: Int(scene.pitch),
+                        pitch: combinedPitch,
                         style: "",
                         serverID: id
                     )
@@ -580,8 +581,8 @@ struct TTSView: View {
                         id: scene.id,
                         characterName: scene.characterName,
                         voice: scene.voice,
-                        rate: combinedRate,
-                        pitch: Int(scene.pitch),
+                        rate: Int(combinedRate),
+                        pitch: Int(combinedPitch),
                         style: "",
                         text: scene.text,
                         emotionTag: "",
