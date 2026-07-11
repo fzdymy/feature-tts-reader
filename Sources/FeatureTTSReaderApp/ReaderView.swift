@@ -68,7 +68,7 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        scrollPositionID = "ch_\(safeTarget)"
+        scrollPositionID = "ch_\(safeTarget)_p_0"
         // Timeout: if scroll never reaches target, force update after 2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             if self.navigationTarget == safeTarget {
@@ -166,7 +166,7 @@ struct ReaderView: View {
             .onAppear {
                 DispatchQueue.main.async {
                     if currentChapterIndex > 0 {
-                        scrollPositionID = "ch_\(currentChapterIndex)"
+                        scrollPositionID = "ch_\(currentChapterIndex)_p_0"
                     }
                 }
             }
