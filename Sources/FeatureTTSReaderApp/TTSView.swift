@@ -79,23 +79,6 @@ struct TTSView: View {
                             }
                         }
                     }
-                    .onDelete { indexSet in
-                        guard serverConfigs.count > 1 else { return }
-                        for i in indexSet {
-                            let id = serverConfigs[i].id
-                            if selectedServerID == id {
-                                selectedServerID = serverConfigs.first(where: { $0.id != id })?.id
-                            }
-                            serverStatuses.removeValue(forKey: id)
-                        }
-                        serverConfigs.remove(atOffsets: indexSet)
-                        saveServers()
-                    }
-                    .deleteDisabled(serverConfigs.count <= 1)
-                    .onMove { source, destination in
-                        serverConfigs.move(fromOffsets: source, toOffset: destination)
-                        saveServers()
-                    }
                 } header: {
                     HStack {
                         Label("服务器", systemImage: "server.rack")
@@ -113,9 +96,6 @@ struct TTSView: View {
             }
             .navigationTitle("语音引擎")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    EditButton()
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showAddSheet = true } label: {
                         Image(systemName: "plus")
