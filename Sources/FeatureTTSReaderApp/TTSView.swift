@@ -40,7 +40,72 @@ struct TTSView: View {
     var body: some View {
         NavigationStack {
             List {
-                serverSection
+                Section {
+                    ForEach(serverConfigs) { config in
+                        HStack(spacing: 10) {
+                            statusDot(serverStatuses[config.id] ?? "未测试")
+                                .frame(width: 8)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(config.name.isEmpty ? "未命名" : config.name)
+                                    .font(.subheadline.weight(.medium))
+                                    .lineLimit(1)
+                                Text(config.url.isEmpty ? "未配置地址" : config.url)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            if config.id == selectedServerID {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.accentColor)
+                                    .font(.subheadline)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedServerID = config.id
+                        }
+                        .contextMenu {
+                            Button { editingServer = config } label: {
+                                Label("编辑", systemImage: "pencil")
+                            }
+                            if serverConfigs.count > 1 {
+                                Divider()
+                                Button(role: .destructive) {
+                                    deleteServer(config)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                    .onDelete { indexSet in
+                        guard serverConfigs.count > 1 else { return }
+                        for i in indexSet {
+                            let id = serverConfigs[i].id
+                            if selectedServerID == id {
+                                selectedServerID = serverConfigs.first(where: { $0.id != id })?.id
+                            }
+                            serverStatuses.removeValue(forKey: id)
+                        }
+                        serverConfigs.remove(atOffsets: indexSet)
+                        saveServers()
+                    }
+                    .deleteDisabled(serverConfigs.count <= 1)
+                    .onMove { source, destination in
+                        serverConfigs.move(fromOffsets: source, toOffset: destination)
+                        saveServers()
+                    }
+                } header: {
+                    HStack {
+                        Label("服务器", systemImage: "server.rack")
+                        Spacer()
+                        Text("\(serverConfigs.count) 个")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 if selectedServerID != nil {
                     testSection
                 }
@@ -83,76 +148,6 @@ struct TTSView: View {
             }
             .task(id: selectedServerID) {
                 await loadVoices()
-            }
-        }
-    }
-
-    // MARK: - Server Section
-
-    private var serverSection: some View {
-        Section {
-            ForEach(serverConfigs) { config in
-                HStack(spacing: 10) {
-                    statusDot(serverStatuses[config.id] ?? "未测试")
-                        .frame(width: 8)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(config.name.isEmpty ? "未命名" : config.name)
-                            .font(.subheadline.weight(.medium))
-                            .lineLimit(1)
-                        Text(config.url.isEmpty ? "未配置地址" : config.url)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    if config.id == selectedServerID {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.accentColor)
-                            .font(.subheadline)
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    selectedServerID = config.id
-                }
-                .contextMenu {
-                    Button { editingServer = config } label: {
-                        Label("编辑", systemImage: "pencil")
-                    }
-                    if serverConfigs.count > 1 {
-                        Divider()
-                        Button(role: .destructive) {
-                            deleteServer(config)
-                        } label: {
-                            Label("删除", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-            .onDelete { indexSet in
-                guard serverConfigs.count > 1 else { return }
-                for i in indexSet {
-                    let id = serverConfigs[i].id
-                    if selectedServerID == id {
-                        selectedServerID = serverConfigs.first(where: { $0.id != id })?.id
-                    }
-                    serverStatuses.removeValue(forKey: id)
-                }
-                serverConfigs.remove(atOffsets: indexSet)
-                saveServers()
-            }
-            .deleteDisabled(serverConfigs.count <= 1)
-            .onMove { source, destination in
-                serverConfigs.move(fromOffsets: source, toOffset: destination)
-                saveServers()
-            }
-        } header: {
-            HStack {
-                Label("服务器", systemImage: "server.rack")
-                Spacer()
-                Text("\(serverConfigs.count) 个")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
         }
     }
