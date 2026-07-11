@@ -52,7 +52,6 @@ struct ReaderView: View {
 
     @State private var chapterProgress: Double = 0
     @State private var scrollPositionID: String?
-    @State private var pendingChapterNav: Int?
     @State private var immersiveBeforeAudioMode = false
     @State private var autoScrollWorkItem: DispatchWorkItem?
     @State private var scrolledAway = false
@@ -73,7 +72,16 @@ struct ReaderView: View {
             currentChapter = chaptersList[safeTarget]
             store.selectedChapterID = chaptersList[safeTarget].id
         }
-        pendingChapterNav = safeTarget
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { scrollPositionID = "ch_\(safeTarget)" }
+        // After layout: scroll to first paragraph for precise positioning
+        // (ch_N forces LazyVStack to create the chapter view; ch_N_p_0 uses actual layout)
+        DispatchQueue.main.async {
+            var t2 = Transaction()
+            t2.disablesAnimations = true
+            withTransaction(t2) { self.scrollPositionID = "ch_\(safeTarget)_p_0" }
+        }
     }
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
@@ -112,46 +120,39 @@ struct ReaderView: View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    ScrollViewAccessor(coordinator: scrollCoordinator)
-                        .frame(height: 0)
-                    LazyVStack(spacing: 0) {
-                        ForEach(chaptersList.indices, id: \.self) { i in
-                            chapterContent(index: i)
-                                .id("ch_\(i)")
-                        }
-                    }
-                    .scrollTargetLayout()
-                }
-                .scrollPosition(id: $scrollPositionID, anchor: .top)
-                .onChange(of: scrollPositionID) { _, newID in
-                    let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
-                    guard !isRecentAutoScroll else { return }
-                    guard let idStr = newID else { return }
-                    if isPlaying, isAudioMode, isImmersive {
-                        scrolledAway = true
-                    }
-                    let parts = idStr.split(separator: "_", maxSplits: 3)
-                    guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
-                    if currentChapterIndex != chIdx {
-                        currentChapterIndex = chIdx
-                        chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
-                        if chIdx < chaptersList.count {
-                            currentChapter = chaptersList[chIdx]
-                            store.selectedChapterID = chaptersList[chIdx].id
-                        }
+            ScrollView {
+                ScrollViewAccessor(coordinator: scrollCoordinator)
+                    .frame(height: 0)
+                LazyVStack(spacing: 0) {
+                    ForEach(chaptersList.indices, id: \.self) { i in
+                        chapterContent(index: i)
+                            .id("ch_\(i)")
                     }
                 }
-                .onChange(of: pendingChapterNav) { _, target in
-                    guard let t = target else { return }
-                    proxy.scrollTo("ch_\(t)", anchor: .top)
-                    pendingChapterNav = nil
+                .scrollTargetLayout()
+            }
+            .scrollPosition(id: $scrollPositionID, anchor: .top)
+            .onChange(of: scrollPositionID) { _, newID in
+                let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
+                guard !isRecentAutoScroll else { return }
+                guard let idStr = newID else { return }
+                if isPlaying, isAudioMode, isImmersive {
+                    scrolledAway = true
                 }
-                .onAppear {
-                    if currentChapterIndex > 0 {
-                        scrollPositionID = "ch_\(currentChapterIndex)"
+                let parts = idStr.split(separator: "_", maxSplits: 3)
+                guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
+                if currentChapterIndex != chIdx {
+                    currentChapterIndex = chIdx
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
+                    if chIdx < chaptersList.count {
+                        currentChapter = chaptersList[chIdx]
+                        store.selectedChapterID = chaptersList[chIdx].id
                     }
+                }
+            }
+            .onAppear {
+                if currentChapterIndex > 0 {
+                    scrollPositionID = "ch_\(currentChapterIndex)"
                 }
             }
             .onChange(of: chaptersList.count) { _, _ in
@@ -278,9 +279,11 @@ struct ReaderView: View {
     private func chapterContent(index: Int) -> some View {
         let ch = chaptersList[index]
         let isCurrentChapter = index == currentChapterIndex && (store.ttsIsPlaying || store.currentSentenceText != nil)
+        let paras = paragraphCache(for: ch)
         ChapterContentView(
             index: index,
             chapter: ch,
+            paragraphs: paras,
             isCurrentChapter: isCurrentChapter,
             playbackParagraphIndex: isCurrentChapter ? store.currentParagraphIndex : nil,
             playbackSentenceIndex: isCurrentChapter ? store.currentSentenceIndex : nil,
@@ -741,6 +744,7 @@ struct ReaderView: View {
 @MainActor struct ChapterContentView: View, Equatable {
     let index: Int
     let chapter: BookChapter
+    let paragraphs: [String]
     let isCurrentChapter: Bool
     let playbackParagraphIndex: Int?
     let playbackSentenceIndex: Int?
@@ -752,9 +756,6 @@ struct ReaderView: View {
     let textColor: Color
     let onSentenceTap: (Int, Int, String) -> Void
     let onAddCharacter: (String) -> Void
-
-    @State private var paragraphs: [String] = []
-
 
     nonisolated static func == (lhs: ChapterContentView, rhs: ChapterContentView) -> Bool {
         lhs.index == rhs.index &&
@@ -787,13 +788,6 @@ struct ReaderView: View {
                 .padding(.vertical, 16)
         }
         .padding(.horizontal, 8)
-        .onAppear {
-            if paragraphs.isEmpty {
-                paragraphs = chapter.text
-                    .components(separatedBy: "\n")
-                    .filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
-            }
-        }
     }
 
     @ViewBuilder
