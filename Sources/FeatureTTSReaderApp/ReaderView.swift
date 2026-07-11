@@ -52,7 +52,7 @@ struct ReaderView: View {
 
     @State private var chapterProgress: Double = 0
     @State private var scrollPositionID: String?
-    @State private var navigationTarget: Int?
+    @State private var pendingChapterNav: Int?
     @State private var immersiveBeforeAudioMode = false
     @State private var autoScrollWorkItem: DispatchWorkItem?
     @State private var scrolledAway = false
@@ -67,26 +67,13 @@ struct ReaderView: View {
         if isPlaying { store.stopPlayback(); isPlaying = false }
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
-        navigationTarget = safeTarget
-        var t = Transaction()
-        t.disablesAnimations = true
-        withTransaction(t) { scrollPositionID = "ch_\(safeTarget)" }
-        // LazyVStack lands one screen short; nudge one more viewport after layout
-        DispatchQueue.main.async { [scrollCoordinator] in
-            guard let sv = scrollCoordinator.scrollView else { return }
-            sv.setContentOffset(CGPoint(x: 0, y: sv.contentOffset.y + UIScreen.main.bounds.height), animated: false)
+        currentChapterIndex = safeTarget
+        chapterProgress = chaptersList.isEmpty ? 0 : Double(safeTarget) / Double(chaptersList.count)
+        if safeTarget < chaptersList.count {
+            currentChapter = chaptersList[safeTarget]
+            store.selectedChapterID = chaptersList[safeTarget].id
         }
-        // Timeout: if scroll never reaches target, force update after 2s
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            if self.navigationTarget == safeTarget {
-                self.navigationTarget = nil
-                self.currentChapterIndex = safeTarget
-                if safeTarget < self.chaptersList.count {
-                    self.currentChapter = self.chaptersList[safeTarget]
-                    self.store.selectedChapterID = self.chaptersList[safeTarget].id
-                }
-            }
-        }
+        pendingChapterNav = safeTarget
     }
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
@@ -125,33 +112,29 @@ struct ReaderView: View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollView {
-                ScrollViewAccessor(coordinator: scrollCoordinator)
-                    .frame(height: 0)
-                LazyVStack(spacing: 0) {
-                    ForEach(chaptersList.indices, id: \.self) { i in
-                        chapterContent(index: i)
-                            .id("ch_\(i)")
+            ScrollViewReader { proxy in
+                ScrollView {
+                    ScrollViewAccessor(coordinator: scrollCoordinator)
+                        .frame(height: 0)
+                    LazyVStack(spacing: 0) {
+                        ForEach(chaptersList.indices, id: \.self) { i in
+                            chapterContent(index: i)
+                                .id("ch_\(i)")
+                        }
                     }
+                    .scrollTargetLayout()
                 }
-                .scrollTargetLayout()
-            }
-            .scrollPosition(id: $scrollPositionID, anchor: .top)
-            .onChange(of: scrollPositionID) { _, newID in
-                let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
-                guard !isRecentAutoScroll else { return }
-                guard let idStr = newID else { return }
-                // If TTS is playing and user manually scrolled (not auto-scroll), mark scrolledAway
-                if isPlaying, isAudioMode, isImmersive {
-                    scrolledAway = true
-                }
-                // Parse "ch_N" or "ch_N_p_M"
-                let parts = idStr.split(separator: "_", maxSplits: 3)
-                guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
-                let isAnchor = parts.count == 3 && parts[2] == "anchor"
-                if let target = navigationTarget {
-                    if isAnchor || chIdx == target {
-                        navigationTarget = nil
+                .scrollPosition(id: $scrollPositionID, anchor: .top)
+                .onChange(of: scrollPositionID) { _, newID in
+                    let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
+                    guard !isRecentAutoScroll else { return }
+                    guard let idStr = newID else { return }
+                    if isPlaying, isAudioMode, isImmersive {
+                        scrolledAway = true
+                    }
+                    let parts = idStr.split(separator: "_", maxSplits: 3)
+                    guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
+                    if currentChapterIndex != chIdx {
                         currentChapterIndex = chIdx
                         chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
                         if chIdx < chaptersList.count {
@@ -159,19 +142,13 @@ struct ReaderView: View {
                             store.selectedChapterID = chaptersList[chIdx].id
                         }
                     }
-                    return
                 }
-                if currentChapterIndex != chIdx {
-                    currentChapterIndex = chIdx
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
-                    if chIdx < chaptersList.count {
-                        currentChapter = chaptersList[chIdx]
-                        store.selectedChapterID = chaptersList[chIdx].id
-                    }
+                .onChange(of: pendingChapterNav) { _, target in
+                    guard let t = target else { return }
+                    proxy.scrollTo("ch_\(t)", anchor: .top)
+                    pendingChapterNav = nil
                 }
-            }
-            .onAppear {
-                DispatchQueue.main.async {
+                .onAppear {
                     if currentChapterIndex > 0 {
                         scrollPositionID = "ch_\(currentChapterIndex)"
                     }
