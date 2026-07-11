@@ -1390,6 +1390,31 @@ final class ReaderStore: NSObject, ObservableObject {
         }
         var pendingUnits: [PendingUnit] = []
 
+        // Helper: iterate paragraphs within blocks, yielding (pIdx, sIdx, sentence)
+        func forEachSentence(in blocks: [(texts: [String], globalStart: Int)],
+                             startParaIndex: Int, startSentenceIndex: Int,
+                             body: (Int, Int, String, String, Bool, UUID?, CharacterProfile?, String) -> Void) {
+            for block in blocks {
+                guard block.globalStart + block.texts.count > startParaIndex else { continue }
+                for (offset, paraText) in block.texts.enumerated() {
+                    let pIdx = block.globalStart + offset
+                    let sentences = Self.splitBlockIntoSentences(paraText)
+                    for (sIdx, sentence) in sentences.enumerated() {
+                        if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
+                        let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
+                        let speaker = parts.first?.speaker ?? "叙述者"
+                        let canonical = characters.first(where: { $0.name == speaker || $0.aliases.contains(speaker) })?.name ?? speaker
+                        let profile = characters.first(where: { $0.name == canonical })
+                        let isNarrator = profile?.isNarrator ?? (speaker == "叙述者" || speaker == "旁白")
+                        let speakerID = profile?.id
+                        if !isNarrator { lastSpeaker = speaker }
+                        let emotionTag = parts.first?.emotionTag ?? "neutral"
+                        body(pIdx, sIdx, sentence, canonical, isNarrator, speakerID, profile, emotionTag)
+                    }
+                }
+            }
+        }
+
         // Pass 1: collect all sentence contexts for upcoming-window lookahead
         struct SentenceCtx {
             let speakerID: UUID?
@@ -1398,96 +1423,63 @@ final class ReaderStore: NSObject, ObservableObject {
             let paragraphIndex: Int
         }
         var allCtxs: [SentenceCtx] = []
-        for block in blocks {
-            guard block.globalStart + block.texts.count > startParaIndex else { continue }
-            let pIdx = block.globalStart
-            let mergedText = block.texts.joined(separator: "\n\n")
-            let sentences = Self.splitBlockIntoSentences(mergedText)
-            for (sIdx, sentence) in sentences.enumerated() {
-                if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
-                let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
-                let speaker = parts.first?.speaker ?? "叙述者"
-                let canonical = characters.first(where: { $0.name == speaker || $0.aliases.contains(speaker) })?.name ?? speaker
-                let profile = characters.first(where: { $0.name == canonical })
-                let isNarrator = profile?.isNarrator ?? (speaker == "叙述者" || speaker == "旁白")
-                let speakerID = profile?.id
-                if !isNarrator { lastSpeaker = speaker }
-                allCtxs.append(SentenceCtx(speakerID: speakerID, emotionTag: parts.first?.emotionTag ?? "neutral", isNarrator: isNarrator, paragraphIndex: pIdx))
-            }
+        forEachSentence(in: blocks, startParaIndex: startParaIndex, startSentenceIndex: startSentenceIndex) { pIdx, _, _, _, isNarrator, speakerID, _, emotionTag in
+            allCtxs.append(SentenceCtx(speakerID: speakerID, emotionTag: emotionTag, isNarrator: isNarrator, paragraphIndex: pIdx))
         }
 
         // Pass 2: process with proper upcoming-window lookahead
         var ctxIndex = 0
         lastSpeaker = nil  // reset for second pass
-        for block in blocks {
-            guard block.globalStart + block.texts.count > startParaIndex else { continue }
-            let pIdx = block.globalStart
-            let mergedText = block.texts.joined(separator: "\n\n")
-            let sentences = Self.splitBlockIntoSentences(mergedText)
+        forEachSentence(in: blocks, startParaIndex: startParaIndex, startSentenceIndex: startSentenceIndex) { pIdx, sIdx, sentence, canonical, isNarrator, speakerID, profile, emotionTag in
+            let unit = SentenceUnit(
+                text: sentence, speakerID: speakerID,
+                emotionTag: emotionTag,
+                anchor: PlaybackAnchor(
+                    bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                    paragraphIndex: pIdx, sentenceIndex: sIdx, speakerID: speakerID
+                ),
+                estimatedDuration: 2.0, estimatedSpeed: 1.0, estimatedPitch: 1.0
+            )
 
-            for (sIdx, sentence) in sentences.enumerated() {
-                if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
+            // Build upcoming window from pre-collected contexts (next 5 sentences)
+            let upcomingSentences: [DramaDirector.SentenceContext] = {
+                let start = ctxIndex + 1
+                let end = min(start + 5, allCtxs.count)
+                guard start < end else { return [] }
+                return allCtxs[start..<end].map { c in
+                    DramaDirector.SentenceContext(
+                        text: "", speakerID: c.speakerID,
+                        emotionTag: c.emotionTag, isNarrator: c.isNarrator,
+                        speed: 1.0, pitch: 1.0, paragraphIndex: c.paragraphIndex
+                    )
+                }
+            }()
 
-                let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
-                let speaker = parts.first?.speaker ?? "叙述者"
-                let canonical = characters.first(where: { $0.name == speaker || $0.aliases.contains(speaker) })?.name ?? speaker
-                let profile = characters.first(where: { $0.name == canonical })
-                let isNarrator = profile?.isNarrator ?? (speaker == "叙述者" || speaker == "旁白")
-                let speakerID = profile?.id
-                if !isNarrator { lastSpeaker = speaker }
+            let contextWindow = DramaDirector.ContextWindow(
+                previousDialogue: previousDialogueContext,
+                upcomingSentences: upcomingSentences,
+                lastSpeakerID: lastSpeakerID,
+                lastEmotionTag: lastEmotionTag,
+                paragraphIndex: pIdx,
+                totalParagraphs: paragraphs.count
+            )
+            let refined = director.contextualize(unit, context: contextWindow)
+            if let sid = refined.speakerID { lastSpeakerID = sid; lastEmotionTag = refined.emotionTag }
+            previousDialogueContext = DramaDirector.SentenceContext(
+                text: refined.text, speakerID: refined.speakerID,
+                emotionTag: refined.emotionTag, isNarrator: isNarrator,
+                speed: refined.estimatedSpeed, pitch: refined.estimatedPitch,
+                paragraphIndex: pIdx
+            )
+            ctxIndex += 1
 
-                let emotionTag = parts.first?.emotionTag ?? "neutral"
-
-                let unit = SentenceUnit(
-                    text: sentence, speakerID: speakerID,
-                    emotionTag: emotionTag,
-                    anchor: PlaybackAnchor(
-                        bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
-                        paragraphIndex: pIdx, sentenceIndex: sIdx, speakerID: speakerID
-                    ),
-                    estimatedDuration: 2.0, estimatedSpeed: 1.0, estimatedPitch: 1.0
-                )
-
-                // Build upcoming window from pre-collected contexts (next 5 sentences)
-                let upcomingSentences: [DramaDirector.SentenceContext] = {
-                    let start = ctxIndex + 1
-                    let end = min(start + 5, allCtxs.count)
-                    guard start < end else { return [] }
-                    return allCtxs[start..<end].map { c in
-                        DramaDirector.SentenceContext(
-                            text: "", speakerID: c.speakerID,
-                            emotionTag: c.emotionTag, isNarrator: c.isNarrator,
-                            speed: 1.0, pitch: 1.0, paragraphIndex: c.paragraphIndex
-                        )
-                    }
-                }()
-
-                let contextWindow = DramaDirector.ContextWindow(
-                    previousDialogue: previousDialogueContext,
-                    upcomingSentences: upcomingSentences,
-                    lastSpeakerID: lastSpeakerID,
-                    lastEmotionTag: lastEmotionTag,
-                    paragraphIndex: pIdx,
-                    totalParagraphs: paragraphs.count
-                )
-                let refined = director.contextualize(unit, context: contextWindow)
-                if let sid = refined.speakerID { lastSpeakerID = sid; lastEmotionTag = refined.emotionTag }
-                previousDialogueContext = DramaDirector.SentenceContext(
-                    text: refined.text, speakerID: refined.speakerID,
-                    emotionTag: refined.emotionTag, isNarrator: isNarrator,
-                    speed: refined.estimatedSpeed, pitch: refined.estimatedPitch,
-                    paragraphIndex: pIdx
-                )
-                ctxIndex += 1
-
-                pendingUnits.append(PendingUnit(
-                    sentence: sentence, characterName: canonical, speakerID: speakerID,
-                    voice: (profile?.voice.isEmpty == false) ? profile?.voice : nil,
-                    rate: Double(profile?.rate ?? 0), pitch: Double(profile?.pitch ?? 0),
-                    emotionTag: refined.emotionTag,
-                    paragraphIndex: pIdx, sentenceIndex: sIdx
-                ))
-            }
+            pendingUnits.append(PendingUnit(
+                sentence: sentence, characterName: canonical, speakerID: speakerID,
+                voice: (profile?.voice.isEmpty == false) ? profile?.voice : nil,
+                rate: Double(profile?.rate ?? 0), pitch: Double(profile?.pitch ?? 0),
+                emotionTag: refined.emotionTag,
+                paragraphIndex: pIdx, sentenceIndex: sIdx
+            ))
         }
 
         guard !pendingUnits.isEmpty else {
@@ -1527,7 +1519,7 @@ final class ReaderStore: NSObject, ObservableObject {
             )
             let seg = ScriptSegment(
                 id: UUID(), characterName: u.characterName,
-                voice: "", rate: 0, pitch: 0, style: "neutral",
+                voice: u.voice ?? "", rate: Int(u.rate), pitch: Int(u.pitch), style: u.emotionTag,
                 text: u.sentence, paragraphIndex: u.paragraphIndex
             )
             // S16: 内存 Data 播放，不再写临时文件
