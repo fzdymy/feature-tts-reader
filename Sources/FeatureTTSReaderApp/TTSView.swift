@@ -28,6 +28,10 @@ struct TTSView: View {
     @State private var testPitch: Double = 0
     @State private var showPreview = false
 
+    // MARK: - Multi-Role Test State
+    @State private var isTestingMultiRole = false
+    @State private var multiRoleTestResult = ""
+
     // MARK: - Sheet State
     @State private var showAddSheet = false
     @State private var editingServer: EdgeTTSServerConfig?
@@ -91,6 +95,7 @@ struct TTSView: View {
 
                 if selectedServerID != nil {
                     testSection
+                    multiRoleTestSection
                 }
                 statusSection
             }
@@ -277,6 +282,88 @@ struct TTSView: View {
         }
     }
 
+    // MARK: - Multi-Role Test Section
+
+    private var multiRoleTestSection: some View {
+        Section {
+            ForEach(multiRoleTestScenes) { scene in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(scene.characterName)
+                            .font(.subheadline.weight(.medium))
+                        Text(scene.voice)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("语速 \(Int(scene.rate))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("音调 \(Int(scene.pitch))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Button {
+                runMultiRoleTest()
+            } label: {
+                HStack {
+                    if isTestingMultiRole {
+                        ProgressView().scaleEffect(0.7)
+                    }
+                    Label("播放全部角色", systemImage: "play.circle.fill")
+                }
+            }
+            .disabled(isTestingMultiRole || selectedServerID == nil)
+
+            if !multiRoleTestResult.isEmpty {
+                let isSuccess = multiRoleTestResult.contains("/")
+                HStack {
+                    Image(systemName: isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(isSuccess ? .green : .red)
+                    Text(multiRoleTestResult)
+                        .font(.caption)
+                    Spacer()
+                }
+            }
+        } header: {
+            Label("多角色测试", systemImage: "person.2.fill")
+        }
+    }
+
+    private struct MultiRoleScene: Identifiable {
+        let id = UUID()
+        let characterName: String
+        let voice: String
+        let rate: Double
+        let pitch: Double
+        let text: String
+    }
+
+    private let multiRoleTestScenes: [MultiRoleScene] = [
+        MultiRoleScene(characterName: "旁白 · 开场", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0,
+                       text: "雨越下越大。谈判桌前的空气仿佛凝固了，五个各怀鬼胎的人，正在进行最后的博弈。就在这时，云希猛地一拍桌子，"),
+        MultiRoleScene(characterName: "云希 · 愤怒", voice: "zh-CN-YunxiNeural", rate: 6, pitch: 3,
+                       text: "够了！别再用那些冠冕堂皇的理由来骗我了！这根本就不是什么合作！你们明明就是想要吃掉我所有的股份！"),
+        MultiRoleScene(characterName: "旁白 · 穿插", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: -1,
+                       text: "他红着眼眶怒吼道。坐在一旁的云健却只是慢条斯理地端起茶杯，冷笑了一声说："),
+        MultiRoleScene(characterName: "云健 · 沉稳", voice: "zh-CN-YunjianNeural", rate: -4, pitch: -3,
+                       text: "年轻人，注意你的态度。在绝对的力量面前，你的愤怒……毫无意义。"),
+        MultiRoleScene(characterName: "旁白 · 突变", voice: "zh-CN-XiaoxiaoNeural", rate: 4, pitch: -2,
+                       text: "云健说完，现场陷入了一阵可怕的沉默。突然，房间里的灯光剧烈闪烁。就在大伙心惊肉跳的时候，晓北突然噗嗤一声笑了出来，打破了僵局："),
+        MultiRoleScene(characterName: "晓北 · 调侃", voice: "zh-CN-XiaoyiNeural", rate: 3, pitch: 4,
+                       text: "哎呀妈呀，大伙都消消火呗，这咋还整得跟拍电影似的呢？命要是折里头了，留着那几个破钱给谁花啊？"),
+        MultiRoleScene(characterName: "旁白 · 过渡", voice: "zh-CN-XiaoxiaoNeural", rate: 0, pitch: 0,
+                       text: "晓北笑着拍了拍手。然而，角落里的陕兵却吓得面色苍白，浑身直哆嗦。他缩了缩脖子，带着哭腔说："),
+        MultiRoleScene(characterName: "陕兵 · 恐惧", voice: "zh-CN-YunzeNeural", rate: 5, pitch: 5,
+                       text: "你、你们别说了……外、外面的保安好像把门锁上了……咱、咱今天是不是出不去了呀……"),
+        MultiRoleScene(characterName: "旁白 · 收尾", voice: "zh-CN-XiaoxiaoNeural", rate: -4, pitch: -4,
+                       text: "陕兵说完，全场再次陷入了一阵死一般的寂静。无边的黑暗，将这五个人的秘密彻底吞噬。"),
+    ]
+
     // MARK: - Request Preview
 
     @ViewBuilder
@@ -446,6 +533,50 @@ struct TTSView: View {
                         await store.audioController.playFilesAndWait([url])
                     }
                 }
+            }
+        }
+    }
+
+    private func runMultiRoleTest() {
+        guard let id = selectedServerID else { return }
+        isTestingMultiRole = true
+        multiRoleTestResult = ""
+        Task {
+            var audioURLs: [URL] = []
+            var successCount = 0
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+
+            for scene in multiRoleTestScenes {
+                do {
+                    let audioData = try await EdgeTTSService.shared.synthesize(
+                        text: scene.text,
+                        voice: scene.voice,
+                        rate: scene.rate,
+                        pitch: scene.pitch,
+                        style: "",
+                        serverID: id
+                    )
+                    let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                    let url = cachesDir.appendingPathComponent("role-\(scene.id.uuidString).\(ext)")
+                    try audioData.write(to: url, options: .atomic)
+                    audioURLs.append(url)
+                    successCount += 1
+                } catch {
+                    await MainActor.run {
+                        multiRoleTestResult = "\(scene.characterName) 失败: \(error.localizedDescription)"
+                        isTestingMultiRole = false
+                    }
+                    return
+                }
+            }
+
+            await MainActor.run {
+                multiRoleTestResult = "\(successCount)/\(multiRoleTestScenes.count) 段合成成功"
+                isTestingMultiRole = false
+            }
+
+            if !audioURLs.isEmpty {
+                await store.audioController.playFilesAndWait(audioURLs)
             }
         }
     }
