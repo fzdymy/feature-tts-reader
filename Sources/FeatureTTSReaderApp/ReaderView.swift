@@ -1132,15 +1132,9 @@ private struct ReaderOverlayView: View {
     }
 
     private var absoluteScrollFraction: Double {
-        guard let sv = scrollCoordinator.scrollView else {
-            // fallback: use estimated heights
-            let totalH = chapterHeights.reduce(0, +)
-            guard totalH > 0 else { return 0 }
-            return min(1, max(0, Double(scrollOffset) / Double(totalH)))
-        }
-        let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
-        guard maxOffset > 0 else { return 0 }
-        return min(1, max(0, Double(sv.contentOffset.y) / Double(maxOffset)))
+        let totalH = chaptersList.reduce(0) { $0 + chHeight($1) }
+        guard totalH > 0 else { return 0 }
+        return min(1, max(0, Double(scrollOffset) / Double(totalH)))
     }
 
     // MARK: - Header
@@ -1255,12 +1249,8 @@ private struct ReaderOverlayView: View {
                 Slider(value: Binding(
                     get: { absoluteScrollFraction },
                     set: { newValue in
-                        guard let sv = scrollCoordinator.scrollView else {
-                            scrollTo(CGFloat(newValue) * chapterHeights.reduce(0, +), false)
-                            return
-                        }
-                        let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
-                        scrollCoordinator.scrollTo(offset: CGFloat(newValue) * maxOffset)
+                        let totalH = chaptersList.reduce(0) { $0 + chHeight($1) }
+                        scrollTo(CGFloat(newValue) * totalH, false)
                     }
                 ))
                     .tint(.blue)
@@ -1400,12 +1390,8 @@ private struct ReaderOverlayView: View {
                 Slider(value: Binding(
                     get: { absoluteScrollFraction },
                     set: { newValue in
-                        guard let sv = scrollCoordinator.scrollView else {
-                            scrollTo(CGFloat(newValue) * chapterHeights.reduce(0, +), false)
-                            return
-                        }
-                        let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
-                        scrollCoordinator.scrollTo(offset: CGFloat(newValue) * maxOffset)
+                        let totalH = chaptersList.reduce(0) { $0 + chHeight($1) }
+                        scrollTo(CGFloat(newValue) * totalH, false)
                     }
                 ))
                     .tint(.blue)
