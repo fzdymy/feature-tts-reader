@@ -74,10 +74,13 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        // nil-then-set to force scroll even when navigating to the same chapter
-        scrollPositionID = nil
-        DispatchQueue.main.async {
-            self.scrollPositionID = "ch_\(safeTarget)"
+        let targetID = "ch_\(safeTarget)"
+        if scrollPositionID == targetID {
+            // Same chapter: offset-based scroll to title
+            let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
+            scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
+        } else {
+            scrollPositionID = targetID
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
