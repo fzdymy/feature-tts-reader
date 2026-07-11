@@ -290,9 +290,11 @@ struct TTSView: View {
                         .foregroundColor(.secondary)
                     let base = config.url.hasSuffix("/tts") ? config.url : config.url + "/tts"
                     let encoded = testText.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? testText
-                    var urlParams = "t=\(encoded)&r=\(Int(testRate * 4))&p=\(Int(testPitch))"
-                    if !testStyle.isEmpty { urlParams += "&s=\(testStyle)" }
-                    if !testVoice.isEmpty { urlParams += "&v=\(testVoice)" }
+                    let maskedKey = config.apiKey.isEmpty ? "" : "&api_key=" + String(config.apiKey.prefix(4)) + "***"
+                    let urlParams = "t=\(encoded)&r=\(Int(testRate * 4))&p=\(Int(testPitch))"
+                        + (testStyle.isEmpty ? "" : "&s=\(testStyle)")
+                        + (testVoice.isEmpty ? "" : "&v=\(testVoice)")
+                        + maskedKey
                     let fullURL = "\(base)?\(urlParams)"
                     Text(fullURL)
                         .font(.caption2.monospaced())
