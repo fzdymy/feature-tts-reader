@@ -5,7 +5,6 @@ import SwiftUI
 @MainActor
 class ScrollCoordinator: ObservableObject {
     weak var scrollView: UIScrollView?
-    var scrollProxy: ScrollViewProxy?
 
     func scrollTo(offset: CGFloat, animated: Bool = true) {
         if let sv = scrollView {
@@ -17,10 +16,6 @@ class ScrollCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.scrollTo(offset: offset, animated: animated)
         }
-    }
-
-    func scrollToChapter(id: String, anchor: UnitPoint = .top) {
-        scrollProxy?.scrollTo(id, anchor: anchor)
     }
 }
 

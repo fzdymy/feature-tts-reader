@@ -74,9 +74,12 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        scrollPositionID = "ch_\(safeTarget)"
-        scrollCoordinator.scrollToChapter(id: "ch_\(safeTarget)", anchor: .top)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        // nil-then-set to force scroll even when navigating to the same chapter
+        scrollPositionID = nil
+        DispatchQueue.main.async {
+            self.scrollPositionID = "ch_\(safeTarget)"
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
         }
     }
@@ -117,8 +120,7 @@ struct ReaderView: View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollViewReader { readerProxy in
-                ScrollView {
+            ScrollView {
                 ScrollViewAccessor(coordinator: scrollCoordinator)
                     .frame(height: 0)
                 GeometryReader { geo in
@@ -190,10 +192,6 @@ struct ReaderView: View {
                       idx != currentChapterIndex else { return }
                 currentChapterIndex = idx
                 currentChapter = chaptersList[idx]
-            }
-            .onAppear {
-                scrollCoordinator.scrollProxy = readerProxy
-            }
             }
 
             ReaderOverlayView(
