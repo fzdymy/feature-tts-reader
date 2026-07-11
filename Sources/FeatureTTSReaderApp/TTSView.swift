@@ -559,15 +559,16 @@ struct TTSView: View {
         Task {
             var successCount = 0
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let total = multiRoleTestScenes.count
 
             for scene in multiRoleTestScenes {
                 do {
-                    let combinedRate = scene.rate + multiRoleGlobalRate
+                    let combinedRate = Int(scene.rate + multiRoleGlobalRate)
                     let audioData = try await EdgeTTSService.shared.synthesize(
                         text: scene.text,
                         voice: scene.voice,
                         rate: combinedRate,
-                        pitch: scene.pitch,
+                        pitch: Int(scene.pitch),
                         style: "",
                         serverID: id
                     )
@@ -575,21 +576,29 @@ struct TTSView: View {
                     let url = cachesDir.appendingPathComponent("role-\(scene.id.uuidString).\(ext)")
                     try audioData.write(to: url, options: .atomic)
 
-                    // 立即加入播放队列（流水线）
                     let segment = ScriptSegment(
-                        text: scene.text,
+                        id: scene.id,
+                        characterName: scene.characterName,
                         voice: scene.voice,
                         rate: combinedRate,
-                        pitch: scene.pitch,
+                        pitch: Int(scene.pitch),
+                        style: "",
+                        text: scene.text,
                         emotionTag: "",
-                        chapterIndex: 0,
-                        paragraphIndex: 0,
-                        sentenceIndex: successCount
+                        paragraphIndex: successCount
                     )
                     let item = TTSQueueItem(
                         segment: segment,
                         audioURL: url,
                         audioData: audioData,
+                        chapterTitle: "多角色测试",
+                        bookTitle: "测试",
+                        bookID: "test",
+                        chapterIndex: 0,
+                        segmentIndex: successCount,
+                        totalSegments: total,
+                        paragraphIndex: successCount,
+                        sentenceIndex: nil,
                         anchor: nil
                     )
                     await MainActor.run {
@@ -598,7 +607,7 @@ struct TTSView: View {
 
                     successCount += 1
                     await MainActor.run {
-                        multiRoleTestResult = "已合成 \(successCount)/\(multiRoleTestScenes.count) 段，播放中..."
+                        multiRoleTestResult = "已合成 \(successCount)/\(total) 段，播放中..."
                     }
                 } catch {
                     await MainActor.run {
@@ -610,7 +619,7 @@ struct TTSView: View {
             }
 
             await MainActor.run {
-                multiRoleTestResult = "\(successCount)/\(multiRoleTestScenes.count) 段全部入队，正在流式播放"
+                multiRoleTestResult = "\(successCount)/\(total) 段全部入队，正在流式播放"
                 isTestingMultiRole = false
             }
         }
