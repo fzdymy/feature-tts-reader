@@ -557,11 +557,11 @@ struct TTSView: View {
         isTestingMultiRole = true
         multiRoleTestResult = ""
         Task {
-            var successCount = 0
+            var items: [TTSQueueItem] = []
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
             let total = multiRoleTestScenes.count
 
-            for scene in multiRoleTestScenes {
+            for (index, scene) in multiRoleTestScenes.enumerated() {
                 do {
                     let combinedRate = scene.rate + multiRoleGlobalRate
                     let combinedPitch = scene.pitch
@@ -586,7 +586,7 @@ struct TTSView: View {
                         style: "",
                         text: scene.text,
                         emotionTag: "",
-                        paragraphIndex: successCount
+                        paragraphIndex: index
                     )
                     let item = TTSQueueItem(
                         segment: segment,
@@ -596,19 +596,16 @@ struct TTSView: View {
                         bookTitle: "测试",
                         bookID: "test",
                         chapterIndex: 0,
-                        segmentIndex: successCount,
+                        segmentIndex: index,
                         totalSegments: total,
-                        paragraphIndex: successCount,
+                        paragraphIndex: index,
                         sentenceIndex: nil,
                         anchor: nil
                     )
-                    await MainActor.run {
-                        store.audioController.appendToQueue([item])
-                    }
+                    items.append(item)
 
-                    successCount += 1
                     await MainActor.run {
-                        multiRoleTestResult = "已合成 \(successCount)/\(total) 段，播放中..."
+                        multiRoleTestResult = "已合成 \(index + 1)/\(total) 段，准备播放..."
                     }
                 } catch {
                     await MainActor.run {
@@ -619,8 +616,10 @@ struct TTSView: View {
                 }
             }
 
+            // 批量一次性入队，避免逐个 appendToQueue 竞态
             await MainActor.run {
-                multiRoleTestResult = "\(successCount)/\(total) 段全部入队，正在流式播放"
+                store.audioController.appendToQueue(items)
+                multiRoleTestResult = "\(items.count)/\(total) 段全部入队，正在流式播放"
                 isTestingMultiRole = false
             }
         }
