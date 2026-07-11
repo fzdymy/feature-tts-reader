@@ -264,11 +264,8 @@ struct TTSView: View {
                 }
             }
             .navigationTitle("语音设置")
-            .onAppear {
-                Task { await loadVoices() }
-            }
-            .onChange(of: selectedServerID) { _, _ in
-                Task { await loadVoices() }
+            .task(id: selectedServerID) {
+                await loadVoices()
             }
         }
     }
@@ -294,7 +291,8 @@ struct TTSView: View {
                     let encoded = testText.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? testText
                     let styleValue = testStyle.isEmpty ? "" : testStyle
                     let voiceSuffix = testVoice.isEmpty ? "" : "&v=\(testVoice)"
-                    let keySuffix = config.apiKey.isEmpty ? "" : "&api_key=\(config.apiKey)"
+                    let maskedKey = config.apiKey.isEmpty ? "" : String(config.apiKey.prefix(4)) + "***"
+                    let keySuffix = config.apiKey.isEmpty ? "" : "&api_key=\(maskedKey)"
                     let fullURL = "\(base)?t=\(encoded)&r=\(Int(testRate * 4))&p=\(Int(testPitch))&s=\(styleValue)\(voiceSuffix)\(keySuffix)"
                     Text(fullURL)
                         .font(.caption2.monospaced())

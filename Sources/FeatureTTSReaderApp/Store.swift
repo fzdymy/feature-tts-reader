@@ -1230,6 +1230,8 @@ final class ReaderStore: NSObject, ObservableObject {
         audioController.stop()
         AdvancedAudioPlaybackController.cleanupAllAudioFiles()
         speechSynthesizer.stopSpeaking(at: .immediate)
+        playbackContinuationCancellable?.cancel()
+        playbackContinuationCancellable = nil
         isSpeaking = false
         ttsIsPlaying = false
         currentParagraphIndex = nil
@@ -1244,6 +1246,8 @@ final class ReaderStore: NSObject, ObservableObject {
         audioController.stop()
         AdvancedAudioPlaybackController.cleanupAllAudioFiles()
         speechSynthesizer.stopSpeaking(at: .immediate)
+        playbackContinuationCancellable?.cancel()
+        playbackContinuationCancellable = nil
         isSpeaking = false
         ttsIsPlaying = false
         currentParagraphIndex = nil
@@ -1532,14 +1536,18 @@ final class ReaderStore: NSObject, ObservableObject {
             if !audioController.isPlaying { cont.resume(); return }
             let c = audioController.$isPlaying
                 .dropFirst().filter { !$0 }.first()
-                .sink { _ in cont.resume() }
+                .sink { _ in
+                    self.playbackContinuationCancellable = nil
+                    cont.resume()
+                }
             playbackContinuationCancellable = c
             // 超时兜底: 10秒后无论是否播完都 resume，避免 permanent hang
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-                if self?.playbackContinuationCancellable != nil {
-                    cont.resume()
-                    self?.playbackContinuationCancellable = nil
-                }
+                guard let self else { return }
+                guard let c = self.playbackContinuationCancellable else { return }
+                self.playbackContinuationCancellable = nil
+                c.cancel()
+                cont.resume()
             }
         }
         playbackContinuationCancellable = nil

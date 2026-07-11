@@ -206,7 +206,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         playNextSeamlessly(isFirst: true)
     }
     func skipForward() { playNextSeamlessly() }
-    func skipBackward() { playNextSeamlessly() }
+    func skipBackward() { playPrevious() }
 
     func skipPreviousSentence() {
         guard let anchor = currentAnchor else { return }
