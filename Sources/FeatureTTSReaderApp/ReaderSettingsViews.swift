@@ -48,6 +48,9 @@ struct ReaderSettingsView: View {
                         Slider(value: Binding(get: { store.readerFirstLineIndent }, set: { store.readerFirstLineIndent = $0 }), in: 0...40, step: 2)
                         Text("\(Int(store.readerFirstLineIndent))")
                     }
+                    .onChange(of: store.readerFirstLineIndent) { _, _ in
+                        store.saveState()
+                    }
                     Picker("对齐方式", selection: $textAlignment) {
                         Text("左对齐").tag(TextAlign.leading)
                         Text("居中对齐").tag(TextAlign.center)

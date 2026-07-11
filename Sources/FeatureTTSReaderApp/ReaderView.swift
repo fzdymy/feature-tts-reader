@@ -74,9 +74,11 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        scrollPositionID = "ch_\(safeTarget)"
-        let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
-        scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
+        // nil then set to force scroll even when navigating to the same chapter
+        scrollPositionID = nil
+        DispatchQueue.main.async {
+            self.scrollPositionID = "ch_\(safeTarget)"
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
         }
@@ -119,6 +121,8 @@ struct ReaderView: View {
             backgroundContent.ignoresSafeArea()
 
             ScrollView {
+                ScrollViewAccessor(coordinator: scrollCoordinator)
+                    .frame(height: 0)
                 GeometryReader { proxy in
                     Color.clear
                         .onChange(of: proxy.frame(in: .scrollView).minY) { _, newY in
@@ -143,7 +147,6 @@ struct ReaderView: View {
                 .scrollTargetLayout()
             }
             .scrollPosition(id: $scrollPositionID, anchor: .top)
-            .background(ScrollViewAccessor(coordinator: scrollCoordinator))
             .onChange(of: scrollPositionID) { _, newID in
                 // Hysteresis: ignore scroll-position changes within 0.15s of auto-scroll
                 // to prevent the animation from incorrectly updating currentChapterIndex.
@@ -1113,13 +1116,20 @@ private struct ReaderOverlayView: View {
         let bottomPad: CGFloat = 40
         let hPad: CGFloat = 40
         let containerWidth = UIScreen.main.bounds.width - hPad
-        let font = UIFont(name: store.readerFontName, size: store.readerFontSize) ?? UIFont.systemFont(ofSize: store.readerFontSize)
-        let cjkCharWidth = store.readerFontSize
+        let fontSize = store.readerFontSize
+        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
+        let cjkCharWidth = fontSize
         let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
         let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let totalChars = ch.text.count
-        let lineCount = max(1, (totalChars + charsPerLine - 1) / charsPerLine)
-        return titleHeight + CGFloat(lineCount) * lineHeight + bottomPad
+        let paragraphs = ch.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
+        var totalH: CGFloat = 0
+        for p in paragraphs {
+            let trimmed = p.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
+            guard !trimmed.isEmpty else { continue }
+            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
+            totalH += CGFloat(paraLineCount) * lineHeight + 8
+        }
+        return titleHeight + totalH + bottomPad
     }
 
     private var chapterProgressInChapter: Double {

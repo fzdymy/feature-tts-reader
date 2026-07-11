@@ -27,15 +27,18 @@ struct ScrollViewAccessor: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.isUserInteractionEnabled = false
-        DispatchQueue.main.async {
-            if let scrollView = view.findScrollView() {
-                coordinator.scrollView = scrollView
-            }
-        }
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    func updateUIView(_ uiView: UIView, context: Context) {
+        // iOS 17 SwiftUI ScrollView may replace backing UIScrollView;
+        // re-find in every updateUIView to keep reference valid.
+        DispatchQueue.main.async {
+            if let scrollView = uiView.findScrollView() {
+                coordinator.scrollView = scrollView
+            }
+        }
+    }
 }
 
 private extension UIView {
