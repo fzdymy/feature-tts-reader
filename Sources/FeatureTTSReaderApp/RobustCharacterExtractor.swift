@@ -653,20 +653,6 @@ public final class RobustCharacterExtractor {
         return false
     }
 
-    private func extractSampleLines(for name: String, from text: String, maxSamples: Int) -> [String] {
-        var samples: [String] = []
-        let paragraphs = text.components(separatedBy: .newlines)
-
-        for para in paragraphs where para.contains(name) {
-            let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.count > 10 && trimmed.count < 200 {
-                samples.append(trimmed)
-                if samples.count >= maxSamples { break }
-            }
-        }
-        return samples
-    }
-
     private func extractDialogues(from text: String) -> [DialogueSegment] {
         var results: [DialogueSegment] = []
         let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
@@ -682,79 +668,4 @@ public final class RobustCharacterExtractor {
         }
         return results
     }
-}
-
-// MARK: - Aho-Corasick Automaton
-
-final class ACAutomaton {
-    private class Node {
-        var children: [Character: Node] = [:]
-        var fail: Node?
-        var output: [String] = []
-    }
-
-    private var root = Node()
-    private var built = false
-
-    func insert(_ pattern: String) {
-        var node = root
-        for ch in pattern {
-            if let child = node.children[ch] {
-                node = child
-            } else {
-                let child = Node()
-                node.children[ch] = child
-                node = child
-            }
-        }
-        node.output.append(pattern)
-        built = false
-    }
-
-    func build() {
-        var queue: [Node] = []
-        for (_, child) in root.children {
-            child.fail = root
-            queue.append(child)
-        }
-        while !queue.isEmpty {
-            let node = queue.removeFirst()
-            for (ch, child) in node.children {
-                var fail = node.fail
-                while fail != nil && fail!.children[ch] == nil {
-                    fail = fail!.fail
-                }
-                child.fail = (fail?.children[ch]) ?? root
-                child.output.append(contentsOf: child.fail?.output ?? [])
-                queue.append(child)
-            }
-        }
-        built = true
-    }
-
-    func search(_ text: String) -> [String: Int] {
-        if !built { build() }
-        var counts: [String: Int] = [:]
-        var node = root
-        for ch in text {
-            while node !== root && node.children[ch] == nil {
-                node = node.fail ?? root
-            }
-            if let child = node.children[ch] {
-                node = child
-            }
-            for pattern in node.output {
-                counts[pattern, default: 0] += 1
-            }
-        }
-        return counts
-    }
-}
-
-// MARK: - Dialogue Segment (for dialogue count)
-
-struct DialogueSegment {
-    let speaker: String?
-    let content: String
-    let range: Range<String.Index>
 }
