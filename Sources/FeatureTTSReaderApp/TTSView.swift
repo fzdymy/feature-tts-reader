@@ -536,13 +536,12 @@ struct TTSView: View {
         customSynthesisResult = ""
 
         Task {
-            // Use the new RobustCharacterExtractor for better accuracy
-            let extractor = RobustCharacterExtractor()
+            // Use the new RobustCharacterExtractor with aggressive mode for better accuracy
+            let extractor = RobustCharacterExtractor(config: .aggressive)
             let extractionResult = await extractor.extract(from: text)
 
             await MainActor.run {
                 // Convert ExtractionResult to a format compatible with existing UI
-                // We'll store the raw characters and narrator separately
                 var profiles: [CharacterProfile] = []
 
                 for char in extractionResult.characters {
@@ -608,93 +607,192 @@ struct TTSView: View {
         }
     }
 
-    private func synthesizeAndPlayCustom() {
+private func synthesizeAndPlayCustom() {
         guard let id = selectedServerID,
               let result = customScanResult,
               !result.characters.isEmpty else { return }
 
         isSynthesizingCustom = true
-        customSynthesisResult = "正在合成首段..."
-
+        customSynthesisResult = "正在分析对话..."
+        
         Task {
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
             let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let characters = result.characters.prefix(10).map { $0.name }
-
-            // 简单分段：按标点分句，按角色名分配
-            let sentences = text.split(separator: "。").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            let total = sentences.count
-            var restItems: [TTSQueueItem] = []
-
-            // 1. 首句立即合成 + 入队
-            if let firstSentence = sentences.first {
-                let firstChar = characters.first ?? "旁白"
-                let voiceID = customCharacterVoices[firstChar] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
-                let rate = multiRoleGlobalRate
-                let pitch = 0.0
-
-                do {
-                    let audioData = try await EdgeTTSService.shared.synthesize(
-                        text: firstSentence + "。",
-                        voice: voiceID,
-                        rate: rate,
-                        pitch: pitch,
-                        style: "",
-                        serverID: id
-                    )
-                    let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
-                    let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
-                    try audioData.write(to: url, options: .atomic)
-
-                    let segment = ScriptSegment(
-                        id: UUID(),
-                        characterName: firstChar,
-                        voice: voiceID,
-                        rate: Int(rate),
-                        pitch: Int(pitch),
-                        style: "",
-                        text: firstSentence + "。",
-                        emotionTag: "",
-                        paragraphIndex: 0
-                    )
-                    let item = TTSQueueItem(
-                        segment: segment,
-                        audioURL: url,
-                        audioData: audioData,
-                        chapterTitle: "自定义多角色",
-                        bookTitle: "测试",
-                        bookID: "test",
-                        chapterIndex: 0,
-                        segmentIndex: 0,
-                        totalSegments: total,
-                        paragraphIndex: 0,
-                        sentenceIndex: nil,
-                        anchor: nil
-                    )
-                    await MainActor.run {
-                        store.audioController.appendToQueue([item])
-                        customSynthesisResult = "第 1/\(total) 段合成完成，开始播放..."
-                    }
-                } catch {
-                    await MainActor.run {
-                        customSynthesisResult = "首段合成失败: \(error.localizedDescription)"
-                        isSynthesizingCustom = false
-                    }
-                    return
+            
+            // Use CharacterAnalyzer to detect dialogues with speakers
+            let analyzer = CharacterAnalyzer()
+            let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
+            
+            // Build character name -> voice mapping
+            var charVoiceMap: [String: String] = [:]
+            for profile in result.characters {
+                if let voiceID = customCharacterVoices[profile.name], !voiceID.isEmpty {
+                    charVoiceMap[profile.name] = voiceID
+                } else if let matched = availableVoices.first(where: { 
+                    $0.locale.hasPrefix("zh-CN") && 
+                    (profile.gender == "Male" && $0.gender == "Male" || profile.gender == "Female" && $0.gender == "Female")
+                }) {
+                    charVoiceMap[profile.name] = matched.id
                 }
             }
-
-            // 2. 后台合成剩余句子
-            await MainActor.run { customSynthesisResult = "首句播放中，后台合成剩余 \(total - 1) 段..." }
-            for (idx, sentence) in sentences.dropFirst().enumerated() {
-                let char = characters[idx % characters.count]
-                let voiceID = customCharacterVoices[char] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+            let defaultVoiceID = charVoiceMap.values.first ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+            
+            // Build known characters set for speaker matching
+            let knownCharacters = Set(result.characters.map { $0.name })
+            
+            // Segment text into dialogue and narration using CharacterAnalyzer
+            var segments: [(speaker: String?, text: String)] = []
+            var lastEnd = customMultiRoleText.startIndex
+            
+            for dialogue in dialogues {
+                // Add narration before this dialogue
+                if dialogue.range.lowerBound > lastEnd {
+                    let narrationText = String(customMultiRoleText[lastEnd..<dialogue.range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !narrationText.isEmpty {
+                        segments.append((speaker: nil, text: narrationText))
+                    }
+                }
+                // Add the dialogue with its speaker
+                let speakerName = dialogue.speaker ?? ""
+                var matchedSpeaker: String? = nil
+                if !speakerName.isEmpty {
+                    if knownCharacters.contains(speakerName) {
+                        matchedSpeaker = speakerName
+                    } else {
+                        // Try to find character who has this as alias
+                        for profile in result.characters {
+                            if profile.aliases.contains(speakerName) || profile.name.contains(speakerName) || speakerName.contains(profile.name) {
+                                matchedSpeaker = profile.name
+                                break
+                            }
+                        }
+                    }
+                }
+                segments.append((speaker: matchedSpeaker, text: dialogue.content))
+                lastEnd = dialogue.range.upperBound
+            }
+            // Trailing narration
+            if lastEnd < customMultiRoleText.endIndex {
+                let trailing = String(customMultiRoleText[lastEnd...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trailing.isEmpty {
+                    segments.append((speaker: nil, text: trailing))
+                }
+            }
+            
+            // If no dialogues detected, fall back to sentence splitting
+            if segments.isEmpty {
+                let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let sentences = text.split { "。！？.!?".contains($0) }.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                for sentence in sentences {
+                    segments.append((speaker: nil, text: sentence))
+                }
+            }
+            
+            // Remove empty segments
+            let validSegments = segments.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let total = validSegments.count
+            guard total > 0 else {
+                await MainActor.run {
+                    customSynthesisResult = "未检测到可合成内容"
+                    isSynthesizingCustom = false
+                }
+                return
+            }
+            
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            var restItems: [TTSQueueItem] = []
+            
+            // Build character name -> voice mapping
+            var charVoiceMap: [String: String] = [:]
+            for profile in result.characters {
+                if let voiceID = customCharacterVoices[profile.name], !voiceID.isEmpty {
+                    charVoiceMap[profile.name] = voiceID
+                } else if let matched = availableVoices.first(where: { 
+                    $0.locale.hasPrefix("zh-CN") && 
+                    (profile.gender == "Male" && $0.gender == "Male" || profile.gender == "Female" && $0.gender == "Female")
+                }) {
+                    charVoiceMap[profile.name] = matched.id
+                }
+            }
+            let defaultVoiceID = charVoiceMap.values.first ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+            
+            // 1. 合成首段并立即入队播放
+            let first = validSegments[0]
+            let firstSpeaker = first.speaker ?? "旁白"
+            let firstVoiceID = charVoiceMap[firstSpeaker] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+            let rate = multiRoleGlobalRate
+            let pitch = 0.0
+            
+            do {
+                let firstText = first.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !firstText.isEmpty else { throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "空文本"]) }
+                
+                let audioData = try await EdgeTTSService.shared.synthesize(
+                    text: firstText,
+                    voice: firstVoiceID,
+                    rate: rate,
+                    pitch: pitch,
+                    style: "",
+                    serverID: id
+                )
+                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                try audioData.write(to: url, options: .atomic)
+                
+                let firstSpeakerName = first.speaker ?? "旁白"
+                let segment = ScriptSegment(
+                    id: UUID(),
+                    characterName: firstSpeakerName,
+                    voice: firstVoiceID,
+                    rate: Int(rate),
+                    pitch: Int(pitch),
+                    style: "",
+                    text: firstText,
+                    emotionTag: "",
+                    paragraphIndex: 0
+                )
+                let item = TTSQueueItem(
+                    segment: segment,
+                    audioURL: url,
+                    audioData: audioData,
+                    chapterTitle: "自定义多角色",
+                    bookTitle: "测试",
+                    bookID: "test",
+                    chapterIndex: 0,
+                    segmentIndex: 0,
+                    totalSegments: validSegments.count,
+                    paragraphIndex: 0,
+                    sentenceIndex: nil,
+                    anchor: nil
+                )
+                await MainActor.run {
+                    store.audioController.appendToQueue([item])
+                    customSynthesisResult = "第 1/\(validSegments.count) 段合成完成，开始播放..."
+                }
+            } catch {
+                await MainActor.run {
+                    customSynthesisResult = "首段合成失败: \(error.localizedDescription)"
+                    isSynthesizingCustom = false
+                }
+                return
+            }
+            
+            // 2. 后台合成剩余段落
+            await MainActor.run { customSynthesisResult = "首段播放中，后台合成剩余 \(validSegments.count - 1) 段..." }
+            var restItems: [TTSQueueItem] = []
+            
+            for (idx, segment) in validSegments.dropFirst().enumerated() {
+                let speaker = segment.speaker ?? "旁白"
+                let voiceID = charVoiceMap[speaker] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
                 let rate = multiRoleGlobalRate
                 let pitch = 0.0
-
+                
                 do {
+                    let segText = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !segText.isEmpty else { continue }
+                    
                     let audioData = try await EdgeTTSService.shared.synthesize(
-                        text: sentence + "。",
+                        text: segText,
                         voice: voiceID,
                         rate: rate,
                         pitch: pitch,
@@ -704,20 +802,21 @@ struct TTSView: View {
                     let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
                     let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
                     try audioData.write(to: url, options: .atomic)
-
-                    let segment = ScriptSegment(
+                    
+                    let speakerName = segment.speaker ?? "旁白"
+                    let seg = ScriptSegment(
                         id: UUID(),
-                        characterName: char,
+                        characterName: speakerName,
                         voice: voiceID,
                         rate: Int(rate),
                         pitch: Int(pitch),
                         style: "",
-                        text: sentence + "。",
+                        text: segText,
                         emotionTag: "",
                         paragraphIndex: idx + 1
                     )
                     let item = TTSQueueItem(
-                        segment: segment,
+                        segment: seg,
                         audioURL: url,
                         audioData: audioData,
                         chapterTitle: "自定义多角色",
@@ -725,15 +824,15 @@ struct TTSView: View {
                         bookID: "test",
                         chapterIndex: 0,
                         segmentIndex: idx + 1,
-                        totalSegments: total,
+                        totalSegments: validSegments.count,
                         paragraphIndex: idx + 1,
                         sentenceIndex: nil,
                         anchor: nil
                     )
                     restItems.append(item)
-
+                    
                     await MainActor.run {
-                        customSynthesisResult = "已合成 \(idx + 2)/\(total) 段..."
+                        customSynthesisResult = "已合成 \(idx + 2)/\(validSegments.count) 段..."
                     }
                 } catch {
                     await MainActor.run {
@@ -743,11 +842,11 @@ struct TTSView: View {
                     return
                 }
             }
-
+            
             // 3. 剩余全部入队
             await MainActor.run {
                 store.audioController.appendToQueue(restItems)
-                customSynthesisResult = "\(total)/\(total) 段全部入队，正在流式播放"
+                customSynthesisResult = "\(validSegments.count)/\(validSegments.count) 段全部入队，正在流式播放"
                 isSynthesizingCustom = false
             }
         }
