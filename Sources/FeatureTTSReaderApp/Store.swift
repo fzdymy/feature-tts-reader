@@ -2250,7 +2250,7 @@ actor AudioPrefetcher {
     func prefetch(index: Int, text: String, voice: String?, rate: Double, pitch: Double, style: String) {
         guard !inflight.contains(index), buffer[index] == nil else { return }
         inflight.insert(index)
-        Task.detached { [weak self] in
+        Task { [weak self] in
             let audioData = try? await EdgeTTSService.shared.synthesize(
                 text: text, voice: voice, rate: rate,
                 pitch: pitch, style: style
@@ -2259,18 +2259,16 @@ actor AudioPrefetcher {
         }
     }
 
-    func waitFor(index: Int, timeout: TimeInterval = 15) async -> Data? {
+    func waitFor(index: Int, timeout: TimeInterval = 5) async -> Data? {
         if let cached = buffer[index] { return cached }
-        if inflight.contains(index) {
-            return await withCheckedContinuation { cont in
-                pending[index] = cont
-                Task.detached { [weak self] in
-                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    await self?.timeout(index: index)
-                }
+        guard inflight.contains(index) else { return nil }
+        return await withCheckedContinuation { cont in
+            pending[index] = cont
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                await self?.timeout(index: index)
             }
         }
-        return nil
     }
 
     private func timeout(index: Int) {
@@ -2284,9 +2282,10 @@ actor AudioPrefetcher {
         inflight.remove(index)
         if let audioData = audioData {
             buffer[index] = audioData
-            pending[index]?.resume(returning: audioData)
-            pending[index] = nil
         }
+        // Always resume continuation (on success with data, on failure with nil)
+        pending[index]?.resume(returning: audioData)
+        pending[index] = nil
     }
 }
 
