@@ -395,7 +395,16 @@ public final class RobustCharacterExtractor {
                     let name = String(para[range]).trimmingCharacters(in: .whitespacesAndNewlines)
                     if isValidName(name) {
                         found.insert(name)
-                    }
+}
+}
+
+// MARK: - Dialogue Segment (for dialogue count)
+
+struct DialogueSegment {
+    let speaker: String?
+    let content: String
+    let range: Range<String.Index>
+}
                 }
                 return true
             }
@@ -456,14 +465,6 @@ public final class RobustCharacterExtractor {
     private func firstCharIsSurname(_ name: String) -> Bool {
         guard let first = name.first else { return false }
         return ChineseNamePatterns.singleSurnames.contains(String(first))
-    }
-
-    private func isValidCandidate(_ name: String) -> Bool {
-        name.count >= 2 && name.count <= 4 &&
-        !ChineseNamePatterns.stopWords.contains(name) &&
-        !ChineseNamePatterns.nonNamePhrases.contains(name) &&
-        !ChineseNamePatterns.nonNamePairs.contains(name) &&
-        isValidName(name)
     }
 
     // MARK: - Phase 2: Frequency Counting
