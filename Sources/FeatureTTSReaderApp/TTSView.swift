@@ -617,7 +617,6 @@ private func synthesizeAndPlayCustom() {
         
         Task {
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // Use CharacterAnalyzer to detect dialogues with speakers
             let analyzer = CharacterAnalyzer()
@@ -716,10 +715,13 @@ private func synthesizeAndPlayCustom() {
             }
             let defaultVoiceID = charVoiceMap.values.first ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
             
+            let rate = multiRoleGlobalRate
+            let pitch = 0.0
+            
             // 1. 合成首段并立即入队播放
             let first = validSegments[0]
             let firstSpeaker = first.speaker ?? "旁白"
-            let firstVoiceID = charVoiceMap[firstSpeaker] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+            let firstVoiceID = charVoiceMap[first.speaker ?? "旁白"] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
             let rate = multiRoleGlobalRate
             let pitch = 0.0
             
@@ -783,7 +785,7 @@ private func synthesizeAndPlayCustom() {
             
             for (idx, segment) in validSegments.dropFirst().enumerated() {
                 let speaker = segment.speaker ?? "旁白"
-                let voiceID = charVoiceMap[speaker] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+                let voiceID = charVoiceMap[segment.speaker ?? "旁白"] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
                 let rate = multiRoleGlobalRate
                 let pitch = 0.0
                 
