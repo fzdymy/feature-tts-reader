@@ -9,6 +9,7 @@ struct CharacterEditorView: View {
     @State private var sampleError: String?
     @State private var isPlaying = false
     @State private var testFileSize: String?
+    @State private var playTask: Task<Void, Never>?
     let onSave: (CharacterProfile) -> Void
 
     init(character: CharacterProfile, onSave: @escaping (CharacterProfile) -> Void) {
@@ -82,16 +83,26 @@ struct CharacterEditorView: View {
         sampleError = nil
         testFileSize = nil
         samplePlayer?.stop()
+        playTask?.cancel()
         isPlaying = true
-        Task {
+        playTask = Task {
             do {
                 let text = "我是\(profile.name)，TTS多角色小说阅读器听《\(store.books.first?.title ?? "未知书籍")》真爽。"
-                let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: profile.voice.isEmpty ? nil : profile.voice)
+                // Skip voice if it looks like an Azure ID (e.g., "XiaoxiaoNeural" without zh prefix)
+                let voice: String? = {
+                    let v = profile.voice
+                    guard !v.isEmpty else { return nil }
+                    if v.contains("zh-") || v.hasSuffix("Neural") { return v }
+                    return nil
+                }()
+                let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: voice)
                 testFileSize = "\(String(format: "%.1f", Double(audioData.count) / 1024)) KB"
                 do {
                     try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
                     try AVAudioSession.sharedInstance().setActive(true)
-                } catch {}
+                } catch {
+                    Logger.shared.log(error: error, message: "CharacterEditorView: AVAudioSession setup failed")
+                }
                 let player: AVAudioPlayer
                 do {
                     player = try AVAudioPlayer(data: audioData)

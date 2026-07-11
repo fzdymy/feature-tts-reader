@@ -13,7 +13,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     private var player: AVAudioPlayer?
     private var queue: [TTSQueueItem] = []
-    private var currentIndex = 0
     private var currentItem: TTSQueueItem?
     private var playbackHistory: [TTSQueueItem] = []
     private var playbackContinuation: CheckedContinuation<Void, Never>?
@@ -79,25 +78,25 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     func playQueue(_ items: [TTSQueueItem], startingAt index: Int = 0) {
         flushPlayback()
         queue = Array(items.dropFirst(index))
-        currentIndex = 0
         queueCount = queue.count
         playbackHistory.removeAll(keepingCapacity: false)
-        playNextSeamlessly(isFirst: true)
+        playNextSeamlessly()
     }
 
     func appendToQueue(_ items: [TTSQueueItem]) {
         let wasEmpty = queue.isEmpty
         queue.append(contentsOf: items)
         queueCount = queue.count
-        if wasEmpty { playNextSeamlessly(isFirst: true) }
+        if wasEmpty { playNextSeamlessly() }
     }
 
-    private func playNextSeamlessly(isFirst: Bool = false) {
+    private func playNextSeamlessly() {
         guard !queue.isEmpty else {
             isPlaying = false
             currentAnchor = nil
             currentItem = nil
             queueCount = 0
+            stopRMS()
             updateNowPlaying()
             if let continuation = playbackContinuation {
                 playbackContinuation = nil
@@ -113,7 +112,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
         let item = queue.removeFirst()
         currentItem = item
-        currentIndex += 1
         queueCount = queue.count
         currentAnchor = item.anchor
 
@@ -167,7 +165,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         let remaining = Array(queue[idx...])
         queue.removeAll(keepingCapacity: false)
         queue = remaining
-        currentIndex = 0
         queueCount = queue.count
         player?.stop()
         player = nil
@@ -175,7 +172,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentItem = nil
         isPlaying = false
         stopRMS()
-        playNextSeamlessly(isFirst: true)
+        playNextSeamlessly()
     }
 
     func pause() {
@@ -195,7 +192,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         guard let previous = playbackHistory.last else { return }
         playbackHistory.removeLast()
         queue.insert(previous, at: 0)
-        currentIndex = 0
         queueCount = queue.count
         player?.stop()
         player = nil
@@ -203,7 +199,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentItem = nil
         isPlaying = false
         stopRMS()
-        playNextSeamlessly(isFirst: true)
+        playNextSeamlessly()
     }
     func skipForward() { playNextSeamlessly() }
     func skipBackward() { playPrevious() }
@@ -220,7 +216,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }) else { return }
         let target = playbackHistory.remove(at: previousIndex)
         queue.insert(target, at: 0)
-        currentIndex = 0
         queueCount = queue.count
         player?.stop()
         player = nil
@@ -228,7 +223,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentItem = nil
         isPlaying = false
         stopRMS()
-        playNextSeamlessly(isFirst: true)
+        playNextSeamlessly()
     }
 
     func skipPreviousParagraph() {
@@ -257,7 +252,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentItem = nil
         isPlaying = false
         stopRMS()
-        playNextSeamlessly(isFirst: true)
+        playNextSeamlessly()
     }
 
     private func advanceQueueToNextMatch(_ predicate: (PlaybackAnchor) -> Bool) {
@@ -280,7 +275,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentItem = nil
         isPlaying = false
         stopRMS()
-        playNextSeamlessly(isFirst: true)
+        playNextSeamlessly()
     }
 
     func skipCurrentSentence() {
@@ -313,12 +308,16 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         if let p = player { p.currentTime = max(p.currentTime - seconds, 0) }
     }
 
-    func playFilesAndWait(_ urls: [URL]) async {
+    func playFilesAndWait(_ urls: [URL], characterName: String = "旁白") async {
         guard playbackContinuation == nil else { return }
-        let items = urls.enumerated().map { (i, url) in
-            TTSQueueItem(
-                segment: ScriptSegment(id: UUID(), characterName: "旁白", voice: "", rate: 0, pitch: 0, style: "neutral", text: "", emotionTag: nil),
-                audioURL: url,
+        // Pre-load audio data off main thread to avoid synchronous Data(contentsOf:) in playNextSeamlessly
+        var items: [TTSQueueItem] = []
+        for (i, url) in urls.enumerated() {
+            let data = await Task.detached { try? Data(contentsOf: url) }.value
+            items.append(TTSQueueItem(
+                segment: ScriptSegment(id: UUID(), characterName: characterName, voice: "", rate: 0, pitch: 0, style: "neutral", text: "", emotionTag: nil),
+                audioData: data,
+                audioURL: data == nil ? url : nil,
                 chapterTitle: "",
                 bookTitle: "",
                 bookID: "",
@@ -328,7 +327,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
                 paragraphIndex: nil,
                 sentenceIndex: nil,
                 anchor: nil
-            )
+            ))
         }
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             playbackContinuation = cont
