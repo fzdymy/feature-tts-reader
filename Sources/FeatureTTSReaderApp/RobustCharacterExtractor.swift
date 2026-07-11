@@ -629,20 +629,6 @@ public final class RobustCharacterExtractor {
         return false
     }
 
-    private func extractSampleLines(for name: String, from text: String, maxSamples: Int) -> [String] {
-        var samples: [String] = []
-        let paragraphs = text.components(separatedBy: .newlines)
-
-        for para in paragraphs where para.contains(name) {
-            let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.count > 10 && trimmed.count < 200 {
-                samples.append(trimmed)
-                if samples.count >= maxSamples { break }
-            }
-        }
-        return samples
-    }
-
     private func extractDialogues(from text: String) -> [DialogueSegment] {
         var results: [DialogueSegment] = []
         let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
