@@ -3,7 +3,7 @@ import NaturalLanguage
 
 // MARK: - Data Types
 
-public struct ExtractedCharacter: Identifiable, Hashable, Codable {
+public struct ExtractedCharacter: Identifiable, Hashable {
     public let id = UUID()
     public let name: String
     public var gender: String = "未知"
@@ -23,7 +23,7 @@ public struct ExtractedCharacter: Identifiable, Hashable, Codable {
     }
 }
 
-public struct ExtractionResult: Codable {
+public struct ExtractionResult {
     public let characters: [ExtractedCharacter]
     public let narratorName: String?
     public let totalDialogues: Int
@@ -522,7 +522,7 @@ public final class RobustCharacterExtractor: Sendable {
 
     private func gatherContext(for name: String, in text: String, maxLength: Int) -> [String] {
         var contexts: [String] = []
-        let paragraphs = originalText.components(separatedBy: .newlines)
+        let paragraphs = text.components(separatedBy: .newlines)
 
         for para in paragraphs where para.contains(name) {
             contexts.append(para)
@@ -530,7 +530,7 @@ public final class RobustCharacterExtractor: Sendable {
         }
 
         // Also add sentences around name occurrences
-        let sentences = originalText.split { "。！？.!?".contains($0) }.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        let sentences = text.split { "。！？.!?".contains($0) }.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
         for sent in sentences where sent.contains(name) && sent.count < 200 {
             contexts.append(sent)
             if contexts.count >= 50 { break }
@@ -703,7 +703,6 @@ public final class RobustCharacterExtractor: Sendable {
         let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
 
         for pattern in RegexPatterns.quoteExtract {
-            guard let pattern = pattern else { continue }
             pattern.enumerateMatches(in: text, range: nsRange) { match, _, _ in
                 guard let m = match, m.numberOfRanges > 1 else { return }
                 guard let r = Range(m.range(at: 1), in: text) else { return }
