@@ -1867,16 +1867,9 @@ final class ReaderStore: NSObject, ObservableObject {
                 speaker = regexSpeaker
             }
 
-            // If still not found, look for vocative inside the quote
-            if speaker == nil {
-                for ch in characters {
-                    let name = ch.name
-                    if quoteText.hasPrefix("\(name)，") || quoteText.hasPrefix("\(name),") || quoteText.hasPrefix(name) {
-                        speaker = name
-                        break
-                    }
-                }
-            }
+            // If still not found: vocative (name at quote start) is the ADDRESSEE,
+            // not the speaker. Skip assignment so currentLastSpeaker/narrator handles it.
+            // (旧代码错误地将受话者分配给 speaker，现已删除)
 
             let resolvedSpeaker = speaker ?? currentLastSpeaker ?? narratorName
             currentLastSpeaker = resolvedSpeaker

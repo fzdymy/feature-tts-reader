@@ -81,6 +81,7 @@ struct CharacterEditorView: View {
     private func playSample() {
         sampleError = nil
         testFileSize = nil
+        samplePlayer?.stop()
         isPlaying = true
         Task {
             do {
@@ -91,12 +92,18 @@ struct CharacterEditorView: View {
                     try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
                     try AVAudioSession.sharedInstance().setActive(true)
                 } catch {}
+                let player: AVAudioPlayer
                 do {
-                    samplePlayer = try AVAudioPlayer(data: audioData)
-                    samplePlayer?.prepareToPlay()
-                    samplePlayer?.play()
+                    player = try AVAudioPlayer(data: audioData)
+                    player.prepareToPlay()
                 } catch {
                     throw NSError(domain: "CharacterEditor", code: -1, userInfo: [NSLocalizedDescriptionKey: "音频格式不支持，文件大小：\(audioData.count) 字节"])
+                }
+                samplePlayer = player
+                player.play()
+                // Poll until playback finishes
+                while player.isPlaying {
+                    try await Task.sleep(nanoseconds: 100_000_000)
                 }
                 isPlaying = false
             } catch {
