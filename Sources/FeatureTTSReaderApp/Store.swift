@@ -2216,13 +2216,32 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     nonisolated func defaultVoice(for gender: String, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
-        ""
+        if !voices.isEmpty {
+            let preferred = voices.first { $0.gender == (gender == "男" ? "Male" : "Female") }
+            if let v = preferred { return v.id }
+            return voices[0].id
+        }
+        switch gender {
+        case "男": return "zh-CN-YunxiNeural"
+        case "女": return "zh-CN-XiaoxiaoNeural"
+        default:   return "zh-CN-XiaoxiaoNeural"
+        }
     }
 
-    nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int { 0 }
+    nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
+        var score = 0
+        if voice.gender == (profile.gender == "男" ? "Male" : "Female") { score += 3 }
+        if voice.language == "zh-CN" { score += 2 }
+        if voice.styleTags?.contains(profile.tone) == true { score += 1 }
+        return score
+    }
 
     nonisolated func suggestedVoices(for profile: CharacterProfile, from voiceOptions: [VoiceItem]) -> [VoiceItem] {
-        []
+        voiceOptions
+            .map { ($0, voiceMatchScore($0, for: profile)) }
+            .sorted { $0.1 > $1.1 }
+            .prefix(5)
+            .map { $0.0 }
     }
 
     func voiceSourceDescription(_ source: Any) -> String { "" }

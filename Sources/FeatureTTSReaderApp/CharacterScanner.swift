@@ -128,6 +128,16 @@ struct CharacterScanner {
     }
 
     private static func defaultVoice(for gender: String, voices: [VoiceItem]) -> String {
-        ""
+        if !voices.isEmpty {
+            // Prefer a voice matching gender from available options
+            let preferred = voices.first { $0.gender == (gender == "男" ? "Male" : "Female") }
+            if let v = preferred { return v.id }
+            return voices[0].id
+        }
+        switch gender {
+        case "男": return "zh-CN-YunxiNeural"
+        case "女": return "zh-CN-XiaoxiaoNeural"
+        default:   return "zh-CN-XiaoxiaoNeural"
+        }
     }
 }
