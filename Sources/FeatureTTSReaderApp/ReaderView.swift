@@ -67,7 +67,6 @@ struct ReaderView: View {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
         guard safeTarget >= 0, safeTarget < chaptersList.count else { return }
         if isPlaying { store.stopPlayback(); isPlaying = false }
-        store.selectedChapterID = chaptersList[safeTarget].id
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
@@ -79,6 +78,7 @@ struct ReaderView: View {
                 self.currentChapterIndex = safeTarget
                 if safeTarget < self.chaptersList.count {
                     self.currentChapter = self.chaptersList[safeTarget]
+                    self.store.selectedChapterID = self.chaptersList[safeTarget].id
                 }
             }
         }
