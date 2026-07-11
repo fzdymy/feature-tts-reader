@@ -698,6 +698,12 @@ private func synthesizeAndPlayCustom() {
                 return
             }
             
+            let first = validSegments[0]
+            let firstSpeaker = first.speaker ?? "旁白"
+            let firstVoiceID = charVoiceMap[first.speaker ?? "旁白"] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+            let rate = multiRoleGlobalRate
+            let pitch = 0.0
+            
             do {
                 let firstText = first.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !firstText.isEmpty else { throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "空文本"]) }
