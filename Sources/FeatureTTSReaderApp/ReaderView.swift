@@ -67,23 +67,20 @@ struct ReaderView: View {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
         guard safeTarget >= 0, safeTarget < chaptersList.count else { return }
         if isPlaying { store.stopPlayback(); isPlaying = false }
-        currentChapterIndex = safeTarget
-        currentChapter = chaptersList[safeTarget]
         store.selectedChapterID = chaptersList[safeTarget].id
-        chapterProgress = chaptersList.isEmpty ? 0 : Double(safeTarget) / Double(chaptersList.count)
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        let targetID = "ch_\(safeTarget)"
-        if scrollPositionID == targetID {
-            // Same chapter: offset-based scroll to title
-            let chapterTop = chaptersList[0..<safeTarget].reduce(0) { $0 + estimatedChapterHeight($1) }
-            scrollCoordinator.scrollTo(offset: chapterTop, animated: true)
-        } else {
-            scrollPositionID = targetID
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            if self.navigationTarget == safeTarget { self.navigationTarget = nil }
+        scrollPositionID = "ch_\(safeTarget)"
+        // Timeout: if scroll never reaches target, force update after 2s
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if self.navigationTarget == safeTarget {
+                self.navigationTarget = nil
+                self.currentChapterIndex = safeTarget
+                if safeTarget < self.chaptersList.count {
+                    self.currentChapter = self.chaptersList[safeTarget]
+                }
+            }
         }
     }
 
@@ -155,9 +152,16 @@ struct ReaderView: View {
                 // to prevent the animation from incorrectly updating currentChapterIndex.
                 guard Date().timeIntervalSince(lastAutoScrollTime) > 0.15 else { return }
                 guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
-                // While navigating to a target, ignore intermediate chapters
                 if let target = navigationTarget {
-                    if idx == target { navigationTarget = nil }
+                    if idx == target {
+                        navigationTarget = nil
+                        currentChapterIndex = idx
+                        chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
+                        if idx < chaptersList.count {
+                            currentChapter = chaptersList[idx]
+                            store.selectedChapterID = chaptersList[idx].id
+                        }
+                    }
                     return
                 }
                 if currentChapterIndex != idx {
