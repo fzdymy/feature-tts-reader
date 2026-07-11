@@ -501,6 +501,9 @@ struct ReaderState: Codable {
         currentBookProgress = try container.decodeIfPresent(Double.self, forKey: .currentBookProgress) ?? 0
         readerFontSize = try container.decodeIfPresent(Double.self, forKey: .readerFontSize) ?? 18
         readerLineSpacing = try container.decodeIfPresent(Double.self, forKey: .readerLineSpacing) ?? 8
+        readerFirstLineIndent = try container.decodeIfPresent(Double.self, forKey: .readerFirstLineIndent) ?? 0
+        readerParagraphSpacing = try container.decodeIfPresent(Double.self, forKey: .readerParagraphSpacing) ?? 8
+        readerFontName = try container.decodeIfPresent(String.self, forKey: .readerFontName) ?? "PingFang SC"
         readerTheme = try container.decodeIfPresent(ReaderTheme.self, forKey: .readerTheme) ?? .light
         defaultVoice = try container.decodeIfPresent(String.self, forKey: .defaultVoice) ?? ""
         defaultRate = try container.decodeIfPresent(Int.self, forKey: .defaultRate) ?? 0

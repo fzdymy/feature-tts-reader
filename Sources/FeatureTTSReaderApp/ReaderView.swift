@@ -308,7 +308,6 @@ struct ReaderView: View {
             readerLineSpacing: store.readerLineSpacing,
             readerFirstLineIndent: store.readerFirstLineIndent,
             textColor: textColor,
-            estimatedMinHeight: estimatedChapterHeight(ch),
             onSentenceTap: { pi, si, sentenceText in
                 selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
                 if !store.ttsIsPlaying {
@@ -862,7 +861,6 @@ struct ReaderView: View {
     let readerLineSpacing: Double
     let readerFirstLineIndent: Double
     let textColor: Color
-    let estimatedMinHeight: CGFloat
     let onSentenceTap: (Int, Int, String) -> Void
     let onAddCharacter: (String) -> Void
 
@@ -899,7 +897,6 @@ struct ReaderView: View {
                 .padding(.vertical, 16)
         }
         .padding(.horizontal, 8)
-        .frame(minHeight: estimatedMinHeight)
         .onAppear {
             if paragraphs.isEmpty {
                 paragraphs = chapter.text
