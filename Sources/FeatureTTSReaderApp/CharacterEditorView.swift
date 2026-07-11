@@ -101,7 +101,7 @@ struct CharacterEditorView: View {
                     try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
                     try AVAudioSession.sharedInstance().setActive(true)
                 } catch {
-                    Logger.shared.log(error: error, message: "CharacterEditorView: AVAudioSession setup failed")
+                    Logger.log(error: error, message: "CharacterEditorView: AVAudioSession")
                 }
                 let player: AVAudioPlayer
                 do {

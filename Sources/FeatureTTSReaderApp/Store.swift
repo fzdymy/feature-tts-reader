@@ -2217,7 +2217,8 @@ final class ReaderStore: NSObject, ObservableObject {
 
     nonisolated func defaultVoice(for gender: String, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
         if !voices.isEmpty {
-            let preferred = voices.first { $0.gender == (gender == "男" ? "Male" : "Female") }
+            let targetGender: VoiceGender = (gender == "男") ? .male : .female
+            let preferred = voices.first { $0.gender == targetGender }
             if let v = preferred { return v.id }
             return voices[0].id
         }
@@ -2230,9 +2231,10 @@ final class ReaderStore: NSObject, ObservableObject {
 
     nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
         var score = 0
-        if voice.gender == (profile.gender == "男" ? "Male" : "Female") { score += 3 }
-        if voice.language == "zh-CN" { score += 2 }
-        if voice.styleTags?.contains(profile.tone) == true { score += 1 }
+        let targetGender: VoiceGender = (profile.gender == "男") ? .male : .female
+        if voice.gender == targetGender { score += 3 }
+        if voice.locale.hasPrefix("zh-CN") { score += 2 }
+        if voice.styleList?.contains(profile.tone) == true { score += 1 }
         return score
     }
 

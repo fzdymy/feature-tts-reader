@@ -267,7 +267,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
         queue.removeAll(keepingCapacity: false)
         queue = matched
-        currentIndex = 0
         queueCount = queue.count
         player?.stop()
         player = nil
@@ -316,8 +315,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             let data = await Task.detached { try? Data(contentsOf: url) }.value
             items.append(TTSQueueItem(
                 segment: ScriptSegment(id: UUID(), characterName: characterName, voice: "", rate: 0, pitch: 0, style: "neutral", text: "", emotionTag: nil),
-                audioData: data,
                 audioURL: data == nil ? url : nil,
+                audioData: data,
                 chapterTitle: "",
                 bookTitle: "",
                 bookID: "",
