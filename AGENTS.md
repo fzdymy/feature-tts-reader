@@ -481,7 +481,6 @@
 ### 第三次提交 (0a6f61c) — 全面修复 ✅
 
 **修复内容:**
-
 1. **chHeight 回归** — 恢复总字符数/每行字符数估算 `titleHeight + lineCount * lineHeight + bottomPad`，不再用段落级计算（ReaderOverlayView 无法访问 ReaderView 的 paragraphCache）
 2. **TapCoordinator 完全删除** — SpatialTapGesture 直接调用 `handleZoneTap`，不再经过 0.05s DispatchWorkItem；`onCancelTap` 闭包一并移除
 3. **P1(1) firstLineIndent 实际生效**:
@@ -528,24 +527,31 @@
 4. **沉浸/非沉浸切换恢复** — 无遮蔽时 middle zone tap 正常触发 `toggleImmersiveMode()`
 5. **区域点击恢复** — 沉浸模式下 top/bottom zone tap 正常触发 scrollPageUp/Down
 
+### 第九次提交 (4a2a194) — 根因修复 ✅
+
+| 问题 | 根因 | 修复 |
+|------|------|------|
+| P0(0) 章节跳转 | `scrollCoordinator.scrollTo` 与 `scrollPositionID` 相互冲突；相同章节不触发 scrollPositionID | 移除 offset 滚动；先 nil 再设值强制触发 |
+| P1(1) firstLineIndent 持久化 | `saveState()` 从未在 slider change 时调用 | 添加 `.onChange` → `store.saveState()` |
+| P1(3) 滑块 | `chHeight` 用字符级估算 ≠ `estimatedChapterHeight` 段落级计算 | `chHeight` 改为段落级计算（split by \n + per-paragraph line count） |
+| P1(4) 区域点击 | `ScrollViewAccessor` 用 `.background()` 其 UIView 不在 UIScrollView 子树内 → `findScrollView()` 永远找不到 → `scrollCoordinator.scrollView` 恒为 nil → zone tap scroll 静默失败 | `ScrollViewAccessor` 移入 `ScrollView` 内部作为首个 content child；`updateUIView` 每次重新查找 UIScrollView（iOS 17 可能替换 backing view） |
+
 ### 当前状态 ✅
 
 | # | 功能 | 方案 |
 |---|------|------|
-| P0(0) | 章节跳转 | `scrollPositionID` + 段落级 `estimatedChapterHeight` offset 双保险 |
+| P0(0) | 章节跳转 | `scrollPositionID` 先 nil 再设值触发强制滚动，600ms 清除 navigationTarget；ScrollViewAccessor 移入 ScrollView 内部 + updateUIView 重寻 UIScrollView |
 | P0(1) | 双击播放删除 | 段落移除 `onTapGesture(count:2)`，朗读入口仅 `floatingPlayButton` |
-| P1(1) | 首行缩进 | 导入时 strip `\u{3000}`；显示时根据 `readerFirstLineIndent` 拼接 `\u{3000}`×N |
+| P1(1) | 首行缩进 | 导入时 strip `\u{3000}`；显示时根据 `readerFirstLineIndent` 拼接 `\u{3000}`×N；保存时触发 `store.saveState()` |
 | P1(2) | 全屏切换动画 | `0.25s` → `0.08s` |
 | P0(2) | 移除"正在朗读" | 删除 header 中绿色圆点 + 文字徽章 |
-| P1(3) | 进度条滑块 | Slider 添加 `.highPriorityGesture(TapGesture())` 防止穿透；可拖动 + 可点击 |
-| P1(4) | 区域点击滚屏 | 无遮蔽时 middle→切换沉浸，top/bottom→scrollPageUp/Down 5/6 屏 |
+| P1(3) | 进度条滑块 | `chHeight` 从字符级改为段落级计算（与 `estimatedChapterHeight` 一致）；Slider 添加 `.highPriorityGesture(TapGesture())` 防止穿透 |
+| P1(4) | 区域点击滚屏 | 无遮蔽时 middle→切换沉浸，top/bottom→scrollPageUp/Down 5/6 屏；ScrollViewAccessor 移入 ScrollView 内部确保 UIScrollView 引用有效 |
 
-| # | 功能 | 状态 |
-|---|------|------|
-| P0(1) | 删除双击播放 | ✅ 编译通过，测试通过 |
-| P1(1) | firstLineIndent 生效 | ✅ 编译通过，测试通过 |
-| P1(2) | 全屏切换动画 0.08s | ✅ 编译通过，测试通过（阅读速度变快） |
-| P0(2) | 移除"正在朗读" | ✅ 编译通过，测试通过 |
-| P1(3) | 进度条游标可拖动 | ✅ chHeight 回归简单估算，SpatialTapGesture 不再拦截 Slider |
-| P1(4) | 区域点击滚动 | ✅ TapCoordinator 移除，handleZoneTap 直接响应；方向修正（上→前翻，下→后翻）；滚动距离 5/6 屏 |
-| P0(0) | 章节跳转定位 | ✅ anchor:.top + 延时 offset 补充 |
+## 已知待优化问题 (2026-07-10)
+
+### P1 — 待修复
+
+| # | 问题 | 文件 | 说明 |
+|---|------|------|------|
+| R1 | TTS 测试页缺少音色/速度/风格/音调调节 | `TTSView.swift` | 从 `/api/v1/config` 加载了 voices 但测试区没有 rate(速度)、style(风格)、pitch(音调) 的 UI 控制 |
