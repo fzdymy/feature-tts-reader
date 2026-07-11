@@ -234,9 +234,8 @@ struct TTSView: View {
                     Label("语音测试", systemImage: "waveform")
                 } footer: {
                     if !testResult.isEmpty {
-                        let isSuccess = testResult.hasPrefix("合成成功") || testResult.contains("就绪")
                         Text(testResult)
-                            .foregroundColor(isSuccess ? .green : .red)
+                            .foregroundColor(testResult.contains("成功") || testResult.contains("就绪") ? .green : .red)
                     }
                 }
 
@@ -290,11 +289,11 @@ struct TTSView: View {
                         .foregroundColor(.secondary)
                     let base = config.url.hasSuffix("/tts") ? config.url : config.url + "/tts"
                     let encoded = testText.addingPercentEncoding(withAllowedCharacters: .urlQueryParameterAllowed) ?? testText
-                    var urlParams = "t=\(encoded)&r=\(Int(testRate * 4))&p=\(Int(testPitch))"
-                    if !testStyle.isEmpty { urlParams += "&s=\(testStyle)" }
-                    if !testVoice.isEmpty { urlParams += "&v=\(testVoice)" }
-                    if !config.apiKey.isEmpty { urlParams += "&api_key=" + String(config.apiKey.prefix(4)) + "***" }
-                    let fullURL = "\(base)?\(urlParams)"
+                    let styleValue = testStyle.isEmpty ? "" : testStyle
+                    let voiceSuffix = testVoice.isEmpty ? "" : "&v=\(testVoice)"
+                    let maskedKey = config.apiKey.isEmpty ? "" : String(config.apiKey.prefix(4)) + "***"
+                    let keySuffix = config.apiKey.isEmpty ? "" : "&api_key=\(maskedKey)"
+                    let fullURL = "\(base)?t=\(encoded)&r=\(Int(testRate * 4))&p=\(Int(testPitch))&s=\(styleValue)\(voiceSuffix)\(keySuffix)"
                     Text(fullURL)
                         .font(.caption2.monospaced())
                         .textSelection(.enabled)
@@ -321,8 +320,7 @@ struct TTSView: View {
                                 .font(.caption2.monospaced())
                         }
                         if !config.apiKey.isEmpty {
-                            let masked = String(config.apiKey.prefix(4))
-                            Text("api_key = \(masked)***")
+                            Text("api_key = \(config.apiKey)")
                                 .font(.caption2.monospaced())
                         }
                     }
@@ -352,7 +350,7 @@ struct TTSView: View {
             if selectedServerID == nil {
                 selectedServerID = serverConfigs.first?.id
             }
-            connectionStatus = "未测试"
+            connectionStatus = store.edgeTTSLastHealth.isEmpty ? "未测试" : store.edgeTTSLastHealth
         }
         let voices = await EdgeTTSService.shared.fetchVoices(serverID: selectedServerID)
         await MainActor.run {
