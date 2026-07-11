@@ -70,9 +70,12 @@ final class DramaDirector {
     }
 
     private func blendEmotionTags(_ current: String, _ previous: String, ratio: Float) -> String {
-        // Simple blending logic - in production could use embedding interpolation
-        if ratio >= 0.5 { return previous }
-        return current
+        // Narrator inherits preceding dialogue's emotion unless current is already expressive
+        let neutralEmotions: Set<String> = ["neutral", "平静", "neutral", "calm"]
+        if neutralEmotions.contains(current), !neutralEmotions.contains(previous) {
+            return previous
+        }
+        return ratio > 0.5 ? previous : current
     }
 
     private func escalateEmotionTag(_ current: String, toward target: String) -> String {
@@ -82,8 +85,10 @@ final class DramaDirector {
     }
 
     private func interpolateEmotionTag(_ from: String, _ to: String, factor: Float) -> String {
-        if factor >= 0.5 { return from }
-        return to
+        // Same-speaker smoothing: bias toward established emotion, but accept new expressive tags
+        if from == "neutral" || from == "平静" { return to }
+        if to == "neutral" || to == "平静" { return from }
+        return factor > 0.5 ? from : to
     }
 
     private func lerp(_ a: Float, _ b: Float, _ t: Float) -> Float {

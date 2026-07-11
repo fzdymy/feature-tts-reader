@@ -1389,9 +1389,36 @@ final class ReaderStore: NSObject, ObservableObject {
             let sentenceIndex: Int
         }
         var pendingUnits: [PendingUnit] = []
-        // 滑动前瞻窗口：仅缓存当前及后续 5 句的上下文（不再需要 allUpcomingSentenceContexts 全量数组）
-        var upcomingWindow: [DramaDirector.SentenceContext] = []
 
+        // Pass 1: collect all sentence contexts for upcoming-window lookahead
+        struct SentenceCtx {
+            let speakerID: UUID?
+            let emotionTag: String
+            let isNarrator: Bool
+            let paragraphIndex: Int
+        }
+        var allCtxs: [SentenceCtx] = []
+        for block in blocks {
+            guard block.globalStart + block.texts.count > startParaIndex else { continue }
+            let pIdx = block.globalStart
+            let mergedText = block.texts.joined(separator: "\n\n")
+            let sentences = Self.splitBlockIntoSentences(mergedText)
+            for (sIdx, sentence) in sentences.enumerated() {
+                if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
+                let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
+                let speaker = parts.first?.speaker ?? "叙述者"
+                let canonical = characters.first(where: { $0.name == speaker || $0.aliases.contains(speaker) })?.name ?? speaker
+                let profile = characters.first(where: { $0.name == canonical })
+                let isNarrator = profile?.isNarrator ?? (speaker == "叙述者" || speaker == "旁白")
+                let speakerID = profile?.id
+                if !isNarrator { lastSpeaker = speaker }
+                allCtxs.append(SentenceCtx(speakerID: speakerID, emotionTag: parts.first?.emotionTag ?? "neutral", isNarrator: isNarrator, paragraphIndex: pIdx))
+            }
+        }
+
+        // Pass 2: process with proper upcoming-window lookahead
+        var ctxIndex = 0
+        lastSpeaker = nil  // reset for second pass
         for block in blocks {
             guard block.globalStart + block.texts.count > startParaIndex else { continue }
             let pIdx = block.globalStart
@@ -1409,9 +1436,11 @@ final class ReaderStore: NSObject, ObservableObject {
                 let speakerID = profile?.id
                 if !isNarrator { lastSpeaker = speaker }
 
+                let emotionTag = parts.first?.emotionTag ?? "neutral"
+
                 let unit = SentenceUnit(
                     text: sentence, speakerID: speakerID,
-                    emotionTag: parts.first?.emotionTag ?? "neutral",
+                    emotionTag: emotionTag,
                     anchor: PlaybackAnchor(
                         bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
                         paragraphIndex: pIdx, sentenceIndex: sIdx, speakerID: speakerID
@@ -1419,19 +1448,23 @@ final class ReaderStore: NSObject, ObservableObject {
                     estimatedDuration: 2.0, estimatedSpeed: 1.0, estimatedPitch: 1.0
                 )
 
-                // 惰性填充前瞻窗口（最多 5 句）
-                let ctxSentence = DramaDirector.SentenceContext(
-                    text: sentence, speakerID: speakerID,
-                    emotionTag: parts.first?.emotionTag ?? "neutral",
-                    isNarrator: isNarrator, speed: 1.0, pitch: 1.0, paragraphIndex: pIdx
-                )
-                if upcomingWindow.count < 5 {
-                    upcomingWindow.append(ctxSentence)
-                }
+                // Build upcoming window from pre-collected contexts (next 5 sentences)
+                let upcomingSentences: [DramaDirector.SentenceContext] = {
+                    let start = ctxIndex + 1
+                    let end = min(start + 5, allCtxs.count)
+                    guard start < end else { return [] }
+                    return allCtxs[start..<end].map { c in
+                        DramaDirector.SentenceContext(
+                            text: "", speakerID: c.speakerID,
+                            emotionTag: c.emotionTag, isNarrator: c.isNarrator,
+                            speed: 1.0, pitch: 1.0, paragraphIndex: c.paragraphIndex
+                        )
+                    }
+                }()
 
                 let contextWindow = DramaDirector.ContextWindow(
                     previousDialogue: previousDialogueContext,
-                    upcomingSentences: upcomingWindow,
+                    upcomingSentences: upcomingSentences,
                     lastSpeakerID: lastSpeakerID,
                     lastEmotionTag: lastEmotionTag,
                     paragraphIndex: pIdx,
@@ -1445,8 +1478,7 @@ final class ReaderStore: NSObject, ObservableObject {
                     speed: refined.estimatedSpeed, pitch: refined.estimatedPitch,
                     paragraphIndex: pIdx
                 )
-                // 消费窗口头部
-                if !upcomingWindow.isEmpty { upcomingWindow.removeFirst() }
+                ctxIndex += 1
 
                 pendingUnits.append(PendingUnit(
                     sentence: sentence, characterName: canonical, speakerID: speakerID,
