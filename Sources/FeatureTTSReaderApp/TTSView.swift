@@ -321,7 +321,8 @@ struct TTSView: View {
                                 .font(.caption2.monospaced())
                         }
                         if !config.apiKey.isEmpty {
-                            Text("api_key = \(config.apiKey)")
+                            let masked = String(config.apiKey.prefix(4))
+                            Text("api_key = \(masked)***")
                                 .font(.caption2.monospaced())
                         }
                     }
@@ -351,7 +352,7 @@ struct TTSView: View {
             if selectedServerID == nil {
                 selectedServerID = serverConfigs.first?.id
             }
-            connectionStatus = store.edgeTTSLastHealth.isEmpty ? "未测试" : store.edgeTTSLastHealth
+            connectionStatus = "未测试"
         }
         let voices = await EdgeTTSService.shared.fetchVoices(serverID: selectedServerID)
         await MainActor.run {
