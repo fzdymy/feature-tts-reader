@@ -643,29 +643,6 @@ private func synthesizeAndPlayCustom() {
             var segments: [(speaker: String?, text: String)] = []
             var lastEnd = customMultiRoleText.startIndex
             
-            // First, use detectDialogues to get dialogue positions
-            let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
-            
-            // For each dialogue, try to infer a better speaker using the known characters
-            var dialoguesWithSpeakers: [(speaker: String?, content: String, range: Range<String.Index>)] = []
-            for dialogue in dialogues {
-                var speaker = dialogue.speaker
-                // If no speaker detected, try to infer from context using known characters
-                if speaker == nil || speaker?.isEmpty == true {
-                    // Get context before the dialogue (200 chars before)
-                    let lower = dialogue.range.lowerBound
-                    let beforeEnd = customMultiRoleText.index(customMultiRoleText.startIndex, offsetBy: customMultiRoleText.distance(from: customMultiRoleText.startIndex, to: lower))
-                    let beforeStart = customMultiRoleText.index(beforeEnd, offsetBy: -min(300, customMultiRoleText.distance(from: customMultiRoleText.startIndex, to: beforeEnd)), limitedBy: customMultiRoleText.startIndex) ?? customMultiRoleText.startIndex
-                    let context = String(customMultiRoleText[beforeStart..<beforeEnd])
-                    
-                    // Try to infer speaker from context using known characters
-                    if let inferred = analyzer.inferSpeaker(from: context, knownCharacters: Array(knownCharacters)) {
-                        speaker = inferred
-                    }
-                }
-                dialoguesWithSpeakers.append((speaker: speaker, content: dialogue.content, range: dialogue.range))
-            }
-            
             var lastEnd = customMultiRoleText.startIndex
             
             for dialogue in dialoguesWithSpeakers {
