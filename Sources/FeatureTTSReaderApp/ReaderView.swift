@@ -74,11 +74,8 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        // nil then set to force scroll even when navigating to the same chapter
-        scrollPositionID = nil
-        DispatchQueue.main.async {
-            self.scrollPositionID = "ch_\(safeTarget)"
-        }
+        scrollPositionID = "ch_\(safeTarget)"
+        scrollCoordinator.scrollToChapter(id: "ch_\(safeTarget)", anchor: .top)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             if self.navigationTarget == safeTarget { self.navigationTarget = nil }
         }
@@ -120,12 +117,13 @@ struct ReaderView: View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollView {
+            ScrollViewReader { readerProxy in
+                ScrollView {
                 ScrollViewAccessor(coordinator: scrollCoordinator)
                     .frame(height: 0)
-                GeometryReader { proxy in
+                GeometryReader { geo in
                     Color.clear
-                        .onChange(of: proxy.frame(in: .scrollView).minY) { _, newY in
+                        .onChange(of: geo.frame(in: .scrollView).minY) { _, newY in
                             scrollOffset = -newY
                             if isAudioMode && isImmersive {
                                 let screenH = UIScreen.main.bounds.height
@@ -192,6 +190,10 @@ struct ReaderView: View {
                       idx != currentChapterIndex else { return }
                 currentChapterIndex = idx
                 currentChapter = chaptersList[idx]
+            }
+            .onAppear {
+                scrollCoordinator.scrollProxy = readerProxy
+            }
             }
 
             ReaderOverlayView(
@@ -328,7 +330,7 @@ struct ReaderView: View {
     private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
         let titleHeight: CGFloat = 58
         let bottomPad: CGFloat = 40
-        let hPad: CGFloat = 40
+        let hPad: CGFloat = 24
         let containerWidth = UIScreen.main.bounds.width - hPad
         let fontSize = store.readerFontSize
         let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
@@ -681,7 +683,7 @@ struct ReaderView: View {
         let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
         let offsetInChapter = scrollOffset - pastHeight
         let titleHeight: CGFloat = 58
-        let hPad: CGFloat = 40
+        let hPad: CGFloat = 24
         let containerWidth = UIScreen.main.bounds.width - hPad
         let fontSize = store.readerFontSize
         let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
@@ -1111,7 +1113,7 @@ private struct ReaderOverlayView: View {
     private func chHeight(_ ch: BookChapter) -> CGFloat {
         let titleHeight: CGFloat = 58
         let bottomPad: CGFloat = 40
-        let hPad: CGFloat = 40
+        let hPad: CGFloat = 24
         let containerWidth = UIScreen.main.bounds.width - hPad
         let fontSize = store.readerFontSize
         let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
