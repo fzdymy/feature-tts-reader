@@ -68,15 +68,13 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        scrollPositionID = "ch_\(safeTarget)"
-        // LazyVStack may land one screen short; nudge one more viewport after scroll animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [scrollCoordinator] in
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { scrollPositionID = "ch_\(safeTarget)" }
+        // LazyVStack lands one screen short; nudge one more viewport after layout
+        DispatchQueue.main.async { [scrollCoordinator] in
             guard let sv = scrollCoordinator.scrollView else { return }
-            let screenH = UIScreen.main.bounds.height
-            let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
-            let targetOffset = min(sv.contentOffset.y + screenH, maxOffset)
-            guard targetOffset > sv.contentOffset.y else { return }
-            sv.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: true)
+            sv.setContentOffset(CGPoint(x: 0, y: sv.contentOffset.y + UIScreen.main.bounds.height), animated: true)
         }
         // Timeout: if scroll never reaches target, force update after 2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
