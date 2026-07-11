@@ -536,19 +536,64 @@ struct TTSView: View {
         customSynthesisResult = ""
 
         Task {
-            let config = CharacterScanner.Config(maxResults: 12)
-            let result = await CharacterScanner.scan(
-                text: text,
-                config: config,
-                voices: [], // 稍后自动匹配
-                defaultSensitivity: 50
-            )
+            // Use the new RobustCharacterExtractor for better accuracy
+            let extractor = RobustCharacterExtractor()
+            let extractionResult = await extractor.extract(from: text)
+
             await MainActor.run {
-                customScanResult = result
+                // Convert ExtractionResult to a format compatible with existing UI
+                // We'll store the raw characters and narrator separately
+                var profiles: [CharacterProfile] = []
+
+                for char in extractionResult.characters {
+                    let profile = CharacterProfile(
+                        id: char.id,
+                        name: char.name,
+                        aliases: char.aliases,
+                        gender: char.gender == "男性" ? "Male" : (char.gender == "女性" ? "Female" : "Unknown"),
+                        age: char.age,
+                        tone: char.tone,
+                        voice: char.voiceID.isEmpty ? "" : char.voiceID,
+                        rate: Double(char.rate),
+                        pitch: Double(char.pitch),
+                        style: char.style,
+                        sensitivity: 50,
+                        isNarrator: char.isNarrator,
+                        role: char.isNarrator ? .narrator : .character,
+                        bookID: nil
+                    )
+                    profiles.append(profile)
+                }
+
+                // Add narrator if not already present
+                if !profiles.contains(where: { $0.isNarrator }), let narrator = extractionResult.narratorName {
+                    let narratorProfile = CharacterProfile(
+                        id: UUID(),
+                        name: narrator,
+                        aliases: [],
+                        gender: "Unknown",
+                        age: "未知",
+                        tone: "平稳",
+                        voice: "zh-CN-XiaoxiaoNeural",
+                        rate: 0,
+                        pitch: 0,
+                        style: "neutral",
+                        sensitivity: 50,
+                        isNarrator: true,
+                        role: .narrator,
+                        bookID: nil
+                    )
+                    profiles.insert(narratorProfile, at: 0)
+                }
+
+                // Create a result object compatible with the old format
+                let compatResult = CharacterScanner.Result(characters: profiles, edges: [])
+                customScanResult = compatResult
                 isScanningCharacters = false
-                // 自动为每个角色匹配音色（性别优先）
+
+                // Auto-assign voices based on gender
                 var voices: [String: String] = [:]
-                for profile in result.characters.prefix(10) {
+                for profile in profiles.prefix(10) {
                     let matchedVoice = availableVoices.first { v in
                         v.locale.hasPrefix("zh-CN") &&
                         (profile.gender == "Male" && v.gender == "Male" || profile.gender == "Female" && v.gender == "Female")
@@ -558,6 +603,7 @@ struct TTSView: View {
                     }
                 }
                 customCharacterVoices = voices
+                customSynthesisResult = "识别到 \(profiles.count) 个角色，可开始合成"
             }
         }
     }
