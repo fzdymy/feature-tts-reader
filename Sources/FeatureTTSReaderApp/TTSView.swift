@@ -311,7 +311,7 @@ struct TTSView: View {
             // 全局语速叠加滑块
             VStack(spacing: 8) {
                 HStack {
-                    Text("全局语速").foregroundColor(.secondary).frame(width: 60, alignment: .leading)
+                    Text("语速").foregroundColor(.secondary).frame(width: 60, alignment: .leading)
                     Slider(value: $multiRoleGlobalRate, in: -10...10, step: 1)
                     Text("\(Int(multiRoleGlobalRate))").font(.caption.monospaced()).frame(width: 24)
                 }
