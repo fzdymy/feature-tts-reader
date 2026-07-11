@@ -331,8 +331,10 @@ actor EdgeTTSService {
             URLQueryItem(name: "t", value: text),
             URLQueryItem(name: "r", value: "\(rate * 4)"),
             URLQueryItem(name: "p", value: "\(pitch)"),
-            URLQueryItem(name: "s", value: style),
         ]
+        if !style.isEmpty {
+            items.append(URLQueryItem(name: "s", value: style))
+        }
         if let voice = voice, !voice.isEmpty {
             items.append(URLQueryItem(name: "v", value: voice))
         }
