@@ -1131,12 +1131,16 @@ private struct ReaderOverlayView: View {
         return titleHeight + totalH + bottomPad
     }
 
-    private var chapterProgressInChapter: Double {
-        guard currentChapterIndex < chaptersList.count else { return 0 }
-        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + chHeight($1) }
-        let curHeight = chHeight(chaptersList[currentChapterIndex])
-        guard curHeight > 0 else { return 0 }
-        return min(1, max(0, Double(scrollOffset - pastHeight) / Double(curHeight)))
+    private var absoluteScrollFraction: Double {
+        guard let sv = scrollCoordinator.scrollView else {
+            // fallback: use estimated heights
+            let totalH = chapterHeights.reduce(0, +)
+            guard totalH > 0 else { return 0 }
+            return min(1, max(0, Double(scrollOffset) / Double(totalH)))
+        }
+        let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
+        guard maxOffset > 0 else { return 0 }
+        return min(1, max(0, Double(sv.contentOffset.y) / Double(maxOffset)))
     }
 
     // MARK: - Header
@@ -1249,14 +1253,14 @@ private struct ReaderOverlayView: View {
                 .disabled(currentChapterIndex <= 0)
 
                 Slider(value: Binding(
-                    get: { chapterProgressInChapter },
+                    get: { absoluteScrollFraction },
                     set: { newValue in
-                        guard currentChapterIndex < chaptersList.count else { return }
-                        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + chHeight($1) }
-                        let chH = chHeight(chaptersList[currentChapterIndex])
-                        guard chH > 0 else { return }
-                        let targetOffset = pastHeight + CGFloat(newValue) * chH
-                        scrollTo(targetOffset, false)
+                        guard let sv = scrollCoordinator.scrollView else {
+                            scrollTo(CGFloat(newValue) * chapterHeights.reduce(0, +), false)
+                            return
+                        }
+                        let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
+                        scrollCoordinator.scrollTo(offset: CGFloat(newValue) * maxOffset)
                     }
                 ))
                     .tint(.blue)
@@ -1394,14 +1398,14 @@ private struct ReaderOverlayView: View {
                 .disabled(currentChapterIndex <= 0)
 
                 Slider(value: Binding(
-                    get: { chapterProgressInChapter },
+                    get: { absoluteScrollFraction },
                     set: { newValue in
-                        guard currentChapterIndex < chaptersList.count else { return }
-                        let pastHeight = chaptersList[0..<currentChapterIndex].reduce(0) { $0 + chHeight($1) }
-                        let chH = chHeight(chaptersList[currentChapterIndex])
-                        guard chH > 0 else { return }
-                        let targetOffset = pastHeight + CGFloat(newValue) * chH
-                        scrollTo(targetOffset, false)
+                        guard let sv = scrollCoordinator.scrollView else {
+                            scrollTo(CGFloat(newValue) * chapterHeights.reduce(0, +), false)
+                            return
+                        }
+                        let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
+                        scrollCoordinator.scrollTo(offset: CGFloat(newValue) * maxOffset)
                     }
                 ))
                     .tint(.blue)
