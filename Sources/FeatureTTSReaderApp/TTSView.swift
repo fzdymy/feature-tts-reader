@@ -234,8 +234,9 @@ struct TTSView: View {
                     Label("语音测试", systemImage: "waveform")
                 } footer: {
                     if !testResult.isEmpty {
+                        let isSuccess = testResult.hasPrefix("合成成功") || testResult.contains("就绪")
                         Text(testResult)
-                            .foregroundColor(testResult.contains("成功") || testResult.contains("就绪") ? .green : .red)
+                            .foregroundColor(isSuccess ? .green : .red)
                     }
                 }
 
