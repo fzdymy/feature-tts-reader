@@ -1131,10 +1131,25 @@ private struct ReaderOverlayView: View {
         return titleHeight + totalH + bottomPad
     }
 
-    private var absoluteScrollFraction: Double {
-        let totalH = chaptersList.reduce(0) { $0 + chHeight($1) }
-        guard totalH > 0 else { return 0 }
-        return min(1, max(0, Double(scrollOffset) / Double(totalH)))
+    private var chapterIndexForSlider: Int {
+        var accumulated: CGFloat = 0
+        for (i, ch) in chaptersList.enumerated() {
+            let h = chHeight(ch)
+            if scrollOffset < accumulated + h {
+                return i
+            }
+            accumulated += h
+        }
+        return max(0, chaptersList.count - 1)
+    }
+
+    private var sliderProgressInChapter: Double {
+        guard !chaptersList.isEmpty else { return 0 }
+        let idx = max(0, min(chapterIndexForSlider, chaptersList.count - 1))
+        let pastHeight = chaptersList[0..<idx].reduce(0) { $0 + chHeight($1) }
+        let curHeight = chHeight(chaptersList[idx])
+        guard curHeight > 0 else { return 0 }
+        return min(1, max(0, Double(scrollOffset - pastHeight) / Double(curHeight)))
     }
 
     // MARK: - Header
@@ -1247,10 +1262,12 @@ private struct ReaderOverlayView: View {
                 .disabled(currentChapterIndex <= 0)
 
                 Slider(value: Binding(
-                    get: { absoluteScrollFraction },
+                    get: { sliderProgressInChapter },
                     set: { newValue in
-                        let totalH = chaptersList.reduce(0) { $0 + chHeight($1) }
-                        scrollTo(CGFloat(newValue) * totalH, false)
+                        let idx = chapterIndexForSlider
+                        let pastHeight = chaptersList[0..<idx].reduce(0) { $0 + chHeight($1) }
+                        let curHeight = chHeight(chaptersList[idx])
+                        scrollTo(pastHeight + CGFloat(newValue) * curHeight, false)
                     }
                 ))
                     .tint(.blue)
@@ -1388,10 +1405,12 @@ private struct ReaderOverlayView: View {
                 .disabled(currentChapterIndex <= 0)
 
                 Slider(value: Binding(
-                    get: { absoluteScrollFraction },
+                    get: { sliderProgressInChapter },
                     set: { newValue in
-                        let totalH = chaptersList.reduce(0) { $0 + chHeight($1) }
-                        scrollTo(CGFloat(newValue) * totalH, false)
+                        let idx = chapterIndexForSlider
+                        let pastHeight = chaptersList[0..<idx].reduce(0) { $0 + chHeight($1) }
+                        let curHeight = chHeight(chaptersList[idx])
+                        scrollTo(pastHeight + CGFloat(newValue) * curHeight, false)
                     }
                 ))
                     .tint(.blue)
