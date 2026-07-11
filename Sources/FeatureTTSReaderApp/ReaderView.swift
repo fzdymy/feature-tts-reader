@@ -74,7 +74,7 @@ struct ReaderView: View {
         // LazyVStack lands one screen short; nudge one more viewport after layout
         DispatchQueue.main.async { [scrollCoordinator] in
             guard let sv = scrollCoordinator.scrollView else { return }
-            sv.setContentOffset(CGPoint(x: 0, y: sv.contentOffset.y + UIScreen.main.bounds.height), animated: true)
+            sv.setContentOffset(CGPoint(x: 0, y: sv.contentOffset.y + UIScreen.main.bounds.height), animated: false)
         }
         // Timeout: if scroll never reaches target, force update after 2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
