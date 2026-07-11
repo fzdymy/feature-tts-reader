@@ -53,13 +53,11 @@ struct ReaderView: View {
     @State private var chapterProgress: Double = 0
     @State private var scrollPositionID: String?
     @State private var navigationTarget: Int?
-    @State private var scrollOffset: CGFloat = 0
     @State private var immersiveBeforeAudioMode = false
     @State private var autoScrollWorkItem: DispatchWorkItem?
-    @State private var segmentStartOffset: CGFloat = 0
     @State private var scrolledAway = false
     @State private var lastAutoScrollTime: Date = .distantPast
-    @State private var chapterHeights: [CGFloat] = []  // cached heights
+    @State private var startPlaybackID: String?
     @State private var cachedParagraphs: [UUID: [String]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
 
@@ -70,7 +68,7 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        scrollPositionID = "ch_\(safeTarget)"
+        scrollPositionID = "ch_\(safeTarget)_anchor"
         // Timeout: if scroll never reaches target, force update after 2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             if self.navigationTarget == safeTarget {
@@ -123,66 +121,56 @@ struct ReaderView: View {
             ScrollView {
                 ScrollViewAccessor(coordinator: scrollCoordinator)
                     .frame(height: 0)
-                GeometryReader { geo in
-                    Color.clear
-                        .onChange(of: geo.frame(in: .scrollView).minY) { _, newY in
-                            scrollOffset = -newY
-                            if isAudioMode && isImmersive {
-                                let screenH = UIScreen.main.bounds.height
-                                // Don't mark scrolledAway during auto-scroll animation (within 0.4s)
-                                if Date().timeIntervalSince(lastAutoScrollTime) > 0.4,
-                                   abs(-newY - segmentStartOffset) > screenH * 0.5 {
-                                    scrolledAway = true
-                                }
-                            }
-                        }
-                }
-                .frame(height: 0)
                 LazyVStack(spacing: 0) {
                     ForEach(chaptersList.indices, id: \.self) { i in
                         chapterContent(index: i)
-                            .id("ch_\(i)")
                     }
                 }
                 .scrollTargetLayout()
             }
             .scrollPosition(id: $scrollPositionID, anchor: .top)
             .onChange(of: scrollPositionID) { _, newID in
-                // Hysteresis: ignore scroll-position changes within 0.15s of auto-scroll
-                // to prevent the animation from incorrectly updating currentChapterIndex.
-                guard Date().timeIntervalSince(lastAutoScrollTime) > 0.15 else { return }
-                guard let idStr = newID, idStr.hasPrefix("ch_"), let idx = Int(idStr.dropFirst(3)) else { return }
+                let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
+                guard !isRecentAutoScroll else { return }
+                guard let idStr = newID else { return }
+                // If TTS is playing and user manually scrolled (not auto-scroll), mark scrolledAway
+                if isPlaying, isAudioMode, isImmersive {
+                    scrolledAway = true
+                }
+                // Parse "ch_N_anchor" or "ch_N_p_M"
+                let parts = idStr.split(separator: "_", maxSplits: 3)
+                guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
+                let isAnchor = parts.count == 3 && parts[2] == "anchor"
                 if let target = navigationTarget {
-                    if idx == target {
+                    if isAnchor || chIdx == target {
                         navigationTarget = nil
-                        currentChapterIndex = idx
-                        chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
-                        if idx < chaptersList.count {
-                            currentChapter = chaptersList[idx]
-                            store.selectedChapterID = chaptersList[idx].id
+                        currentChapterIndex = chIdx
+                        chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
+                        if chIdx < chaptersList.count {
+                            currentChapter = chaptersList[chIdx]
+                            store.selectedChapterID = chaptersList[chIdx].id
                         }
                     }
                     return
                 }
-                if currentChapterIndex != idx {
-                    currentChapterIndex = idx
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(idx) / Double(chaptersList.count)
-                    if idx < chaptersList.count {
-                        currentChapter = chaptersList[idx]
-                        store.selectedChapterID = chaptersList[idx].id
+                if currentChapterIndex != chIdx {
+                    currentChapterIndex = chIdx
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
+                    if chIdx < chaptersList.count {
+                        currentChapter = chaptersList[chIdx]
+                        store.selectedChapterID = chaptersList[chIdx].id
                     }
                 }
             }
             .onAppear {
                 DispatchQueue.main.async {
                     if currentChapterIndex > 0 {
-                        scrollPositionID = "ch_\(currentChapterIndex)"
+                        scrollPositionID = "ch_\(currentChapterIndex)_anchor"
                     }
-                    chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
                 }
             }
             .onChange(of: chaptersList.count) { _, _ in
-                chapterHeights = chaptersList.map { estimatedChapterHeight($0) }
+                // chapter list changed
             }
             .onChange(of: store.currentParagraphIndex) { _, _ in
                 scheduleAutoScrollUpdate()
@@ -211,9 +199,9 @@ struct ReaderView: View {
                 showSettings: $showSettings,
                 showFontPicker: $showFontPicker,
                 scrolledAway: $scrolledAway,
-                segmentStartOffset: $segmentStartOffset,
                 immersiveBeforeAudioMode: $immersiveBeforeAudioMode,
-                scrollOffset: scrollOffset,
+                currentScrollID: scrollPositionID,
+                startPlaybackID: startPlaybackID,
                 chaptersList: chaptersList,
                 currentChapterIndex: currentChapterIndex,
                 currentTime: currentTime,
@@ -222,10 +210,12 @@ struct ReaderView: View {
                 bgColor: bgColor,
                 bookID: bookID,
                 navigateToChapter: navigateToChapter,
-                startPlayback: startPlayback,
-                currentParagraphIndexForCurrentPosition: currentParagraphIndexForCurrentPosition,
-                scrollTo: { [scrollCoordinator] offset, animated in
-                    scrollCoordinator.scrollTo(offset: offset, animated: animated)
+                startPlayback: { paraIndex in
+                    startPlaybackID = scrollPositionID
+                    await startPlayback(fromParagraphIndex: paraIndex)
+                },
+                onScrollToID: { newID in
+                    scrollPositionID = newID
                 }
             )
         }
@@ -332,26 +322,7 @@ struct ReaderView: View {
         .equatable()
     }
 
-    private func estimatedChapterHeight(_ ch: BookChapter) -> CGFloat {
-        let titleHeight: CGFloat = 58
-        let bottomPad: CGFloat = 40
-        let hPad: CGFloat = 24
-        let containerWidth = UIScreen.main.bounds.width - hPad
-        let fontSize = store.readerFontSize
-        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
-        let cjkCharWidth = fontSize
-        let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
-        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let paragraphs = paragraphCache(for: ch)
-        var totalH: CGFloat = 0
-        for p in paragraphs {
-            let trimmed = p.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
-            guard !trimmed.isEmpty else { continue }
-            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
-            totalH += CGFloat(paraLineCount) * lineHeight + 8
-        }
-        return titleHeight + totalH + bottomPad
-    }
+
 
     // MARK: - Character Panel
 
@@ -613,8 +584,9 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
         ReaderStore.debugLog("[POS-SAVE] onDisappear idx=\(currentChapterIndex) bookID=\(bookID.uuidString)")
         if currentChapterIndex < chaptersList.count {
-            let progress = currentChapterIndex >= 0 && currentChapterIndex < chapterHeights.count
-                ? Double(scrollOffset) / max(chapterHeights[currentChapterIndex], 1) : 0
+            let total = paragraphCache(for: chaptersList[currentChapterIndex]).count
+            let cur = currentParaIndexFromID
+            let progress = total > 0 ? Double(min(cur, total)) / Double(total) : 0
             store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: max(0.0, min(1.0, progress)))
         }
         store.saveState()
@@ -675,81 +647,9 @@ struct ReaderView: View {
     // MARK: - Navigation
 
 
-    private func segmentTextForCurrentPosition() -> String? {
-        if let pi = store.currentParagraphIndex, currentChapterIndex < chaptersList.count {
-            let ch = chaptersList[currentChapterIndex]
-            let paragraphs = paragraphCache(for: ch)
-            if pi < paragraphs.count { return paragraphs[pi] }
-        }
-        guard currentChapterIndex < chaptersList.count else { return nil }
-        let ch = chaptersList[currentChapterIndex]
-        let paragraphs = paragraphCache(for: ch)
-        let cached = chapterHeights
-        let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
-        let offsetInChapter = scrollOffset - pastHeight
-        let titleHeight: CGFloat = 58
-        let hPad: CGFloat = 24
-        let containerWidth = UIScreen.main.bounds.width - hPad
-        let fontSize = store.readerFontSize
-        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
-        let cjkCharWidth = fontSize
-        let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
-        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        var y: CGFloat = titleHeight
-        for paraText in paragraphs {
-            let trimmed = paraText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
-            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
-            let paraHeight = CGFloat(paraLineCount) * lineHeight + 8
-            if offsetInChapter >= y && offsetInChapter < y + paraHeight {
-                return trimmed
-            }
-            y += paraHeight
-        }
-        return nil
-    }
-
-    /// Compute scroll offset to bring the current paragraph and sentence into view.
-    private func autoScrollOffset(for paragraphIndex: Int, sentenceIndex: Int? = nil) -> CGFloat? {
-        guard currentChapterIndex < chaptersList.count else { return nil }
-        let ch = chaptersList[currentChapterIndex]
-        let paragraphs = paragraphCache(for: ch)
-        guard paragraphIndex >= 0, paragraphIndex < paragraphs.count else { return nil }
-        let cached = chapterHeights
-        let pastHeight = currentChapterIndex < cached.count ? cached[0..<currentChapterIndex].reduce(0, +) : chaptersList[0..<currentChapterIndex].reduce(0) { $0 + estimatedChapterHeight($1) }
-        let titleHeight: CGFloat = 58
-        var y: CGFloat = titleHeight
-        let containerWidth = UIScreen.main.bounds.width - 40
-        let fontSize = store.readerFontSize
-        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
-        let cjkCharWidth = fontSize
-        let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
-        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        for i in 0..<paragraphIndex {
-            y += estimatedParagraphHeight(for: paragraphs[i], charsPerLine: charsPerLine, lineHeight: lineHeight)
-        }
-        let targetParagraph = paragraphs[paragraphIndex]
-        let sentences = ReaderStore.splitBlockIntoSentences(targetParagraph)
-        if let sentenceIndex, sentenceIndex >= 0, sentenceIndex < sentences.count {
-            for i in 0..<sentenceIndex {
-                y += estimatedParagraphHeight(for: sentences[i], charsPerLine: charsPerLine, lineHeight: lineHeight)
-            }
-        }
-        return pastHeight + y - 2 * lineHeight
-    }
-
-    private func estimatedParagraphHeight(for text: String, charsPerLine: Int, lineHeight: CGFloat) -> CGFloat {
-        let trimmed = text.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
-        guard !trimmed.isEmpty else { return 0 }
-        let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
-        return CGFloat(paraLineCount) * lineHeight + 8
-    }
-
     private func scrollToSentenceCenter(paragraphIndex: Int, sentenceIndex: Int?) {
-        guard let offset = autoScrollOffset(for: paragraphIndex, sentenceIndex: sentenceIndex) else { return }
-        let centeredOffset = max(0, offset - UIScreen.main.bounds.height * 0.25)
+        scrollPositionID = "ch_\(currentChapterIndex)_p_\(paragraphIndex)"
         lastAutoScrollTime = Date()
-        scrollCoordinator.scrollTo(offset: centeredOffset, animated: true)
-        segmentStartOffset = centeredOffset
         scrolledAway = false
     }
 
@@ -807,13 +707,10 @@ struct ReaderView: View {
 
     private func updateAutoScrollForCurrentPlayback() {
         guard store.ttsIsPlaying || store.currentParagraphIndex != nil else { return }
-        if !scrolledAway, let paragraphIndex = store.currentParagraphIndex, let offset = autoScrollOffset(for: paragraphIndex, sentenceIndex: store.currentSentenceIndex) {
+        if !scrolledAway, let paragraphIndex = store.currentParagraphIndex {
+            scrollPositionID = "ch_\(currentChapterIndex)_p_\(paragraphIndex)"
             lastAutoScrollTime = Date()
-            scrollCoordinator.scrollTo(offset: offset, animated: true)
-            segmentStartOffset = offset
             scrolledAway = false
-        } else {
-            segmentStartOffset = scrollOffset
         }
         withAnimation { isPlaying = store.ttsIsPlaying }
     }
@@ -837,13 +734,13 @@ struct ReaderView: View {
         await store.startPlaybackTask(chapter: chapter, fromParagraphIndex: fromParagraphIndex)
     }
 
-    private func currentParagraphIndexForCurrentPosition() -> Int? {
-        guard currentChapterIndex < chaptersList.count else { return nil }
-        let ch = chaptersList[currentChapterIndex]
-        let paragraphs = paragraphCache(for: ch)
-        guard let currentText = segmentTextForCurrentPosition() else { return store.currentParagraphIndex }
-        let trimmed = currentText.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
-        return paragraphs.firstIndex(where: { $0.contains(trimmed) || trimmed.contains($0) })
+    private var currentParaIndexFromID: Int {
+        guard let id = scrollPositionID else { return 0 }
+        let parts = id.split(separator: "_")
+        if parts.count == 4, parts[0] == "ch", parts[2] == "p", let pi = Int(parts[3]) {
+            return pi
+        }
+        return 0
     }
 
     private func paragraphCache(for chapter: BookChapter) -> [String] {
@@ -887,6 +784,10 @@ struct ReaderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Color.clear
+                .frame(height: 0)
+                .id("ch_\(index)_anchor")
+
             HStack(alignment: .center, spacing: 8) {
                 Text(chapter.title)
                     .font(.title2).fontWeight(.bold)
@@ -897,6 +798,7 @@ struct ReaderView: View {
 
             ForEach(paragraphs.indices, id: \.self) { pi in
                 paragraphRow(pi: pi)
+                    .id("ch_\(index)_p_\(pi)")
             }
 
             Divider()
@@ -1009,7 +911,7 @@ private struct ContextMenuContent: View {
     }
 }
 
-// MARK: - ReaderOverlayView (Equatable, isolated re-render)
+// MARK: - ReaderOverlayView
 
 private struct ReaderOverlayView: View {
     @EnvironmentObject private var store: ReaderStore
@@ -1024,10 +926,10 @@ private struct ReaderOverlayView: View {
     @Binding var showSettings: Bool
     @Binding var showFontPicker: Bool
     @Binding var scrolledAway: Bool
-    @Binding var segmentStartOffset: CGFloat
     @Binding var immersiveBeforeAudioMode: Bool
 
-    let scrollOffset: CGFloat
+    let currentScrollID: String?
+    let startPlaybackID: String?
     let chaptersList: [BookChapter]
     let currentChapterIndex: Int
     let currentTime: Date
@@ -1038,8 +940,7 @@ private struct ReaderOverlayView: View {
 
     let navigateToChapter: (Int) -> Void
     let startPlayback: (Int?) async -> Void
-    let currentParagraphIndexForCurrentPosition: () -> Int?
-    let scrollTo: (CGFloat, Bool) -> Void
+    let onScrollToID: (String) -> Void
 
     var body: some View {
         ZStack {
@@ -1115,46 +1016,27 @@ private struct ReaderOverlayView: View {
         }
     }
 
-    private func chHeight(_ ch: BookChapter) -> CGFloat {
-        let titleHeight: CGFloat = 58
-        let bottomPad: CGFloat = 40
-        let hPad: CGFloat = 24
-        let containerWidth = UIScreen.main.bounds.width - hPad
-        let fontSize = store.readerFontSize
-        let font = UIFont(name: store.readerFontName, size: fontSize) ?? UIFont.systemFont(ofSize: fontSize)
-        let cjkCharWidth = fontSize
-        let charsPerLine = max(1, Int(containerWidth / cjkCharWidth))
-        let lineHeight = font.lineHeight + store.readerLineSpacing + 2
-        let paragraphs = ch.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
-        var totalH: CGFloat = 0
-        for p in paragraphs {
-            let trimmed = p.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace)
-            guard !trimmed.isEmpty else { continue }
-            let paraLineCount = max(1, (trimmed.count + charsPerLine - 1) / charsPerLine)
-            totalH += CGFloat(paraLineCount) * lineHeight + 8
+    private var currentParaIndex: Int {
+        guard let id = currentScrollID else { return 0 }
+        let parts = id.split(separator: "_")
+        if parts.count == 4, parts[0] == "ch", parts[2] == "p", let pi = Int(parts[3]) {
+            return pi
         }
-        return titleHeight + totalH + bottomPad
+        return 0  // anchor → top of chapter
     }
 
-    private var chapterIndexForSlider: Int {
-        var accumulated: CGFloat = 0
-        for (i, ch) in chaptersList.enumerated() {
-            let h = chHeight(ch)
-            if scrollOffset < accumulated + h {
-                return i
-            }
-            accumulated += h
-        }
-        return max(0, chaptersList.count - 1)
+    private var totalParasInCurrentChapter: Int {
+        guard currentChapterIndex < chaptersList.count else { return 1 }
+        let text = chaptersList[currentChapterIndex].text
+        return text.components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
+            .count
     }
 
-    private var sliderProgressInChapter: Double {
-        guard !chaptersList.isEmpty else { return 0 }
-        let idx = max(0, min(chapterIndexForSlider, chaptersList.count - 1))
-        let pastHeight = chaptersList[0..<idx].reduce(0) { $0 + chHeight($1) }
-        let curHeight = chHeight(chaptersList[idx])
-        guard curHeight > 0 else { return 0 }
-        return min(1, max(0, Double(scrollOffset - pastHeight) / Double(curHeight)))
+    private var sliderProgress: Double {
+        let total = totalParasInCurrentChapter
+        guard total > 0 else { return 0 }
+        return min(1, max(0, Double(currentParaIndex) / Double(total)))
     }
 
     // MARK: - Header
@@ -1267,12 +1149,11 @@ private struct ReaderOverlayView: View {
                 .disabled(currentChapterIndex <= 0)
 
                 Slider(value: Binding(
-                    get: { sliderProgressInChapter },
+                    get: { sliderProgress },
                     set: { newValue in
-                        let idx = chapterIndexForSlider
-                        let pastHeight = chaptersList[0..<idx].reduce(0) { $0 + chHeight($1) }
-                        let curHeight = chHeight(chaptersList[idx])
-                        scrollTo(pastHeight + CGFloat(newValue) * curHeight, false)
+                        let total = totalParasInCurrentChapter
+                        let idx = min(max(0, Int(newValue * Double(total))), total - 1)
+                        onScrollToID("ch_\(currentChapterIndex)_p_\(idx)")
                     }
                 ))
                     .tint(.blue)
@@ -1344,7 +1225,9 @@ private struct ReaderOverlayView: View {
             if scrolledAway {
                 HStack(spacing: 32) {
                     Button(action: {
-                        scrollTo(segmentStartOffset, true)
+                        if let id = startPlaybackID {
+                            onScrollToID(id)
+                        }
                         scrolledAway = false
                     }) {
                         HStack(spacing: 6) {
@@ -1357,8 +1240,7 @@ private struct ReaderOverlayView: View {
                     Button(action: {
                         scrolledAway = false
                         store.stopPlayback()
-                        let paraIndex = currentParagraphIndexForCurrentPosition()
-                        segmentStartOffset = scrollOffset
+                        let paraIndex = currentParaIndex
                         Task { await startPlayback(paraIndex) }
                     }) {
                         HStack(spacing: 6) {
@@ -1410,12 +1292,11 @@ private struct ReaderOverlayView: View {
                 .disabled(currentChapterIndex <= 0)
 
                 Slider(value: Binding(
-                    get: { sliderProgressInChapter },
+                    get: { sliderProgress },
                     set: { newValue in
-                        let idx = chapterIndexForSlider
-                        let pastHeight = chaptersList[0..<idx].reduce(0) { $0 + chHeight($1) }
-                        let curHeight = chHeight(chaptersList[idx])
-                        scrollTo(pastHeight + CGFloat(newValue) * curHeight, false)
+                        let total = totalParasInCurrentChapter
+                        let idx = min(max(0, Int(newValue * Double(total))), total - 1)
+                        onScrollToID("ch_\(currentChapterIndex)_p_\(idx)")
                     }
                 ))
                     .tint(.blue)
@@ -1590,7 +1471,7 @@ private struct ReaderOverlayView: View {
                     immersiveBeforeAudioMode = isImmersive
                     isAudioMode = true
                     isPlaying = true
-                    segmentStartOffset = scrollOffset
+                    startPlaybackID = scrollPositionID
                     Task { await startPlayback(nil) }
                 }) {
                     Image(systemName: "play.circle.fill")
