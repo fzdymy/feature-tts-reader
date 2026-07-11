@@ -101,7 +101,7 @@ private enum ChineseNamePatterns {
         "于是", "从此", "随后", "接着", "跟着", "然后", "转而",
         "关于", "对于", "由于", "因为", "为了", "除了", "经过", "通过",
         "我们", "你们", "他们", "她们", "它们", "自己", "大家", "诸位",
-        "这个", "那个", "这里", "那里", "怎么", "什么", "这么", "那么",
+        "这个", "那个", "这里", "那里", "怎么", "什么", "这么", "那些",
         "没有", "不是", "就是", "还是", "但是", "可是", "然而", "而且",
         "如果", "因为", "所以", "虽然", "然后", "之后", "之前", "之中",
         "之中", "那些", "这些", "每次", "每天", "万一", "一切", "一个",
@@ -118,9 +118,9 @@ private enum ChineseNamePatterns {
         "肌肤", "江城", "能不", "有几", "高跟鞋", "安全通",
         "怀中", "那一", "地面", "摇头", "整个", "如今",
         "此处", "哪些", "那些", "全身", "眉头", "心头",
-        "双手", "内心", "片刻", "刹那", "那些", "那些",
+        "双手", "内心", "片刻", "刹那", "那些",
         "脚下", "边上", "头上", "脸上", "身上", "手里",
-        "身后", "眼前", "面前",
+        "身后", "眼前", "面前", "那些", "这些", "这里", "那里",
     ]
 
     static let stopWords: Set<String> = [
@@ -138,36 +138,20 @@ private enum ChineseNamePatterns {
         "更加", "稍微", "轻轻", "慢慢", "渐渐", "终于", "从未", "已然",
         "尚未", "已经", "曾经", "而且", "并且", "或者", "不但", "那些",
         "甚至", "连同", "以及", "全都", "全部", "凡是", "各位", "诸位",
-        "自从", "由于", "关于", "对于", "根据", "先生", "小姐", "姑娘",
-        "公子", "师父", "师傅", "少爷", "夫人", "阁下", "大人", "前辈",
-        "掌门", "教主", "帮主",
-        "别人", "干部", "时间", "双手", "后排", "厉害", "单纯",
-        "仰望", "何况", "别说", "包厢", "包裹", "帅气",
-        "怀里", "成一", "成功", "成熟", "扶着", "房间",
-        "明天", "明白", "明知", "有力", "有钱", "束缚",
-        "沙发", "沙哑", "滑腻", "滑动", "满脸", "白色",
-        "皮肤", "经验", "舒服", "解锁", "车子", "车门",
-        "那一", "那你", "那头", "都好", "金主", "金钱",
-        "马上", "麻烦", "头发",
-        "有一", "有的", "温柔", "应该", "那就", "怀中", "解释", "空气",
-        "方式", "闻言", "温热", "简直", "何人", "许久", "强者", "路上",
-        "干净", "那边", "那位", "一脸", "不由", "不错", "不愿", "不到",
-        "不敢", "不能", "不会", "不好", "不用", "不知", "不断", "不停",
-        "轻声", "师尊", "宗主", "师兄", "师姐", "师妹", "师弟", "怀中",
-        "于是", "那啥", "那个", "算了", "还能", "还是", "再说", "回头",
-        "哪天", "到时", "按理", "要不", "或是", "除了", "其中", "其他",
-        "其余", "哪些", "那些", "接着", "跟着", "反正", "总之", "虽说",
-        "虽说", "若非", "待到", "直到", "趁着", "凭着", "靠着", "顺着",
-        "照着", "朝着", "沿着", "经过", "通过", "周围", "附近", "旁边",
-        "大约", "至少", "最多", "最少", "多半", "还是", "必然", "自然",
-        "果然", "居然", "竟然", "难道", "究竟", "到底", "毕竟", "反正",
-        "当然", "总归", "或是", "或是", "还有", "尚有", "唯有", "唯有",
-        "只有", "惟有", "另外", "此外", "同时", "前后", "左右", "前后",
-        "那些", "每次", "每天", "每年", "每月", "每周", "多年", "连日", "连夜",
+        "自从", "由于", "关于", "对于", "根据", "那些", "那些", "每个", "那些",
+        "万一", "不知", "之间", "之前", "之后", "之时", "之际", "之类",
+        "之中", "之一", "那些", "那些", "其他", "各自", "彼此",
+        "互相", "相对", "绝对", "完全", "全部", "全都", "整个", "全体",
+        "每次", "每天", "每年", "每月", "每周", "多年", "连日", "连夜",
         "不断", "不停", "不止", "不仅", "不只", "不禁", "不由", "不由",
         "连忙", "急忙", "赶紧", "赶快", "迅速", "快速", "飞快", "急速",
         "始终", "一直", "一向", "一贯", "从来", "历来", "向来", "本来",
         "原来", "那些", "那些", "每个", "每次",
+        "万一", "不知", "那些", "那些", "那些", "那些", "那些",
+        "那些", "那些", "那些", "那些",
+        "那些", "那些", "那些", "那些",
+        "那些", "那些", "那些", "那些",
+        "那些", "那些", "那些", "那些",
     ]
 
     static let speechVerbs: Set<String> = [
@@ -320,7 +304,7 @@ public final class RobustCharacterExtractor {
 
         let patterns: [NSRegularExpression?] = [RegexPatterns.coreSpeaker, RegexPatterns.novelAction, RegexPatterns.titleSuffix]
         for pattern in patterns.compactMap({ $0 }) {
-            pattern.enumerateMatches(in: para, range: NSRange(para.startIndex..<para.endIndex, in: para)) { match, _, _ in
+            pattern.enumerateMatches(in: para, range: nsRange) { match, _, _ in
                 guard let m = match, let r = Range(m.range(at: 1), in: para) else { return }
                 let nameCandidate = String(para[r]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if isValidName(nameCandidate) { found.insert(nameCandidate) }
@@ -395,16 +379,7 @@ public final class RobustCharacterExtractor {
                     let name = String(para[range]).trimmingCharacters(in: .whitespacesAndNewlines)
                     if isValidName(name) {
                         found.insert(name)
-}
-}
-
-// MARK: - Dialogue Segment (for dialogue count)
-
-struct DialogueSegment {
-    let speaker: String?
-    let content: String
-    let range: Range<String.Index>
-}
+                    }
                 }
                 return true
             }
@@ -432,7 +407,7 @@ struct DialogueSegment {
         if ChineseNamePatterns.nonNamePhrases.contains(trimmed) { return false }
         if ChineseNamePatterns.nonNamePairs.contains(trimmed) { return false }
 
-        if chars.count == 2 {
+        if trimmed.count == 2 {
             if !firstCharIsSurname(trimmed) && !ChineseNamePatterns.namePrefixes.contains(String(trimmed.prefix(1))) {
                 return false
             }
@@ -525,7 +500,7 @@ struct DialogueSegment {
         var cheerfulVotes = 0, angryVotes = 0, sadVotes = 0
 
         for context in contexts {
-            if containsAny(context, keywords: ["小姐", "姑娘", "师妹", "师姐", "奶奶", "娘", "公主", "女侠", "女士", "夫人", "太太", "妹妹", "女儿", "女眷", "女子", "女人", "母亲", "妈妈", "妈", "她", "她们", "女生", "女孩", "少女", "姑娘家"]) { femaleVotes += 3 }
+            if containsAny(context, keywords: ["小姐", "姑娘", "师妹", "师姐", "奶奶", "娘", "公主", "女侠", "女士", "夫人", "太太", "妹妹", "女儿", "女眷", "女子", "女人", "母亲", "母亲", "妈妈", "妈", "她", "她们", "女生", "女孩", "少女", "姑娘家"]) { femaleVotes += 3 }
             if containsAny(context, keywords: ["先生", "公子", "兄", "少爷", "师兄", "师弟", "陛下", "王爷", "将军", "兄台", "掌门", "教主", "帮主", "前辈", "兄台", "贤弟", "师兄", "师弟", "少侠", "哥哥", "大哥", "大叔", "大爷", "伯伯", "叔叔", "老爷", "父亲", "爸爸", "爹", "儿子", "儿子", "他", "他们", "他", "男人", "男子", "汉子", "大叔", "大伯"]) { maleVotes += 3 }
 
             if context.contains("她") { femaleVotes += 1 }
@@ -654,6 +629,20 @@ struct DialogueSegment {
         return false
     }
 
+    private func extractSampleLines(for name: String, from text: String, maxSamples: Int) -> [String] {
+        var samples: [String] = []
+        let paragraphs = text.components(separatedBy: .newlines)
+
+        for para in paragraphs where para.contains(name) {
+            let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.count > 10 && trimmed.count < 200 {
+                samples.append(trimmed)
+                if samples.count >= maxSamples { break }
+            }
+        }
+        return samples
+    }
+
     private func extractDialogues(from text: String) -> [DialogueSegment] {
         var results: [DialogueSegment] = []
         let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
@@ -669,4 +658,79 @@ struct DialogueSegment {
         }
         return results
     }
+}
+
+// MARK: - Aho-Corasick Automaton
+
+final class ACAutomaton {
+    private class Node {
+        var children: [Character: Node] = [:]
+        var fail: Node?
+        var output: [String] = []
+    }
+
+    private var root = Node()
+    private var built = false
+
+    func insert(_ pattern: String) {
+        var node = root
+        for ch in pattern {
+            if let child = node.children[ch] {
+                node = child
+            } else {
+                let child = Node()
+                node.children[ch] = child
+                node = child
+            }
+        }
+        node.output.append(pattern)
+        built = false
+    }
+
+    func build() {
+        var queue: [Node] = []
+        for (_, child) in root.children {
+            child.fail = root
+            queue.append(child)
+        }
+        while !queue.isEmpty {
+            let node = queue.removeFirst()
+            for (ch, child) in node.children {
+                var fail = node.fail
+                while fail != nil && fail!.children[ch] == nil {
+                    fail = fail!.fail
+                }
+                child.fail = (fail?.children[ch]) ?? root
+                child.output.append(contentsOf: child.fail?.output ?? [])
+                queue.append(child)
+            }
+        }
+        built = true
+    }
+
+    func search(_ text: String) -> [String: Int] {
+        if !built { build() }
+        var counts: [String: Int] = [:]
+        var node = root
+        for ch in text {
+            while node !== root && node.children[ch] == nil {
+                node = node.fail ?? root
+            }
+            if let child = node.children[ch] {
+                node = child
+            }
+            for pattern in node.output {
+                counts[pattern, default: 0] += 1
+            }
+        }
+        return counts
+    }
+}
+
+// MARK: - Dialogue Segment (for dialogue count)
+
+struct DialogueSegment {
+    let speaker: String?
+    let content: String
+    let range: Range<String.Index>
 }
