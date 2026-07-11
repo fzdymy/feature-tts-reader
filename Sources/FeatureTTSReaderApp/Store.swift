@@ -1351,7 +1351,10 @@ final class ReaderStore: NSObject, ObservableObject {
 
         let paragraphs = chapter.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
         guard !paragraphs.isEmpty else {
-            await MainActor.run { statusMessage = "当前章节为空，无法朗读。" }
+            await MainActor.run {
+                statusMessage = "当前章节为空，无法朗读。"
+                isBusy = false
+            }
             return
         }
 
@@ -1464,7 +1467,7 @@ final class ReaderStore: NSObject, ObservableObject {
         for i in 0..<min(prefetchWindowSize, pendingUnits.count) {
             let u = pendingUnits[i]
             await prefetcher.prefetch(index: i, text: u.sentence, voice: u.voice,
-                                rate: u.rate, pitch: u.pitch, style: u.emotionTag ?? "")
+                                rate: u.rate, pitch: u.pitch, style: u.emotionTag)
         }
 
         // S16: 消费循环 —— 每句异步等待音频数据，立即入队播放，同步预取后续句子
@@ -1478,7 +1481,7 @@ final class ReaderStore: NSObject, ObservableObject {
             if nextIndex < pendingUnits.count {
                 let nu = pendingUnits[nextIndex]
                 await prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voice,
-                                    rate: nu.rate, pitch: nu.pitch, style: nu.emotionTag ?? "")
+                                    rate: nu.rate, pitch: nu.pitch, style: nu.emotionTag)
             }
             guard let audioData = audioData else { continue }
 

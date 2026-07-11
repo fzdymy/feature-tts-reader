@@ -197,11 +197,19 @@ actor EdgeTTSService {
                 lastError = EdgeTTSError.invalidServerURL
                 continue
             }
+            // Normalize: strip trailing slash so lastPathComponent is meaningful
+            let normalizedURL: URL = {
+                let urlStr = baseURL.absoluteString
+                if urlStr.hasSuffix("/") {
+                    return URL(string: String(urlStr.dropLast())) ?? baseURL
+                }
+                return baseURL
+            }()
             let endpoint: URL
-            if baseURL.lastPathComponent == "tts" {
-                endpoint = baseURL.deletingLastPathComponent().appendingPathComponent("tts")
+            if normalizedURL.lastPathComponent == "tts" {
+                endpoint = normalizedURL.deletingLastPathComponent().appendingPathComponent("tts")
             } else {
-                endpoint = baseURL.appendingPathComponent("tts")
+                endpoint = normalizedURL.appendingPathComponent("tts")
             }
             do {
                 let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), style: style, apiKey: server.apiKey)
@@ -251,11 +259,18 @@ actor EdgeTTSService {
         guard let baseURL = URL(string: server.url) else {
             return "\(server.name): 无效地址"
         }
+        let normalizedURL: URL = {
+            let urlStr = baseURL.absoluteString
+            if urlStr.hasSuffix("/") {
+                return URL(string: String(urlStr.dropLast())) ?? baseURL
+            }
+            return baseURL
+        }()
         let healthEndpoint: URL
-        if baseURL.lastPathComponent == "tts" {
-            healthEndpoint = baseURL.deletingLastPathComponent().appendingPathComponent("health")
+        if normalizedURL.lastPathComponent == "tts" {
+            healthEndpoint = normalizedURL.deletingLastPathComponent().appendingPathComponent("health")
         } else {
-            healthEndpoint = baseURL.appendingPathComponent("health")
+            healthEndpoint = normalizedURL.appendingPathComponent("health")
         }
         let endpoints = [
             healthEndpoint,
@@ -337,13 +352,17 @@ actor EdgeTTSService {
         switch rate {
         case let r where r > 20: rateValue = "+20%"
         case let r where r < -20: rateValue = "-20%"
-        default: rateValue = "\(Int(rate))%"
+        case let r where r > 0: rateValue = "+\(Int(r))%"
+        case let r where r < 0: rateValue = "\(Int(r))%"
+        default: rateValue = "0%"
         }
         let pitchValue: String
         switch pitch {
         case let p where p > 20: pitchValue = "+20%"
         case let p where p < -20: pitchValue = "-20%"
-        default: pitchValue = "\(Int(pitch))%"
+        case let p where p > 0: pitchValue = "+\(Int(p))%"
+        case let p where p < 0: pitchValue = "\(Int(p))%"
+        default: pitchValue = "0%"
         }
 
         var result = "<prosody rate=\"\(rateValue)\" pitch=\"\(pitchValue)\">"
