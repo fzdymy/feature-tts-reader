@@ -548,10 +548,111 @@
 | P1(3) | 进度条滑块 | `chHeight` 从字符级改为段落级计算（与 `estimatedChapterHeight` 一致）；Slider 添加 `.highPriorityGesture(TapGesture())` 防止穿透 |
 | P1(4) | 区域点击滚屏 | 无遮蔽时 middle→切换沉浸，top/bottom→scrollPageUp/Down 5/6 屏；ScrollViewAccessor 移入 ScrollView 内部确保 UIScrollView 引用有效 |
 
-## 已知待优化问题 (2026-07-10)
+---
+
+# 2026-07-11 重构: 纯段落 ID 定位 — 删除全部像素估算代码
+
+## 🔴 根因链
+
+所有读者 bug 共享根因：**两套冲突的滚动定位系统并存**。
+
+| 系统 | 机制 | 用途 |
+|------|------|------|
+| `scrollPositionID` (iOS 17+ 原生) | View `.id()` 匹配，SwiftUI 自动动画定位 | 章节跳转、auto-scroll |
+| `scrollCoordinator.scrollTo(offset:)` | 直接设置 UIScrollView.contentOffset.y | 滑块、区域点击、原进度、auto-scroll |
+
+两套系统都试图控制同一个 `UIScrollView` 的滚动位置，但它们**互不知晓对方的存在**。当 `scrollPositionID` 将一个段落定位到顶部时，SwiftUI 会触发动画；这个动画若尚未结束，另一个 `scrollTo(offset:)` 又改变了 contentOffset，则两个动画线程冲突，表现为：
+- **P0(0) 章节跳转错位**：`scrollPositionID` 定位到章节 N，但 `scrollCoordinator.scrollTo` 的旧偏差 offset 又将视图推到错误位置
+- **P1(3) 滑块跳动**：拖拽滑块触发 `scrollTo(offset:)`，同时 `scrollPositionID.onChange` 监测到 ID 变化又反写状态 → 循环震荡
+- **Jitter 抖动**：两个动画引擎争抢 contentOffset 控制权
+
+## ✅ 修复方案：纯段落 ID 定位
+
+彻底抛弃像素偏移估算，全部滚动操作统一使用 `scrollPositionID`。
+
+### 核心设计
+
+```
+段落标识符: "ch_\(chapterIndex)_p_\(paragraphIndex)"
+章节锚点:   "ch_\(chapterIndex)_anchor" (Color.clear.frame(height:0).id(...))
+绑定机制:   .scrollPosition(id: $scrollPositionID, anchor: .top)
+```
+
+### 变更清单
+
+| 组件 | 旧方案 | 新方案 |
+|------|--------|--------|
+| 章节跳转 | `scrollPositionID = "ch_N"` + 0.05s 后 `scrollCoordinator.scrollTo` | `scrollPositionID = "ch_N_anchor"`，无 offset 补偿 |
+| 进度条滑块 | `chHeight()` 估算段落总像素 → `scrollTo(offset:)` | 0%-100% → 段落索引 → `onScrollToID("ch_N_p_M")` |
+| 朗读自动滚动 | `autoScrollOffset()` 像素估算 → `scrollTo(offset:)` | `scrollPositionID = "ch_N_p_M"` |
+| scrolledAway | `GeometryReader` 追踪 minY + `segmentStartOffset` 阈值 | `onChange(of: scrollPositionID)` + `lastAutoScrollTime` 时间窗 |
+| "原进度"回转 | `scrollTo(segmentStartOffset, true)` | `onScrollToID(startPlaybackID)` |
+| 播放起始标记 | `segmentStartOffset = scrollOffset` (像素) | `startPlaybackID = scrollPositionID` (ID) |
+| 区域点击滚屏 | `scrollCoordinator.scrollTo(offset:)` 5/6 屏 | 保持不变（不涉及 scrollPositionID，无冲突） |
+
+### 已删除死代码 (~200 行)
+
+`chHeight`, `estimatedChapterHeight`, `estimatedParagraphHeight`, `autoScrollOffset`, `segmentTextForCurrentPosition`, `chapterHeights` (state), `scrollOffset` (state), `segmentStartOffset` (state), `GeometryReader`
+
+### 新增代码
+
+| 项目 | 实现 |
+|------|------|
+| `currentParaIndexFromID` | 解析 `scrollPositionID` → 返回当前段落索引 |
+| `currentParaIndex` (overlay) | 同上，从 `currentScrollID` 参数解析 |
+| `totalParasInCurrentChapter` | 按 `\n` split + filter 空行 → 总段落数 |
+| `sliderProgress` | `Double(currentParaIndex) / Double(totalParas)` |
+| `startPlaybackID` | `@State` 存储起始播放位置的段落 ID |
+| `onScrollToID` | overlay 回调：设置 `scrollPositionID` |
+
+### Parse 逻辑
+
+`scrollPositionID` 格式: `"ch_N_anchor"` 或 `"ch_N_p_M"`
+```swift
+let parts = idStr.split(separator: "_", maxSplits: 3)
+guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1])
+// anchor: parts.count == 3 && parts[2] == "anchor"
+// paragraph: parts.count == 4 && parts[2] == "p" && let pi = Int(parts[3])
+```
+
+### 注意事项
+
+- `.scrollPosition(id: $scrollPositionID)` 需要每个段落视图有明确的 `.id()` 修饰符，且 ID 在 ScrollView 子层级中唯一
+- `LazyVStack` + `id()` 在 iOS 17+ 中能正确工作：scrollPosition 会强制创建懒加载的视图
+- 区域点击（`scrollPageUp`/`scrollPageDown`）仍使用 `scrollCoordinator.scrollTo` 像素偏移，因为段落间没有精确的"5/6 屏跳过"段落数概念；但此操作**不设置 scrollPositionID**，不会与 ID 定位冲突
+- `scrollPositionID.onChange` 中增加了 `isRecentAutoScroll` 守卫（0.4s 窗口），防止 auto-scroll 触发自身的 onChange 循环
+
+## 修复记录 (2026-07-11)
+
+| 提交 | 描述 |
+|------|------|
+| `f9287f0` | **fix: pure paragraph-ID positioning — remove all pixel-estimation code** |
+
+### 当前状态 ✅ (2026-07-11 最终版)
+
+| # | 功能 | 方案 |
+|---|------|------|
+| P0(0) | 章节跳转 | `scrollPositionID = "ch_N_anchor"`，单次设置，无 offset 补偿 → `<0.4s` 内 onChange 忽略（免 flutter），`navigationTarget` 2s 超时保底 |
+| P0(1) | 双击播放删除 | 段落移除 `onTapGesture(count:2)`，朗读入口仅 `floatingPlayButton` |
+| P1(1) | 首行缩进 | 导入时 strip `\u{3000}`；显示时根据 `readerFirstLineIndent` 拼接 `\u{3000}`×N；保存时触发 `store.saveState()` |
+| P1(2) | 全屏切换动画 | `0.25s` → `0.08s` |
+| P0(2) | 移除"正在朗读" | 删除 header 中绿色圆点 + 文字徽章 |
+| P1(3) | 进度条滑块 | `currentParaIndex / totalParas` → `onScrollToID("ch_N_p_M")`；无需像素估算，双向绑定稳定 |
+| P1(4) | 区域点击滚屏 | 无遮蔽时 middle→切换沉浸，top/bottom→scrollPageUp/Down 5/6 屏（像素偏移，不涉及 scrollPositionID，无冲突） |
+
+## 已知待优化问题 (2026-07-11)
 
 ### P1 — 待修复
 
 | # | 问题 | 文件 | 说明 |
 |---|------|------|------|
 | R1 | TTS 测试页缺少音色/速度/风格/音调调节 | `TTSView.swift` | 从 `/api/v1/config` 加载了 voices 但测试区没有 rate(速度)、style(风格)、pitch(音调) 的 UI 控制 |
+
+### P2 — 改进空间
+
+| # | 问题 | 说明 |
+|---|------|------|
+| S1 | 区域点击跳转仍用像素偏移 | 可改为段落级别跳转（如跳过 10 段而非 5/6 屏），完全消除对 scrollCoordinator 的依赖 |
+| S2 | `autoScrollWorkItem` 防抖中存在竞态 | G6 遗留：dispatchWorkItem 取消时如果已经执行，`scrolledAway` 可能被错误覆盖 |
+| S3 | `LazyVStack` 惰性加载在大量章节中性能未测试 | 若出现滚动卡顿，可考虑改用 `VStack`（章节总数通常 < 200） |
+| S4 | `cachedParagraphs` 不清理 | 书籍切换时 `paragraphCache` 累积但不释放；可添加 `onDisappear` 清理 |
