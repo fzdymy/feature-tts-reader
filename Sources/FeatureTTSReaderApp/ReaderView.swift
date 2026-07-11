@@ -1471,7 +1471,6 @@ private struct ReaderOverlayView: View {
                     immersiveBeforeAudioMode = isImmersive
                     isAudioMode = true
                     isPlaying = true
-                    startPlaybackID = scrollPositionID
                     Task { await startPlayback(nil) }
                 }) {
                     Image(systemName: "play.circle.fill")
