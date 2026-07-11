@@ -557,11 +557,68 @@ struct TTSView: View {
         isTestingMultiRole = true
         multiRoleTestResult = ""
         Task {
-            var items: [TTSQueueItem] = []
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
             let total = multiRoleTestScenes.count
 
-            for (index, scene) in multiRoleTestScenes.enumerated() {
+            // 1. 合成第 1 段 → 立即入队播放
+            let firstScene = multiRoleTestScenes[0]
+            do {
+                let combinedRate = firstScene.rate + multiRoleGlobalRate
+                let combinedPitch = firstScene.pitch
+                let audioData = try await EdgeTTSService.shared.synthesize(
+                    text: firstScene.text,
+                    voice: firstScene.voice,
+                    rate: combinedRate,
+                    pitch: combinedPitch,
+                    style: "",
+                    serverID: id
+                )
+                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                let url = cachesDir.appendingPathComponent("role-\(firstScene.id.uuidString).\(ext)")
+                try audioData.write(to: url, options: .atomic)
+
+                let segment = ScriptSegment(
+                    id: firstScene.id,
+                    characterName: firstScene.characterName,
+                    voice: firstScene.voice,
+                    rate: Int(combinedRate),
+                    pitch: Int(combinedPitch),
+                    style: "",
+                    text: firstScene.text,
+                    emotionTag: "",
+                    paragraphIndex: 0
+                )
+                let item = TTSQueueItem(
+                    segment: segment,
+                    audioURL: url,
+                    audioData: audioData,
+                    chapterTitle: "多角色测试",
+                    bookTitle: "测试",
+                    bookID: "test",
+                    chapterIndex: 0,
+                    segmentIndex: 0,
+                    totalSegments: total,
+                    paragraphIndex: 0,
+                    sentenceIndex: nil,
+                    anchor: nil
+                )
+                await MainActor.run {
+                    store.audioController.appendToQueue([item])
+                    multiRoleTestResult = "第 1 段合成完成，开始播放..."
+                }
+            } catch {
+                await MainActor.run {
+                    multiRoleTestResult = "\(firstScene.characterName) 失败: \(error.localizedDescription)"
+                    isTestingMultiRole = false
+                }
+                return
+            }
+
+            // 2. 后台合成剩余段 → 一次性入队（播放器会按顺序等待）
+            await MainActor.run { multiRoleTestResult = "第 1 段播放中，后续合成中..." }
+            var restItems: [TTSQueueItem] = []
+            for index in 1..<total {
+                let scene = multiRoleTestScenes[index]
                 do {
                     let combinedRate = scene.rate + multiRoleGlobalRate
                     let combinedPitch = scene.pitch
@@ -602,10 +659,10 @@ struct TTSView: View {
                         sentenceIndex: nil,
                         anchor: nil
                     )
-                    items.append(item)
+                    restItems.append(item)
 
                     await MainActor.run {
-                        multiRoleTestResult = "已合成 \(index + 1)/\(total) 段，准备播放..."
+                        multiRoleTestResult = "已合成 \(index + 1)/\(total) 段，播放中..."
                     }
                 } catch {
                     await MainActor.run {
@@ -616,10 +673,10 @@ struct TTSView: View {
                 }
             }
 
-            // 批量一次性入队，避免逐个 appendToQueue 竞态
+            // 3. 剩余全部入队
             await MainActor.run {
-                store.audioController.appendToQueue(items)
-                multiRoleTestResult = "\(items.count)/\(total) 段全部入队，正在流式播放"
+                store.audioController.appendToQueue(restItems)
+                multiRoleTestResult = "\(total)/\(total) 段全部入队，正在流式播放"
                 isTestingMultiRole = false
             }
         }
