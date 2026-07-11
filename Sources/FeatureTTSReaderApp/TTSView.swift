@@ -342,6 +342,25 @@ struct TTSView: View {
                     Text(multiRoleTestResult)
                         .font(.caption)
                     Spacer()
+                    
+                    // 暂停/继续按钮 - 仅在有播放内容时显示
+                    if store.audioController.isPlaying {
+                        Button {
+                            store.audioController.pause()
+                        } label: {
+                            Image(systemName: "pause.circle.fill")
+                                .font(.title3)
+                        }
+                        .buttonStyle(.borderless)
+                    } else if !multiRoleTestResult.contains("失败") && !multiRoleTestResult.isEmpty {
+                        Button {
+                            store.audioController.resume()
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                                .font(.title3)
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
             }
         } header: {
