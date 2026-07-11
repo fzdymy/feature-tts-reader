@@ -68,7 +68,7 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        scrollPositionID = "ch_\(safeTarget)_anchor"
+        scrollPositionID = "ch_\(safeTarget)"
         // Timeout: if scroll never reaches target, force update after 2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             if self.navigationTarget == safeTarget {
@@ -124,6 +124,7 @@ struct ReaderView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(chaptersList.indices, id: \.self) { i in
                         chapterContent(index: i)
+                            .id("ch_\(i)")
                     }
                 }
                 .scrollTargetLayout()
@@ -137,7 +138,7 @@ struct ReaderView: View {
                 if isPlaying, isAudioMode, isImmersive {
                     scrolledAway = true
                 }
-                // Parse "ch_N_anchor" or "ch_N_p_M"
+                // Parse "ch_N" or "ch_N_p_M"
                 let parts = idStr.split(separator: "_", maxSplits: 3)
                 guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
                 let isAnchor = parts.count == 3 && parts[2] == "anchor"
@@ -165,7 +166,7 @@ struct ReaderView: View {
             .onAppear {
                 DispatchQueue.main.async {
                     if currentChapterIndex > 0 {
-                        scrollPositionID = "ch_\(currentChapterIndex)_anchor"
+                        scrollPositionID = "ch_\(currentChapterIndex)"
                     }
                 }
             }
@@ -784,10 +785,6 @@ struct ReaderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Color.clear
-                .frame(height: 0)
-                .id("ch_\(index)_anchor")
-
             HStack(alignment: .center, spacing: 8) {
                 Text(chapter.title)
                     .font(.title2).fontWeight(.bold)
