@@ -379,7 +379,16 @@ public final class RobustCharacterExtractor {
                     let name = String(para[range]).trimmingCharacters(in: .whitespacesAndNewlines)
                     if isValidName(name) {
                         found.insert(name)
-                    }
+}
+}
+
+// MARK: - Dialogue Segment (for dialogue count)
+
+struct DialogueSegment {
+    let speaker: String?
+    let content: String
+    let range: Range<String.Index>
+}
                 }
                 return true
             }
