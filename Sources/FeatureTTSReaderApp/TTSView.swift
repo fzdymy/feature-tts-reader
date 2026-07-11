@@ -698,33 +698,6 @@ private func synthesizeAndPlayCustom() {
                 return
             }
             
-            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-            var restItems: [TTSQueueItem] = []
-            
-            // Build character name -> voice mapping
-            var charVoiceMap: [String: String] = [:]
-            for profile in result.characters {
-                if let voiceID = customCharacterVoices[profile.name], !voiceID.isEmpty {
-                    charVoiceMap[profile.name] = voiceID
-                } else if let matched = availableVoices.first(where: { 
-                    $0.locale.hasPrefix("zh-CN") && 
-                    (profile.gender == "Male" && $0.gender == "Male" || profile.gender == "Female" && $0.gender == "Female")
-                }) {
-                    charVoiceMap[profile.name] = matched.id
-                }
-            }
-            let defaultVoiceID = charVoiceMap.values.first ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
-            
-            let rate = multiRoleGlobalRate
-            let pitch = 0.0
-            
-            // 1. 合成首段并立即入队播放
-            let first = validSegments[0]
-            let firstSpeaker = first.speaker ?? "旁白"
-            let firstVoiceID = charVoiceMap[first.speaker ?? "旁白"] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
-            let rate = multiRoleGlobalRate
-            let pitch = 0.0
-            
             do {
                 let firstText = first.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !firstText.isEmpty else { throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "空文本"]) }
