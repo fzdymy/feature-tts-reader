@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct TTSView: View {
     @EnvironmentObject private var store: ReaderStore
@@ -32,6 +33,14 @@ struct TTSView: View {
     @State private var isTestingMultiRole = false
     @State private var multiRoleTestResult = ""
     @State private var multiRoleGlobalRate: Double = 0
+
+    // MARK: - Custom Multi-Role Test State
+    @State private var customMultiRoleText = ""
+    @State private var isScanningCharacters = false
+    @State private var customScanResult: CharacterScanner.Result?
+    @State private var customCharacterVoices: [String: String] = [:] // characterName -> voiceID
+    @State private var isSynthesizingCustom = false
+    @State private var customSynthesisResult = ""
 
     // MARK: - Sheet State
     @State private var showAddSheet = false
@@ -97,6 +106,7 @@ struct TTSView: View {
                 if selectedServerID != nil {
                     testSection
                     multiRoleTestSection
+                    customMultiRoleSection
                 }
                 statusSection
             }
@@ -398,7 +408,304 @@ struct TTSView: View {
                        text: "陕兵说完，全场再次陷入了一阵死一般的寂静。无边的黑暗，将这五个人的秘密彻底吞噬。"),
     ]
 
-// MARK: - Request Preview
+    // MARK: - Custom Multi-Role Section
+
+    private var customMultiRoleSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("粘贴或输入小说文本（自动识别角色、匹配音色、流水合成播放）", text: $customMultiRoleText, axis: .vertical)
+                    .font(.body)
+                    .lineLimit(4...8)
+                    .padding(8)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+
+                // 角色扫描与结果
+                if isScanningCharacters {
+                    HStack {
+                        ProgressView().scaleEffect(0.8)
+                        Text("正在识别角色...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                } else if let result = customScanResult, !result.characters.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("识别到 \(result.characters.count) 个角色")
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.secondary)
+
+                        ForEach(result.characters.prefix(10)) { profile in
+                            HStack {
+                                Text(profile.name)
+                                    .font(.subheadline)
+                                Spacer()
+                                Picker("", selection: Binding(
+                                    get: { customCharacterVoices[profile.name] ?? "" },
+                                    set: { customCharacterVoices[profile.name] = $0 }
+                                )) {
+                                    Text("自动分配").tag("")
+                                    ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
+                                        Text(v.displayName).tag(v.id)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(width: 140)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+                }
+
+                // 控制按钮
+                VStack(spacing: 8) {
+                    Button {
+                        scanCustomCharacters()
+                    } label: {
+                        Label("识别角色并匹配音色", systemImage: "magnifyingglass")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isScanningCharacters || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedServerID == nil)
+
+                    Button {
+                        synthesizeAndPlayCustom()
+                    } label: {
+                        HStack {
+                            if isSynthesizingCustom {
+                                ProgressView().scaleEffect(0.7)
+                            }
+                            Label("流水合成并播放", systemImage: "play.circle.fill")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isSynthesizingCustom || customScanResult == nil || customScanResult?.characters.isEmpty == true || selectedServerID == nil)
+
+                    if !customSynthesisResult.isEmpty {
+                        let isSuccess = customSynthesisResult.hasPrefix("已入队") || customSynthesisResult.contains("播放")
+                        HStack {
+                            Image(systemName: isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(isSuccess ? .green : .red)
+                            Text(customSynthesisResult)
+                                .font(.caption)
+                            Spacer()
+                        }
+                    }
+
+                    // 暂停/继续按钮（仅在播放时显示）
+                    if store.audioController.isPlaying && !isSynthesizingCustom {
+                        HStack {
+                            Button {
+                                store.audioController.pause()
+                            } label: {
+                                Label("暂停", systemImage: "pause.circle.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                store.audioController.resume()
+                            } label: {
+                                Label("继续", systemImage: "play.circle.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+            }
+        } header: {
+            Label("自定义多角色测试", systemImage: "text.bubble.fill")
+        }
+    }
+
+    // MARK: - Custom Multi-Role Actions
+
+    private func scanCustomCharacters() {
+        let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        isScanningCharacters = true
+        customScanResult = nil
+        customCharacterVoices.removeAll()
+        customSynthesisResult = ""
+
+        Task {
+            let config = CharacterScanner.Config(maxResults: 12)
+            let result = await CharacterScanner.scan(
+                text: text,
+                config: config,
+                voices: [], // 稍后自动匹配
+                defaultSensitivity: 50
+            )
+            await MainActor.run {
+                customScanResult = result
+                isScanningCharacters = false
+                // 自动为每个角色匹配音色（性别优先）
+                var voices: [String: String] = [:]
+                for profile in result.characters.prefix(10) {
+                    let matchedVoice = availableVoices.first { v in
+                        v.locale.hasPrefix("zh-CN") &&
+                        (profile.gender == "Male" && v.gender == "Male" || profile.gender == "Female" && v.gender == "Female")
+                    } ?? availableVoices.first { $0.locale.hasPrefix("zh-CN") }
+                    if let v = matchedVoice {
+                        voices[profile.name] = v.id
+                    }
+                }
+                customCharacterVoices = voices
+            }
+        }
+    }
+
+    private func synthesizeAndPlayCustom() {
+        guard let id = selectedServerID,
+              let result = customScanResult,
+              !result.characters.isEmpty else { return }
+
+        isSynthesizingCustom = true
+        customSynthesisResult = "正在合成首段..."
+
+        Task {
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let characters = result.characters.prefix(10).map { $0.name }
+
+            // 简单分段：按标点分句，按角色名分配
+            let sentences = text.split(separator: "。").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            let total = sentences.count
+            var restItems: [TTSQueueItem] = []
+
+            // 1. 首句立即合成 + 入队
+            if let firstSentence = sentences.first {
+                let firstChar = characters.first ?? "旁白"
+                let voiceID = customCharacterVoices[firstChar] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+                let rate = multiRoleGlobalRate
+                let pitch = 0.0
+
+                do {
+                    let audioData = try await EdgeTTSService.shared.synthesize(
+                        text: firstSentence + "。",
+                        voice: voiceID,
+                        rate: rate,
+                        pitch: pitch,
+                        style: "",
+                        serverID: id
+                    )
+                    let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                    let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                    try audioData.write(to: url, options: .atomic)
+
+                    let segment = ScriptSegment(
+                        id: UUID(),
+                        characterName: firstChar,
+                        voice: voiceID,
+                        rate: Int(rate),
+                        pitch: Int(pitch),
+                        style: "",
+                        text: firstSentence + "。",
+                        emotionTag: "",
+                        paragraphIndex: 0
+                    )
+                    let item = TTSQueueItem(
+                        segment: segment,
+                        audioURL: url,
+                        audioData: audioData,
+                        chapterTitle: "自定义多角色",
+                        bookTitle: "测试",
+                        bookID: "test",
+                        chapterIndex: 0,
+                        segmentIndex: 0,
+                        totalSegments: total,
+                        paragraphIndex: 0,
+                        sentenceIndex: nil,
+                        anchor: nil
+                    )
+                    await MainActor.run {
+                        store.audioController.appendToQueue([item])
+                        customSynthesisResult = "第 1/\(total) 段合成完成，开始播放..."
+                    }
+                } catch {
+                    await MainActor.run {
+                        customSynthesisResult = "首段合成失败: \(error.localizedDescription)"
+                        isSynthesizingCustom = false
+                    }
+                    return
+                }
+            }
+
+            // 2. 后台合成剩余句子
+            await MainActor.run { customSynthesisResult = "首句播放中，后台合成剩余 \(total - 1) 段..." }
+            for (idx, sentence) in sentences.dropFirst().enumerated() {
+                let char = characters[idx % characters.count]
+                let voiceID = customCharacterVoices[char] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+                let rate = multiRoleGlobalRate
+                let pitch = 0.0
+
+                do {
+                    let audioData = try await EdgeTTSService.shared.synthesize(
+                        text: sentence + "。",
+                        voice: voiceID,
+                        rate: rate,
+                        pitch: pitch,
+                        style: "",
+                        serverID: id
+                    )
+                    let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                    let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                    try audioData.write(to: url, options: .atomic)
+
+                    let segment = ScriptSegment(
+                        id: UUID(),
+                        characterName: char,
+                        voice: voiceID,
+                        rate: Int(rate),
+                        pitch: Int(pitch),
+                        style: "",
+                        text: sentence + "。",
+                        emotionTag: "",
+                        paragraphIndex: idx + 1
+                    )
+                    let item = TTSQueueItem(
+                        segment: segment,
+                        audioURL: url,
+                        audioData: audioData,
+                        chapterTitle: "自定义多角色",
+                        bookTitle: "测试",
+                        bookID: "test",
+                        chapterIndex: 0,
+                        segmentIndex: idx + 1,
+                        totalSegments: total,
+                        paragraphIndex: idx + 1,
+                        sentenceIndex: nil,
+                        anchor: nil
+                    )
+                    restItems.append(item)
+
+                    await MainActor.run {
+                        customSynthesisResult = "已合成 \(idx + 2)/\(total) 段..."
+                    }
+                } catch {
+                    await MainActor.run {
+                        customSynthesisResult = "第 \(idx + 2) 段合成失败: \(error.localizedDescription)"
+                        isSynthesizingCustom = false
+                    }
+                    return
+                }
+            }
+
+            // 3. 剩余全部入队
+            await MainActor.run {
+                store.audioController.appendToQueue(restItems)
+                customSynthesisResult = "\(total)/\(total) 段全部入队，正在流式播放"
+                isSynthesizingCustom = false
+            }
+        }
+    }
 
     @ViewBuilder
     private var requestPreview: some View {
