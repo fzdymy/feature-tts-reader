@@ -60,7 +60,6 @@ struct ReaderView: View {
     @State private var startPlaybackID: String?
     @State private var cachedParagraphs: [UUID: [String]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
-    @State private var pendingNavigateTo: Int?
 
     private func navigateToChapter(_ target: Int) {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
@@ -69,7 +68,16 @@ struct ReaderView: View {
         ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
         ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
         navigationTarget = safeTarget
-        pendingNavigateTo = safeTarget
+        scrollPositionID = "ch_\(safeTarget)"
+        // LazyVStack may land one screen short; nudge one more viewport after scroll animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [scrollCoordinator] in
+            guard let sv = scrollCoordinator.scrollView else { return }
+            let screenH = UIScreen.main.bounds.height
+            let maxOffset = max(0, sv.contentSize.height - sv.bounds.height)
+            let targetOffset = min(sv.contentOffset.y + screenH, maxOffset)
+            guard targetOffset > sv.contentOffset.y else { return }
+            sv.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: true)
+        }
         // Timeout: if scroll never reaches target, force update after 2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             if self.navigationTarget == safeTarget {
@@ -119,7 +127,6 @@ struct ReaderView: View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollViewReader { proxy in
             ScrollView {
                 ScrollViewAccessor(coordinator: scrollCoordinator)
                     .frame(height: 0)
@@ -132,19 +139,6 @@ struct ReaderView: View {
                 .scrollTargetLayout()
             }
             .scrollPosition(id: $scrollPositionID, anchor: .top)
-            .onChange(of: pendingNavigateTo) { _, newTarget in
-                if let target = newTarget {
-                    proxy.scrollTo("ch_\(target)", anchor: .top)
-                    currentChapterIndex = target
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(target) / Double(chaptersList.count)
-                    if target < chaptersList.count {
-                        currentChapter = chaptersList[target]
-                        store.selectedChapterID = chaptersList[target].id
-                    }
-                    navigationTarget = nil
-                    pendingNavigateTo = nil
-                }
-            }
             .onChange(of: scrollPositionID) { _, newID in
                 let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
                 guard !isRecentAutoScroll else { return }
@@ -181,7 +175,7 @@ struct ReaderView: View {
             .onAppear {
                 DispatchQueue.main.async {
                     if currentChapterIndex > 0 {
-                        scrollPositionID = "ch_\(currentChapterIndex)_p_0"
+                        scrollPositionID = "ch_\(currentChapterIndex)"
                     }
                 }
             }
@@ -203,7 +197,6 @@ struct ReaderView: View {
                       idx != currentChapterIndex else { return }
                 currentChapterIndex = idx
                 currentChapter = chaptersList[idx]
-            }
             }
 
             ReaderOverlayView(
