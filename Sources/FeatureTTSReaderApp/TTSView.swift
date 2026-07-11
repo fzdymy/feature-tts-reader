@@ -28,9 +28,10 @@ struct TTSView: View {
     @State private var testPitch: Double = 0
     @State private var showPreview = false
 
-    // MARK: - Multi-Role Test State
+// MARK: - Multi-Role Test State
     @State private var isTestingMultiRole = false
     @State private var multiRoleTestResult = ""
+    @State private var multiRoleGlobalRate: Double = 0
 
     // MARK: - Sheet State
     @State private var showAddSheet = false
@@ -307,6 +308,20 @@ struct TTSView: View {
                 }
             }
 
+            // 全局语速叠加滑块
+            VStack(spacing: 8) {
+                HStack {
+                    Text("全局语速").foregroundColor(.secondary).frame(width: 60, alignment: .leading)
+                    Slider(value: $multiRoleGlobalRate, in: -10...10, step: 1)
+                    Text("\(Int(multiRoleGlobalRate))").font(.caption.monospaced()).frame(width: 24)
+                }
+                Text("此值将叠加到每个角色自带语速上（例：角色 +3，全局 +2 → 实际 +5）")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 4)
+
             Button {
                 runMultiRoleTest()
             } label: {
@@ -542,16 +557,16 @@ struct TTSView: View {
         isTestingMultiRole = true
         multiRoleTestResult = ""
         Task {
-            var audioURLs: [URL] = []
             var successCount = 0
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
 
             for scene in multiRoleTestScenes {
                 do {
+                    let combinedRate = scene.rate + multiRoleGlobalRate
                     let audioData = try await EdgeTTSService.shared.synthesize(
                         text: scene.text,
                         voice: scene.voice,
-                        rate: scene.rate,
+                        rate: combinedRate,
                         pitch: scene.pitch,
                         style: "",
                         serverID: id
@@ -559,8 +574,32 @@ struct TTSView: View {
                     let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
                     let url = cachesDir.appendingPathComponent("role-\(scene.id.uuidString).\(ext)")
                     try audioData.write(to: url, options: .atomic)
-                    audioURLs.append(url)
+
+                    // 立即加入播放队列（流水线）
+                    let segment = ScriptSegment(
+                        text: scene.text,
+                        voice: scene.voice,
+                        rate: combinedRate,
+                        pitch: scene.pitch,
+                        emotionTag: "",
+                        chapterIndex: 0,
+                        paragraphIndex: 0,
+                        sentenceIndex: successCount
+                    )
+                    let item = TTSQueueItem(
+                        segment: segment,
+                        audioURL: url,
+                        audioData: audioData,
+                        anchor: nil
+                    )
+                    await MainActor.run {
+                        store.audioController.appendToQueue([item])
+                    }
+
                     successCount += 1
+                    await MainActor.run {
+                        multiRoleTestResult = "已合成 \(successCount)/\(multiRoleTestScenes.count) 段，播放中..."
+                    }
                 } catch {
                     await MainActor.run {
                         multiRoleTestResult = "\(scene.characterName) 失败: \(error.localizedDescription)"
@@ -571,12 +610,8 @@ struct TTSView: View {
             }
 
             await MainActor.run {
-                multiRoleTestResult = "\(successCount)/\(multiRoleTestScenes.count) 段合成成功"
+                multiRoleTestResult = "\(successCount)/\(multiRoleTestScenes.count) 段全部入队，正在流式播放"
                 isTestingMultiRole = false
-            }
-
-            if !audioURLs.isEmpty {
-                await store.audioController.playFilesAndWait(audioURLs)
             }
         }
     }
