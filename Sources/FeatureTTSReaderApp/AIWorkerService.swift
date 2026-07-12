@@ -11,7 +11,7 @@ final class AIWorkerService {
     func processChapter(
         text: String,
         config: AIWorkerConfig,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) async -> Void)? = nil
     ) async throws -> [AISegment] {
         let slices = sliceText(text, maxChars: config.sliceCharLimit)
         var allSegments: [AISegment] = []

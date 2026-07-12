@@ -1059,7 +1059,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 text: targetText,
                 config: workerConfig,
                 progress: { progress, message in
-                    Task { @MainActor in statusMessage = message }
+                    await MainActor.run { statusMessage = message }
                 }
             )
 
