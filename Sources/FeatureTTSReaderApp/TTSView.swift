@@ -1423,6 +1423,7 @@ struct TTSView: View {
             }
         }
     }
+}
 
     // MARK: - Server Edit Sheet
 
