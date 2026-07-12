@@ -1,10 +1,11 @@
 import Foundation
 
-/// 调试日志：每次调用生成一个独立的时间戳 JSON 文件到 app Documents/debug/ 目录
+/// 调试日志：每次 app 启动生成一个 .jsonl 文件追加写入 Documents/debug/
+/// 每行一个 JSON 对象，方便一次性发送整个文件排查问题
 enum DebugLogger {
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "yyyyMMdd_HHmmss_SSS"
+        f.dateFormat = "yyyyMMdd_HHmmss"
         return f
     }()
 
@@ -25,7 +26,19 @@ enum DebugLogger {
 
     private static let queue = DispatchQueue(label: "com.featuretts.debuglogger", qos: .utility)
 
-    /// 写入一条结构化日志（JSON 对象，字段按字母序确保可读性）
+    private static var fileURL: URL? = nil
+
+    /// 初始化日志文件（app 启动时调用一次）
+    static func startSession() {
+        queue.sync {
+            guard let dir = logDir else { return }
+            let filename = "debug_\(dateFormatter.string(from: Date())).jsonl"
+            fileURL = dir.appendingPathComponent(filename)
+        }
+        log(flow: "session", step: "start", details: ["app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""])
+    }
+
+    /// 写入一行 JSON 到当前日志文件（追加模式）
     static func log(
         flow: String,
         step: String,
@@ -33,12 +46,9 @@ enum DebugLogger {
         file: String = #fileID,
         line: Int = #line
     ) {
-        let timestamp = Date()
-        let filename = "debug_\(dateFormatter.string(from: timestamp)).json"
-        guard let dir = logDir else { return }
-
+        let timestamp = isoFormatter.string(from: Date())
         var entry: [String: Any] = [
-            "timestamp": isoFormatter.string(from: timestamp),
+            "timestamp": timestamp,
             "flow": flow,
             "step": step,
             "file": file,
@@ -48,11 +58,28 @@ enum DebugLogger {
             entry[k] = v
         }
 
-        guard let data = try? JSONSerialization.data(withJSONObject: entry, options: [.prettyPrinted, .sortedKeys]) else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]),
+              let lineStr = String(data: data, encoding: .utf8)
+        else { return }
+        let payload = lineStr + "\n"
 
-        let url = dir.appendingPathComponent(filename)
         queue.async {
-            try? data.write(to: url, options: .atomic)
+            guard let url = fileURL ?? {
+                // 首次调用时自动初始化
+                let fn = "debug_\(dateFormatter.string(from: Date())).jsonl"
+                let u = logDir?.appendingPathComponent(fn)
+                fileURL = u
+                return u
+            }() else { return }
+
+            if FileManager.default.fileExists(atPath: url.path) {
+                guard let fh = try? FileHandle(forWritingTo: url) else { return }
+                try? fh.seekToEnd()
+                try? fh.write(Data(payload.utf8))
+                try? fh.close()
+            } else {
+                try? payload.write(to: url, atomically: true, encoding: .utf8)
+            }
         }
     }
 
@@ -61,12 +88,17 @@ enum DebugLogger {
         logDir?.path ?? ""
     }
 
+    /// 当前会话日志文件路径
+    static var currentSessionFile: URL? {
+        queue.sync { fileURL }
+    }
+
     /// 列出所有日志文件名（按时间倒序）
     static var logFiles: [String] {
         guard let dir = logDir,
               let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path)
         else { return [] }
-        return files.filter { $0.hasPrefix("debug_") && $0.hasSuffix(".json") }.sorted(by: >)
+        return files.filter { $0.hasPrefix("debug_") && $0.hasSuffix(".jsonl") }.sorted(by: >)
     }
 
     /// 清理超过 N 天的日志

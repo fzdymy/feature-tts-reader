@@ -19,6 +19,7 @@ struct FeatureTTSReaderApp: App {
                     .tabItem { Label("设置", systemImage: "gearshape") }
             }
             .environmentObject(store)
+            .task { DebugLogger.startSession() }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .background {
                     store.saveState()
