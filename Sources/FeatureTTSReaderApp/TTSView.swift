@@ -120,7 +120,8 @@ struct TTSView: View {
                     } label: {
                         HStack(spacing: 6) {
                             if isTestingAll {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
                             }
                             Label("全部测试", systemImage: "antenna.radiowaves.left.and.right")
                         }
@@ -134,7 +135,8 @@ struct TTSView: View {
                     } label: {
                         HStack(spacing: 6) {
                             if isLoadingVoices {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
                             }
                             Label("语音列表", systemImage: "arrow.clockwise")
                         }
@@ -276,7 +278,8 @@ struct TTSView: View {
                     } label: {
                         HStack(spacing: 6) {
                             if serverStatuses[selectedServerID ?? UUID()] == "测试中..." {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
                             }
                             Label("测试连接", systemImage: "antenna.radiowaves.left.and.right")
                         }
@@ -290,7 +293,8 @@ struct TTSView: View {
                     } label: {
                         HStack(spacing: 6) {
                             if isTestingSynthesis {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
                             }
                             Label("试听", systemImage: "play.circle")
                         }
@@ -547,7 +551,8 @@ struct TTSView: View {
                     } label: {
                         HStack {
                             if isSynthesizingCustom {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
                             }
                             Label("重播", systemImage: "play.circle.fill")
                         }
@@ -1772,7 +1777,8 @@ struct CharacterRoleCard: View {
                     onResynthesize()
                 } label: {
                     if isResynthesizing {
-                        ProgressView().scaleEffect(0.6)
+                        ProgressView()
+                            .frame(width: 14, height: 14)
                     } else {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .font(.caption)
