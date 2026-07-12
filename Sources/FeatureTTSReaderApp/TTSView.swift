@@ -782,7 +782,7 @@ private func synthesizeAndPlayCustom() {
             await MainActor.run { customSynthesisResult = "首段播放中，后台合成剩余 \(validSegments.count - 1) 段..." }
             var restItems: [TTSQueueItem] = []
             
-            for (idx, segment) in validSegments.dropFirst().enumerated() {
+for (idx, segment) in validSegments.dropFirst().enumerated() {
                 let speaker = segment.speaker ?? "旁白"
                 let voiceID = charVoiceMap[segment.speaker ?? "旁白"] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
                 let rate = multiRoleGlobalRate
@@ -835,6 +835,14 @@ private func synthesizeAndPlayCustom() {
                     await MainActor.run {
                         customSynthesisResult = "已合成 \(idx + 2)/\(validSegments.count) 段..."
                     }
+                } catch {
+                    // Log error but continue with remaining segments
+                    await MainActor.run {
+                        customSynthesisResult = "第 \(idx + 2) 段合成失败: \(error.localizedDescription)，继续下一段..."
+                    }
+                    // Continue with next segment instead of returning
+                }
+            }
                 } catch {
                     await MainActor.run {
                         customSynthesisResult = "第 \(idx + 2) 段合成失败: \(error.localizedDescription)"
