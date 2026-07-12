@@ -33,27 +33,26 @@ enum DebugLogger {
         file: String = #fileID,
         line: Int = #line
     ) {
-        let capturedDetails = details
+        let timestamp = Date()
+        let filename = "debug_\(dateFormatter.string(from: timestamp)).json"
+        guard let dir = logDir else { return }
+
+        var entry: [String: Any] = [
+            "timestamp": isoFormatter.string(from: timestamp),
+            "flow": flow,
+            "step": step,
+            "file": file,
+            "line": line,
+        ]
+        for (k, v) in details {
+            entry[k] = v
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: entry, options: [.prettyPrinted, .sortedKeys]) else { return }
+
+        let url = dir.appendingPathComponent(filename)
         queue.async {
-            let timestamp = Date()
-            let filename = "debug_\(dateFormatter.string(from: timestamp)).json"
-            guard let dir = logDir else { return }
-
-            var entry: [String: Any] = [
-                "timestamp": isoFormatter.string(from: timestamp),
-                "flow": flow,
-                "step": step,
-                "file": file,
-                "line": line,
-            ]
-            for (k, v) in capturedDetails {
-                entry[k] = v
-            }
-
-            let url = dir.appendingPathComponent(filename)
-            if let data = try? JSONSerialization.data(withJSONObject: entry, options: [.prettyPrinted, .sortedKeys]) {
-                try? data.write(to: url, options: .atomic)
-            }
+            try? data.write(to: url, options: .atomic)
         }
     }
 
