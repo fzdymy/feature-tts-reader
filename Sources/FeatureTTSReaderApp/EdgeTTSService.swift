@@ -55,8 +55,7 @@ enum EdgeTTSError: LocalizedError {
 
 actor EdgeTTSService {
     static let shared = EdgeTTSService()
-    static let defaultServerURL = "http://192.168.0.68:37788"
-    private static let oldDefaultServerURL = "http://10.0.1.45/tts"
+    static let defaultServerURL = "http://localhost:37788"
     private static let serverListKey = "edge_tts_server_list"
     private static let legacyServerURLKey = "edge_tts_server_url"
     private static let apiKeyKey = "edge_tts_api_key"
@@ -69,19 +68,12 @@ actor EdgeTTSService {
            !decoded.isEmpty {
             let filtered = decoded.filter { !$0.url.isEmpty }
             return filtered.map { config in
-                let normalizedURL: String
-                if config.url == Self.oldDefaultServerURL || config.url == "http://10.0.1.45" {
-                    normalizedURL = Self.defaultServerURL
-                } else {
-                    normalizedURL = config.url
-                }
-                return EdgeTTSServerConfig(id: config.id, name: config.name, url: normalizedURL, apiKey: config.apiKey)
+                EdgeTTSServerConfig(id: config.id, name: config.name, url: config.url, apiKey: config.apiKey)
             }
         }
 
         let legacyURL = UserDefaults.standard.string(forKey: Self.legacyServerURLKey) ?? Self.defaultServerURL
-        let normalizedLegacy = legacyURL == Self.oldDefaultServerURL || legacyURL == "http://10.0.1.45" ? Self.defaultServerURL : legacyURL
-        return [EdgeTTSServerConfig(name: "默认", url: normalizedLegacy, apiKey: apiKey)]
+        return [EdgeTTSServerConfig(name: "默认", url: legacyURL, apiKey: apiKey)]
     }
 
     var serverURLString: String {
@@ -122,8 +114,7 @@ actor EdgeTTSService {
         let key = UserDefaults.standard.string(forKey: Self.apiKeyKey) ?? ""
         if UserDefaults.standard.data(forKey: Self.serverListKey) == nil,
            let legacy = UserDefaults.standard.string(forKey: Self.legacyServerURLKey) {
-            let normalizedLegacy = legacy == Self.oldDefaultServerURL || legacy == "http://10.0.1.45" ? Self.defaultServerURL : legacy
-            let config = EdgeTTSServerConfig(name: "默认", url: normalizedLegacy, apiKey: key)
+            let config = EdgeTTSServerConfig(name: "默认", url: legacy, apiKey: key)
             if let data = try? JSONEncoder().encode([config]) {
                 UserDefaults.standard.set(data, forKey: Self.serverListKey)
             }
