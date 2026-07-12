@@ -639,9 +639,6 @@ private func synthesizeAndPlayCustom() {
             // Build known characters set for speaker matching
             let knownCharacters = Set(result.characters.map { $0.name })
             
-            // First, use detectDialogues to get dialogue positions
-            let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
-            
             // For each dialogue, try to infer a better speaker using the known characters
             var dialoguesWithSpeakers: [(speaker: String?, content: String, range: Range<String.Index>)] = []
             for dialogue in dialogues {
