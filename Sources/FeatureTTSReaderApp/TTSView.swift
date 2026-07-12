@@ -935,7 +935,7 @@ private func synthesizeAndPlayCustom() {
             let speaker = d.speaker ?? "旁白"
             if map[speaker] == nil {
                 let isNarrator = speaker == "旁白" || speaker.isEmpty
-                let voice: String
+                var voice: String
                 let rate: Int? = Int(testRate)
                 if isNarrator {
                     voice = femaleVoice.isEmpty ? defaultVoice : femaleVoice
@@ -1198,7 +1198,7 @@ private func synthesizeAndPlayCustom() {
             let speaker = d.speaker ?? "旁白"
             if map[speaker] == nil {
                 let isNarrator = speaker == "旁白" || speaker.isEmpty
-                let voice: String
+                var voice: String
                 if isNarrator {
                     voice = femaleVoice.isEmpty ? defaultVoice : femaleVoice
                 } else {
