@@ -118,7 +118,7 @@ actor EdgeTTSService {
             if let data = try? JSONEncoder().encode([config]) {
                 UserDefaults.standard.set(data, forKey: Self.serverListKey)
             }
-            UserDefaults.standard.set(normalizedLegacy, forKey: Self.legacyServerURLKey)
+            UserDefaults.standard.set(legacy, forKey: Self.legacyServerURLKey)
         } else if UserDefaults.standard.data(forKey: Self.serverListKey) == nil {
             let config = EdgeTTSServerConfig(name: "默认", url: Self.defaultServerURL, apiKey: key)
             if let data = try? JSONEncoder().encode([config]) {
