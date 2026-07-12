@@ -577,7 +577,7 @@ struct TTSView: View {
                     .cornerRadius(8)
 
                 // 处理状态
-                if isProcessingWorker {
+                if isProcessingWorker || isSynthesizingCustom {
                     VStack(spacing: 8) {
                         ProgressView(value: workerProgress) {
                             Text(workerProgressMessage)
@@ -629,11 +629,11 @@ struct TTSView: View {
                     Button {
                         processCustomWithWorker()
                     } label: {
-                        Label("AI 解析并匹配音色", systemImage: "brain.head.profile")
+                        Label("AI 解析并流式播放", systemImage: "brain.head.profile")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isProcessingWorker || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isProcessingWorker || isSynthesizingCustom || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil || selectedServerID == nil)
 
                     Button {
                         synthesizeAndPlayCustom()
@@ -642,11 +642,11 @@ struct TTSView: View {
                             if isSynthesizingCustom {
                                 ProgressView().scaleEffect(0.7)
                             }
-                            Label("流水合成并播放", systemImage: "play.circle.fill")
+                            Label("重播", systemImage: "play.circle.fill")
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .disabled(isSynthesizingCustom || customWorkerSegments.isEmpty || selectedServerID == nil)
 
                     if !customSynthesisResult.isEmpty {
@@ -692,56 +692,151 @@ struct TTSView: View {
     private func processCustomWithWorker() {
         let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-
-        DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker", details: [
-            "original_text_length": text.count,
-            "original_text_preview": String(text.prefix(200)),
-        ])
-
         guard let workerConfig = getSelectedWorkerConfig() else {
             customSynthesisResult = "请先在设置中配置 AI Worker"
             return
         }
-
         guard let serverID = selectedServerID else {
             customSynthesisResult = "请先选择 TTS 服务器"
             return
         }
 
         isProcessingWorker = true
+        isSynthesizingCustom = true
         customWorkerSegments.removeAll()
         customCharacterVoices.removeAll()
         customSynthesisResult = ""
         workerProgress = 0
         workerProgressMessage = "准备中..."
 
+        DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker", details: [
+            "original_text_length": text.count,
+            "original_text_preview": String(text.prefix(200)),
+        ])
+
+        let globalRate = multiRoleGlobalRate
+        let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+
         Task {
+            var firstSegmentPlayed = false
+
             do {
-                let segments = try await AIWorkerService.shared.processChapter(
-                    text: customMultiRoleText,
-                    config: workerConfig,
-                    progress: { progress, message in
+                let slices = AIWorkerService.shared.sliceText(text, maxChars: workerConfig.sliceCharLimit)
+                let totalSlices = slices.count
+                var hasVoiceAssignments = false
+
+                for (sliceIdx, slice) in slices.enumerated() {
+                    await MainActor.run {
+                        workerProgressMessage = "正在解析第 \(sliceIdx + 1)/\(totalSlices) 片..."
+                        workerProgress = Double(sliceIdx) / Double(totalSlices)
+                    }
+
+                    let request = AIWorkerRequest(
+                        text: slice,
+                        sliceIndex: sliceIdx,
+                        totalSlices: totalSlices,
+                        context: nil
+                    )
+                    let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
+                    let segments = response.segments
+
+                    DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker_slice", details: [
+                        "slice_index": sliceIdx,
+                        "total_slices": totalSlices,
+                        "segments_in_slice": segments.count,
+                    ])
+
+                    // 合并到全部 segments（用于 UI 展示）
+                    await MainActor.run {
+                        customWorkerSegments.append(contentsOf: segments)
+                    }
+
+                    // 首片时分配音色
+                    if !hasVoiceAssignments {
                         await MainActor.run {
-                            workerProgress = progress
-                            workerProgressMessage = message
+                            assignVoicesToSegments(segments)
+                        }
+                        hasVoiceAssignments = true
+                    }
+
+                    // 逐段合成入队
+                    var restItems: [TTSQueueItem] = []
+                    for (segIdx, segment) in segments.enumerated() {
+                        let voiceID = await MainActor.run {
+                            customCharacterVoices[segment.speaker] ?? ""
+                        }
+                        let rate = Int(globalRate)
+                        let pitch = 0
+                        let style = segment.emotion.ssmlStyle
+
+                        let audioData = try await EdgeTTSService.shared.synthesize(
+                            text: segment.text,
+                            voice: voiceID,
+                            rate: Double(rate),
+                            pitch: Double(pitch),
+                            style: style,
+                            serverID: serverID
+                        )
+
+                        let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                        let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                        try audioData.write(to: url, options: .atomic)
+
+                        let seg = ScriptSegment(
+                            id: UUID(),
+                            characterName: segment.speaker,
+                            voice: voiceID,
+                            rate: rate,
+                            pitch: pitch,
+                            style: style,
+                            text: segment.text,
+                            emotionTag: segment.emotion.rawValue,
+                            paragraphIndex: sliceIdx
+                        )
+                        let item = TTSQueueItem(
+                            segment: seg,
+                            audioURL: url,
+                            audioData: audioData,
+                            chapterTitle: "自定义多角色",
+                            bookTitle: "测试",
+                            bookID: "custom",
+                            chapterIndex: 0,
+                            segmentIndex: segIdx,
+                            totalSegments: segments.count,
+                            paragraphIndex: sliceIdx,
+                            sentenceIndex: nil,
+                            anchor: nil
+                        )
+
+                        if !firstSegmentPlayed {
+                            // 首段入队即播放
+                            await MainActor.run {
+                                store.audioController.appendToQueue([item])
+                                customSynthesisResult = "第 1 段合成完成，开始播放..."
+                                firstSegmentPlayed = true
+                            }
+                        } else {
+                            restItems.append(item)
+                        }
+
+                        let played = firstSegmentPlayed ? "播放中" : "准备中"
+                        await MainActor.run {
+                            customSynthesisResult = "已合成 \(sliceIdx * 10 + segIdx + 1) 段，\(played)..."
                         }
                     }
-                )
 
-                DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker_success", details: [
-                    "segments_count": segments.count,
-                    "speakers": Array(Set(segments.map { $0.speaker })),
-                ])
+                    // 本片剩余段批量入队
+                    if !restItems.isEmpty {
+                        await MainActor.run {
+                            store.audioController.appendToQueue(restItems)
+                        }
+                    }
+                }
 
                 await MainActor.run {
-                    customWorkerSegments = segments
+                    customSynthesisResult = "全部入队，正在流式播放"
                     isProcessingWorker = false
-                    workerProgress = 1.0
-                    workerProgressMessage = "解析完成，共 \(segments.count) 个片段"
-
-                    // 自动分�配音色（基于 speaker 名称）
-                    assignVoicesToSegments(segments)
-                    customSynthesisResult = "解析完成，共 \(segments.count) 个片段，可开始合成"
+                    isSynthesizingCustom = false
                 }
             } catch {
                 DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker_error", details: [
@@ -749,8 +844,13 @@ struct TTSView: View {
                 ])
                 await MainActor.run {
                     isProcessingWorker = false
+                    isSynthesizingCustom = false
                     workerProgress = 0
-                    customSynthesisResult = "解析失败: \(error.localizedDescription)"
+                    if firstSegmentPlayed {
+                        customSynthesisResult = "部分完成（后续段解析失败）: \(error.localizedDescription)"
+                    } else {
+                        customSynthesisResult = "解析失败: \(error.localizedDescription)"
+                    }
                 }
             }
         }

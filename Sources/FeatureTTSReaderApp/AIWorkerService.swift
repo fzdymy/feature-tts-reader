@@ -62,7 +62,7 @@ final class AIWorkerService {
 
     // MARK: - Private
 
-    private func sliceText(_ text: String, maxChars: Int) -> [String] {
+    func sliceText(_ text: String, maxChars: Int) -> [String] {
         let paragraphs = text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var slices: [String] = []
         var currentSlice = ""
@@ -105,7 +105,7 @@ final class AIWorkerService {
         }
     }
 
-    private func sendRequest(_ request: AIWorkerRequest, config: AIWorkerConfig) async throws -> AIWorkerResult {
+    func sendRequest(_ request: AIWorkerRequest, config: AIWorkerConfig) async throws -> AIWorkerResult {
         guard let url = URL(string: config.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
             DebugLogger.log(flow: "ai_worker", step: "sendRequest_invalidURL", details: ["url": config.baseURL])
             throw AIWorkerError.invalidURL
