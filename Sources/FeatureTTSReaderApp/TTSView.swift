@@ -843,14 +843,6 @@ for (idx, segment) in validSegments.dropFirst().enumerated() {
                     // Continue with next segment instead of returning
                 }
             }
-                } catch {
-                    await MainActor.run {
-                        customSynthesisResult = "第 \(idx + 2) 段合成失败: \(error.localizedDescription)"
-                        isSynthesizingCustom = false
-                    }
-                    return
-                }
-            }
             
             // 3. 剩余全部入队
             await MainActor.run {
