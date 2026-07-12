@@ -637,13 +637,6 @@ final class CharacterAnalyzer: @unchecked Sendable {
             if raw.count >= 2 && raw.count <= 4 { return raw }
         }
 
-        // Priority 3: Title suffix pattern
-        let titlePattern = RegexCache.shared.get("([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|前辈|掌门|教主)[：:]?$")!
-        if let match = titlePattern.matches(in: trimmed, range: nsRange).last {
-            let raw = String(trimmed[Range(match.range(at: 1), in: trimmed)!])
-            if raw.count >= 2 && raw.count <= 4 { return raw }
-        }
-
         return nil
     }
 
