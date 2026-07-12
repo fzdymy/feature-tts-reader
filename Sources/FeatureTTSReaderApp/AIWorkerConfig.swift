@@ -41,7 +41,7 @@ struct AISegment: Codable, Hashable {
 }
 
 /// 情绪枚举（与 Worker schema 对齐）
-enum Emotion: String, Codable, CaseIterable {
+enum Emotion: Codable, CaseIterable {
     case angry, sad, cheerful, neutral, fearful, surprised, disgusted, calm
 
     /// 映射到 Edge TTS SSML style
@@ -51,9 +51,39 @@ enum Emotion: String, Codable, CaseIterable {
         case .sad: return "sad"
         case .cheerful: return "cheerful"
         case .fearful: return "fearful"
-        case .surprised: return "cheerful"  // 惊讶用 cheerful 近似
-        case .disgusted: return "angry"     // 厌恶用 angry 近似
+        case .surprised: return "cheerful"
+        case .disgusted: return "angry"
         case .calm, .neutral: return "neutral"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self).lowercased()
+        switch raw {
+        case "angry": self = .angry
+        case "sad": self = .sad
+        case "cheerful", "happy", "excited": self = .cheerful
+        case "neutral": self = .neutral
+        case "fearful", "fear": self = .fearful
+        case "surprised": self = .surprised
+        case "disgusted": self = .disgusted
+        case "calm", "whisper": self = .calm
+        default: self = .neutral
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .angry: try container.encode("angry")
+        case .sad: try container.encode("sad")
+        case .cheerful: try container.encode("cheerful")
+        case .neutral: try container.encode("neutral")
+        case .fearful: try container.encode("fearful")
+        case .surprised: try container.encode("surprised")
+        case .disgusted: try container.encode("disgusted")
+        case .calm: try container.encode("calm")
         }
     }
 }

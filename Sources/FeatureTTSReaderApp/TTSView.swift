@@ -60,6 +60,7 @@ struct TTSView: View {
     @State private var editingWorkerConfig: AIWorkerConfig?
     @State private var showAddWorkerSheet = false
     @State private var workerTestResult = ""
+    @State private var workerStatuses: [UUID: String] = [:]
 
     // MARK: - Sheet State
     @State private var showAddSheet = false
@@ -352,9 +353,8 @@ struct TTSView: View {
             } else {
                 ForEach(aiWorkerConfigs) { config in
                     HStack(spacing: 10) {
-                        Circle()
-                            .fill(config.isDefault ? Color.accentColor : Color.secondary)
-                            .frame(width: 8, height: 8)
+                        statusDot(workerStatuses[config.id] ?? "未测试")
+                            .frame(width: 8)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(config.name)
                                 .font(.subheadline.weight(.medium))
@@ -375,6 +375,13 @@ struct TTSView: View {
                         selectWorker(config.id)
                     }
                     .contextMenu {
+                        Button { editingWorkerConfig = config } label: {
+                            Label("编辑", systemImage: "pencil")
+                        }
+                        Button { testWorkerConnection(config) } label: {
+                            Label("测试连接", systemImage: "antenna.radiowaves.left.and.right")
+                        }
+                        Divider()
                         Button { selectWorker(config.id) } label: {
                             Label("设为默认", systemImage: "checkmark.circle")
                         }
@@ -390,17 +397,6 @@ struct TTSView: View {
             } label: {
                 Label("添加 AI Worker", systemImage: "plus.circle")
             }
-
-            if !workerTestResult.isEmpty {
-                HStack {
-                    Image(systemName: workerTestResult.hasPrefix("成功") ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundColor(workerTestResult.hasPrefix("成功") ? .green : .red)
-                    Text(workerTestResult)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-            }
         } header: {
             Label("AI 剧本解析 Worker", systemImage: "brain.head.profile")
         }
@@ -415,6 +411,7 @@ struct TTSView: View {
     }
 
     private func deleteWorker(_ id: UUID) {
+        workerStatuses.removeValue(forKey: id)
         aiWorkerConfigs.removeAll { $0.id == id }
         if selectedWorkerID == id {
             selectedWorkerID = aiWorkerConfigs.first?.id
@@ -423,13 +420,20 @@ struct TTSView: View {
     }
 
     private func testWorkerConnection(_ config: AIWorkerConfig) {
+        workerStatuses[config.id] = "测试中..."
         workerTestResult = "测试中..."
         Task {
             do {
                 _ = try await AIWorkerService.shared.testConnection(config: config)
-                await MainActor.run { workerTestResult = "成功 ✓" }
+                await MainActor.run {
+                    workerStatuses[config.id] = "就绪 ✓"
+                    workerTestResult = "成功 ✓"
+                }
             } catch {
-                await MainActor.run { workerTestResult = "失败: \(error.localizedDescription)" }
+                await MainActor.run {
+                    workerStatuses[config.id] = "失败: \(error.localizedDescription)"
+                    workerTestResult = "失败: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -1292,6 +1296,9 @@ struct TTSView: View {
            let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
             await MainActor.run {
                 aiWorkerConfigs = decoded
+                for w in aiWorkerConfigs {
+                    workerStatuses[w.id] = "未测试"
+                }
                 if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
                    let id = UUID(uuidString: savedID),
                    aiWorkerConfigs.contains(where: { $0.id == id }) {
@@ -1311,6 +1318,7 @@ struct TTSView: View {
                     isDefault: true
                 )
                 aiWorkerConfigs = [defaultConfig]
+                workerStatuses[defaultConfig.id] = "未测试"
                 selectedWorkerID = defaultConfig.id
                 saveWorkerConfigs()
             }
@@ -1589,7 +1597,6 @@ struct WorkerEditView: View {
     @State private var name: String
     @State private var baseURL: String
     @State private var authKey: String
-    @State private var model: String
     @State private var sliceCharLimit: Int
     @State private var timeout: Double
     let onSave: (AIWorkerConfig) -> Void
@@ -1599,7 +1606,6 @@ struct WorkerEditView: View {
         _name = State(initialValue: config?.name ?? "")
         _baseURL = State(initialValue: config?.baseURL ?? "")
         _authKey = State(initialValue: config?.authKey ?? "")
-        _model = State(initialValue: config?.model ?? "qwen-plus")
         _sliceCharLimit = State(initialValue: config?.sliceCharLimit ?? 1000)
         _timeout = State(initialValue: config?.timeout ?? 30)
         self.onSave = onSave
@@ -1610,7 +1616,7 @@ struct WorkerEditView: View {
             Form {
                 Section {
                     LabeledContent("名称") {
-                        TextField("例如：我的 Qwen Worker", text: $name)
+                        TextField("例如：我的 AI Worker", text: $name)
                     }
                     LabeledContent("Base URL") {
                         TextField("https://your-worker.workers.dev", text: $baseURL)
@@ -1624,9 +1630,12 @@ struct WorkerEditView: View {
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                     }
-                    LabeledContent("模型") {
-                        TextField("qwen-plus", text: $model)
-                            .font(.caption.monospaced())
+                    HStack {
+                        Text("模型").foregroundColor(.secondary)
+                        Spacer()
+                        Text("qwen-2.5-7b-instruct (在 Worker 中固定)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     LabeledContent("单片字符限制") {
                         TextField("1000", value: $sliceCharLimit, format: .number)

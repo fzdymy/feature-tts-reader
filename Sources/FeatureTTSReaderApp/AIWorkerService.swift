@@ -114,7 +114,12 @@ final class AIWorkerService {
         case 200:
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
-            return try decoder.decode(AIWorkerResult.self, from: data)
+            do {
+                return try decoder.decode(AIWorkerResult.self, from: data)
+            } catch {
+                let segments = try decoder.decode([AISegment].self, from: data)
+                return AIWorkerResult(segments: segments, nextContext: nil)
+            }
         case 401:
             throw AIWorkerError.unauthorized
         case 429:
