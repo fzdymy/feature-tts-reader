@@ -55,7 +55,7 @@ enum EdgeTTSError: LocalizedError {
 
 actor EdgeTTSService {
     static let shared = EdgeTTSService()
-    static let defaultServerURL = "http://localhost:37788"
+    static let defaultServerURL = "http://localhost"
     private static let serverListKey = "edge_tts_server_list"
     private static let legacyServerURLKey = "edge_tts_server_url"
     private static let apiKeyKey = "edge_tts_api_key"
