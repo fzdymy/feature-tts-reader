@@ -82,7 +82,7 @@ struct TTSView: View {
                                 Text(config.name.isEmpty ? "未命名" : config.name)
                                     .font(.subheadline.weight(.medium))
                                     .lineLimit(1)
-                                Text(config.url.isEmpty ? "未配置地址" : config.url)
+                                Text(serverStatuses[config.id] ?? "未测试")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
@@ -136,7 +136,7 @@ struct TTSView: View {
                             if isLoadingVoices {
                                 ProgressView().scaleEffect(0.7)
                             }
-                            Label("刷新语音列表", systemImage: "arrow.clockwise")
+                            Label("语音列表", systemImage: "arrow.clockwise")
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -355,7 +355,7 @@ struct TTSView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(config.name)
                                 .font(.subheadline.weight(.medium))
-                            Text(config.baseURL)
+                            Text(workerStatuses[config.id] ?? "未测试")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
@@ -420,16 +420,19 @@ struct TTSView: View {
         workerStatuses[config.id] = "测试中..."
         workerTestResult = "测试中..."
         Task {
+            let startTime = Date()
             do {
                 _ = try await AIWorkerService.shared.testConnection(config: config)
+                let ms = Int(Date().timeIntervalSince(startTime) * 1000)
                 await MainActor.run {
-                    workerStatuses[config.id] = "就绪 ✓"
-                    workerTestResult = "成功 ✓"
+                    workerStatuses[config.id] = "就绪 ✓ (\(ms)ms)"
+                    workerTestResult = "成功 ✓ (\(ms)ms)"
                 }
             } catch {
+                let ms = Int(Date().timeIntervalSince(startTime) * 1000)
                 await MainActor.run {
-                    workerStatuses[config.id] = "失败: \(error.localizedDescription)"
-                    workerTestResult = "失败: \(error.localizedDescription)"
+                    workerStatuses[config.id] = "失败 (\(ms)ms): \(error.localizedDescription)"
+                    workerTestResult = "失败 (\(ms)ms): \(error.localizedDescription)"
                 }
             }
         }

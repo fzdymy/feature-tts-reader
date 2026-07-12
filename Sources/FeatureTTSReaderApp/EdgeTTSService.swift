@@ -380,6 +380,7 @@ actor EdgeTTSService {
     }
 
     private func checkServer(_ server: EdgeTTSServerConfig) async -> String {
+        let startTime = Date()
         guard let baseURL = URL(string: server.url) else {
             return "\(server.name): 无效地址"
         }
@@ -409,13 +410,15 @@ actor EdgeTTSService {
                 let (_, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { continue }
                 if (200...299).contains(http.statusCode) {
-                    return "\(server.name): 就绪"
+                    let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+                    return "\(server.name): 就绪 (\(ms)ms)"
                 }
             } catch {
                 continue
             }
         }
-        return "\(server.name): 暂不可达"
+        let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+        return "\(server.name): 暂不可达 (\(ms)ms)"
     }
 
     func setServers(_ servers: [EdgeTTSServerConfig]) {
