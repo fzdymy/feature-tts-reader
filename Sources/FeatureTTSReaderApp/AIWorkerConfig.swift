@@ -44,6 +44,19 @@ struct AISegment: Codable, Hashable {
 enum Emotion: Codable, CaseIterable {
     case angry, sad, cheerful, neutral, fearful, surprised, disgusted, calm
 
+    var rawValue: String {
+        switch self {
+        case .angry: return "angry"
+        case .sad: return "sad"
+        case .cheerful: return "cheerful"
+        case .neutral: return "neutral"
+        case .fearful: return "fearful"
+        case .surprised: return "surprised"
+        case .disgusted: return "disgusted"
+        case .calm: return "calm"
+        }
+    }
+
     /// 映射到 Edge TTS SSML style
     var ssmlStyle: String {
         switch self {

@@ -1662,7 +1662,7 @@ struct WorkerEditView: View {
                             name: name,
                             baseURL: baseURL,
                             authKey: authKey,
-                            model: model,
+                            model: "qwen-2.5-7b-instruct",
                             sliceCharLimit: sliceCharLimit,
                             timeout: timeout
                         )
