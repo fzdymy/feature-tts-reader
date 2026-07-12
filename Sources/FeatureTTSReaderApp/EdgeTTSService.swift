@@ -375,41 +375,25 @@ actor EdgeTTSService {
         guard let baseURL = URL(string: server.url) else {
             return "\(server.name): 无效地址"
         }
-        let normalizedURL: URL = {
-            let urlStr = baseURL.absoluteString
-            if urlStr.hasSuffix("/") {
-                return URL(string: String(urlStr.dropLast())) ?? baseURL
+        let configURL = baseURL.appendingPathComponent("api/v1/config")
+        var request = URLRequest(url: configURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 3
+        do {
+            let (data, response) = try await session.data(for: request)
+            let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return "\(server.name): 暂不可达 (\(ms)ms)"
             }
-            return baseURL
-        }()
-        let healthEndpoint: URL
-        if normalizedURL.lastPathComponent == "tts" {
-            healthEndpoint = normalizedURL.deletingLastPathComponent().appendingPathComponent("health")
-        } else {
-            healthEndpoint = normalizedURL.appendingPathComponent("health")
-        }
-        let endpoints = [
-            healthEndpoint,
-            baseURL
-        ]
-
-        for endpoint in endpoints {
-            var request = URLRequest(url: endpoint)
-            request.httpMethod = "GET"
-            request.timeoutInterval = 3
-            do {
-                let (_, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse else { continue }
-                if (200...299).contains(http.statusCode) {
-                    let ms = Int(Date().timeIntervalSince(startTime) * 1000)
-                    return "\(server.name): 就绪 (\(ms)ms)"
-                }
-            } catch {
-                continue
+            guard let decoded = try? JSONDecoder().decode(ServerConfigResponse.self, from: data),
+                  !decoded.voices.isEmpty else {
+                return "\(server.name): 响应异常 (\(ms)ms)"
             }
+            return "\(server.name): 就绪 (\(ms)ms)"
+        } catch {
+            let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+            return "\(server.name): 暂不可达 (\(ms)ms)"
         }
-        let ms = Int(Date().timeIntervalSince(startTime) * 1000)
-        return "\(server.name): 暂不可达 (\(ms)ms)"
     }
 
     func setServers(_ servers: [EdgeTTSServerConfig]) {

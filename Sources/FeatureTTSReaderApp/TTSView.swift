@@ -124,6 +124,7 @@ struct TTSView: View {
                                     .frame(width: 14, height: 14)
                             }
                             Label("全部测试", systemImage: "antenna.radiowaves.left.and.right")
+                                .fixedSize()
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -139,6 +140,7 @@ struct TTSView: View {
                                     .frame(width: 14, height: 14)
                             }
                             Label("语音列表", systemImage: "arrow.clockwise")
+                                .fixedSize()
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -282,6 +284,7 @@ struct TTSView: View {
                                     .frame(width: 14, height: 14)
                             }
                             Label("测试连接", systemImage: "antenna.radiowaves.left.and.right")
+                                .fixedSize()
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -297,6 +300,7 @@ struct TTSView: View {
                                     .frame(width: 14, height: 14)
                             }
                             Label("试听", systemImage: "play.circle")
+                                .fixedSize()
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -540,8 +544,11 @@ struct TTSView: View {
                     Button {
                         processCustomWithWorker()
                     } label: {
-                        Label("AI 解析并流式播放", systemImage: "brain.head.profile")
-                            .frame(maxWidth: .infinity)
+                        HStack(spacing: 6) {
+                            Label("AI 解析并流式播放", systemImage: "brain.head.profile")
+                                .fixedSize()
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isProcessingWorker || isSynthesizingCustom || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil || selectedServerID == nil)
@@ -555,6 +562,7 @@ struct TTSView: View {
                                     .frame(width: 14, height: 14)
                             }
                             Label("重播", systemImage: "play.circle.fill")
+                                .fixedSize()
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -578,16 +586,22 @@ struct TTSView: View {
                             Button {
                                 store.audioController.pause()
                             } label: {
-                                Label("暂停", systemImage: "pause.circle.fill")
-                                    .frame(maxWidth: .infinity)
+                                HStack(spacing: 6) {
+                                    Label("暂停", systemImage: "pause.circle.fill")
+                                        .fixedSize()
+                                }
+                                .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered)
 
                             Button {
                                 store.audioController.resume()
                             } label: {
-                                Label("继续", systemImage: "play.circle.fill")
-                                    .frame(maxWidth: .infinity)
+                                HStack(spacing: 6) {
+                                    Label("继续", systemImage: "play.circle.fill")
+                                        .fixedSize()
+                                }
+                                .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.bordered)
                         }
