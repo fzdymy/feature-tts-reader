@@ -486,21 +486,22 @@ struct TTSView: View {
                         ForEach(speakers.prefix(10), id: \.self) { speaker in
                             HStack {
                                 Text(speaker)
-                                    .font(.subheadline)
+                                    .font(.caption)
+                                    .lineLimit(1)
                                 Spacer()
                                 Picker("", selection: Binding(
                                     get: { customCharacterVoices[speaker] ?? "" },
                                     set: { customCharacterVoices[speaker] = $0 }
                                 )) {
-                                    Text("自动分配").tag("")
+                                    Text("自动").tag("")
                                 ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
                                     Text(v.displayName).tag(v.id)
-}
-}
+                                }
+                                }
                                 .pickerStyle(.menu)
-                                .frame(width: 140)
+                                .frame(width: 130)
                             }
-                            .padding(.vertical, 2)
+                            .padding(.vertical, 1)
                         }
                     }
                     .padding(8)

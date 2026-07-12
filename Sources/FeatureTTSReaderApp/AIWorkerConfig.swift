@@ -40,33 +40,58 @@ struct AISegment: Codable, Hashable {
     let text: String
 }
 
-/// 情绪枚举（与 Worker schema 对齐）
+/// 情绪枚举（与 Worker schema 和 Edge TTS styles 对齐）
 enum Emotion: Codable, CaseIterable {
-    case angry, sad, cheerful, neutral, fearful, surprised, disgusted, calm
+    case neutral, happy, angry, sad, fearful, whispering, excited
+    case cheerful, calm, surprised, disgusted, shouting, hopeful
+    case embarrassed, relieved, confused, determined, gentle, affectionate
 
     var rawValue: String {
         switch self {
+        case .neutral: return "neutral"
+        case .happy: return "happy"
         case .angry: return "angry"
         case .sad: return "sad"
-        case .cheerful: return "cheerful"
-        case .neutral: return "neutral"
         case .fearful: return "fearful"
+        case .whispering: return "whispering"
+        case .excited: return "excited"
+        case .cheerful: return "cheerful"
+        case .calm: return "calm"
         case .surprised: return "surprised"
         case .disgusted: return "disgusted"
-        case .calm: return "calm"
+        case .shouting: return "shouting"
+        case .hopeful: return "hopeful"
+        case .embarrassed: return "embarrassed"
+        case .relieved: return "relieved"
+        case .confused: return "confused"
+        case .determined: return "determined"
+        case .gentle: return "gentle"
+        case .affectionate: return "affectionate"
         }
     }
 
-    /// 映射到 Edge TTS SSML style
+    /// 映射到 Edge TTS style 名称
     var ssmlStyle: String {
         switch self {
         case .angry: return "angry"
         case .sad: return "sad"
-        case .cheerful: return "cheerful"
         case .fearful: return "fearful"
-        case .surprised: return "cheerful"
-        case .disgusted: return "angry"
-        case .calm, .neutral: return "neutral"
+        case .whispering: return "whispering"
+        case .excited: return "excited"
+        case .happy: return "happy"
+        case .cheerful: return "cheerful"
+        case .calm: return "calm"
+        case .surprised: return "surprised"
+        case .disgusted: return "disgusted"
+        case .shouting: return "shouting"
+        case .hopeful: return "hopeful"
+        case .embarrassed: return "embarrassed"
+        case .relieved: return "relieved"
+        case .confused: return "confused"
+        case .determined: return "determined"
+        case .gentle: return "gentle"
+        case .affectionate: return "affectionate"
+        case .neutral: return "neutral"
         }
     }
 
@@ -74,30 +99,32 @@ enum Emotion: Codable, CaseIterable {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self).lowercased()
         switch raw {
-        case "angry": self = .angry
-        case "sad": self = .sad
-        case "cheerful", "happy", "excited": self = .cheerful
         case "neutral": self = .neutral
+        case "happy", "happiness": self = .happy
+        case "angry", "anger": self = .angry
+        case "sad", "sadness": self = .sad
         case "fearful", "fear": self = .fearful
-        case "surprised": self = .surprised
-        case "disgusted": self = .disgusted
-        case "calm", "whisper": self = .calm
+        case "whispering", "whisper": self = .whispering
+        case "excited", "excitement": self = .excited
+        case "cheerful": self = .cheerful
+        case "calm": self = .calm
+        case "surprised", "surprise": self = .surprised
+        case "disgusted", "disgust": self = .disgusted
+        case "shouting": self = .shouting
+        case "hopeful", "hope": self = .hopeful
+        case "embarrassed", "embarrassment": self = .embarrassed
+        case "relieved", "relief": self = .relieved
+        case "confused", "confusion": self = .confused
+        case "determined", "determination": self = .determined
+        case "gentle": self = .gentle
+        case "affectionate": self = .affectionate
         default: self = .neutral
         }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        switch self {
-        case .angry: try container.encode("angry")
-        case .sad: try container.encode("sad")
-        case .cheerful: try container.encode("cheerful")
-        case .neutral: try container.encode("neutral")
-        case .fearful: try container.encode("fearful")
-        case .surprised: try container.encode("surprised")
-        case .disgusted: try container.encode("disgusted")
-        case .calm: try container.encode("calm")
-        }
+        try container.encode(rawValue)
     }
 }
 

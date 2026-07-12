@@ -90,18 +90,22 @@ TTS 引擎 (Edge TTS)
   - `custom_multi_role.processCustomWithWorker_*` — 编排上下文
   - `custom_synthesize.start/first_segment_error/remaining_segment_error/complete` — 合成进度
 
-### Emotion 映射（worker.js → iOS）
+### Emotion 映射（worker.js → Swift → Edge TTS）
 
-| worker.js | Swift Emotion |
-|-----------|---------------|
-| `neutral` | `.neutral` |
-| `happy` | `.cheerful` |
-| `excited` | `.cheerful` |
-| `angry` | `.angry` |
-| `sad` | `.sad` |
-| `fear` | `.fearful` |
-| `whisper` | `.calm` |
-| 其他 | `.neutral`(默认) |
+| worker.js | Swift Emotion | Edge TTS style |
+|-----------|---------------|----------------|
+| `neutral` | `.neutral` | `neutral` |
+| `happy` | `.happy` | `happy` |
+| `excited` | `.excited` | `excited` |
+| `angry` | `.angry` | `angry` |
+| `sad` | `.sad` | `sad` |
+| `fear` | `.fearful` | `fearful` |
+| `whisper` | `.whispering` | `whispering` |
+| `cheerful` | `.cheerful` | `cheerful` |
+| `surprised` | `.surprised` | `surprised` |
+| `disgusted` | `.disgusted` | `disgusted` |
+| `calm` | `.calm` | `calm` |
+| 其他 | `.neutral`(默认) | `neutral`(默认) |
 
 ## 关键决策
 
