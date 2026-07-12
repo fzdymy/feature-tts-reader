@@ -783,7 +783,7 @@ struct TTSView: View {
         guard let serverID = selectedServerID,
               !customWorkerSegments.isEmpty else { return }
 
-        isProcessingCustom = true
+        isSynthesizingCustom = true
         customSynthesisResult = "正在合成首段..."
 
         DebugLogger.log(flow: "custom_synthesize", step: "start", details: [

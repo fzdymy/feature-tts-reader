@@ -112,6 +112,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         
         // 1. 如果有预加载的 nextPlayer，直接接管（无缝切换）
         if let readyPlayer = nextPlayer, let readyItem = nextItem {
+            if !queue.isEmpty { queue.removeFirst() }
             if let currentItem {
                 playbackHistory.append(currentItem)
                 if playbackHistory.count > 200 {
@@ -496,6 +497,7 @@ extension AdvancedAudioPlaybackController: AVAudioPlayerDelegate {
         Task { @MainActor in
             // 无缝切换：直接使用预加载好的 nextPlayer
             if let next = self.nextPlayer {
+                if !self.queue.isEmpty { self.queue.removeFirst() }
                 self.player?.delegate = nil
                 self.player = next
                 self.player?.delegate = self
