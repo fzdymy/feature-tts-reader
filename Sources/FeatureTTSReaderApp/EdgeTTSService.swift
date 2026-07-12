@@ -375,21 +375,25 @@ actor EdgeTTSService {
         guard let baseURL = URL(string: server.url) else {
             return "\(server.name): 无效地址"
         }
-        let configURL = baseURL.appendingPathComponent("api/v1/config")
-        var request = URLRequest(url: configURL)
+        let ttsURL = baseURL.appendingPathComponent("api/v1/tts")
+        var request = URLRequest(url: ttsURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 3
         do {
-            let (data, response) = try await session.data(for: request)
+            let (_, response) = try await session.data(for: request)
             let ms = Int(Date().timeIntervalSince(startTime) * 1000)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else {
                 return "\(server.name): 暂不可达 (\(ms)ms)"
             }
-            guard let decoded = try? JSONDecoder().decode(ServerConfigResponse.self, from: data),
-                  !decoded.voices.isEmpty else {
+            // 代理 / captive portal 通常返回 HTML 登录页，识别为异常而非就绪
+            if (http.mimeType ?? "").contains("html") {
                 return "\(server.name): 响应异常 (\(ms)ms)"
             }
-            return "\(server.name): 就绪 (\(ms)ms)"
+            // 2xx 或 4xx 均说明服务器在线并已响应（405 方法不允许也代表端点存在）
+            if (200...499).contains(http.statusCode) {
+                return "\(server.name): 就绪 (\(ms)ms)"
+            }
+            return "\(server.name): 响应异常 (\(ms)ms)"
         } catch {
             let ms = Int(Date().timeIntervalSince(startTime) * 1000)
             return "\(server.name): 暂不可达 (\(ms)ms)"
