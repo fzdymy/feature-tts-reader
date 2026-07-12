@@ -27,7 +27,7 @@ enum DebugLogger {
 
     private static let queue = DispatchQueue(label: "com.featuretts.debuglogger", qos: .utility)
     private static let urlLock = OSAllocatedUnfairLock()
-    private static var _fileURL: URL? = nil
+    private static nonisolated(unsafe) var _fileURL: URL? = nil
 
     private static var fileURL: URL? {
         get { urlLock.withLock { _fileURL } }
