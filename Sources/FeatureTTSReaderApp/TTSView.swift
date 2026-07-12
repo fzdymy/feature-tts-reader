@@ -1427,9 +1427,7 @@ struct TTSView: View {
     }
 
     private func loadVoicesFromCache() {
-        guard let id = selectedServerID,
-              let config = serverConfigs.first(where: { $0.id == id }) else { return }
-        let cacheKey = "cachedVoices_\(config.url)"
+        let cacheKey = "cachedVoices"
         let decoder = JSONDecoder()
         if let data = UserDefaults.standard.data(forKey: cacheKey),
            let cached = try? decoder.decode([EdgeVoiceInfo].self, from: data) {
@@ -1443,12 +1441,9 @@ struct TTSView: View {
     }
 
     private func saveVoicesToCache(_ voices: [EdgeVoiceInfo]) {
-        guard let id = selectedServerID,
-              let config = serverConfigs.first(where: { $0.id == id }) else { return }
-        let cacheKey = "cachedVoices_\(config.url)"
+        let cacheKey = "cachedVoices"
         let zhVoices = voices.filter { $0.locale.hasPrefix("zh-CN") }
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(zhVoices) {
+        if let data = try? JSONEncoder().encode(zhVoices) {
             UserDefaults.standard.set(data, forKey: cacheKey)
         }
     }
