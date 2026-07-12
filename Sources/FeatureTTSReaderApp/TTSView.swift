@@ -1066,10 +1066,23 @@ private func synthesizeAndPlayCustom() {
         let isNarrator: Bool
     }
 
-    private func buildCustomTTSConfig(from result: ScanResult) -> [String: TTSConfigInfo] {
+    private func buildCustomTTSConfig(from result: CharacterScanner.Result) -> [String: TTSConfigInfo] {
         var map: [String: TTSConfigInfo] = [:]
         let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+        
+        // Build character voice map (same logic as synthesizeAndPlayCustom)
+        var charVoiceMap: [String: String] = [:]
+        for profile in result.characters {
+            if let voiceID = customCharacterVoices[profile.name], !voiceID.isEmpty {
+                charVoiceMap[profile.name] = voiceID
+            } else if let matched = availableVoices.first(where: { 
+                $0.locale.hasPrefix("zh-CN") && 
+                (profile.gender == "Male" && $0.gender == "Male" || profile.gender == "Female" && $0.gender == "Female")
+            }) {
+                charVoiceMap[profile.name] = matched.id
+            }
+        }
         let narratorVoice = charVoiceMap["旁白"] ?? availableVoices.first(where: { $0.gender == "Female" })?.id ?? defaultVoice
 
         for profile in result.characters {
@@ -1108,7 +1121,7 @@ private func synthesizeAndPlayCustom() {
         let text: String
     }
 
-    private func buildSegmentsPreview(from result: ScanResult) -> [SegmentPreview] {
+    private func buildSegmentsPreview(from result: CharacterScanner.Result) -> [SegmentPreview] {
         let analyzer = CharacterAnalyzer()
         let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
         let knownCharacters = Set(result.characters.map { $0.name })
