@@ -1093,9 +1093,9 @@ private func synthesizeAndPlayCustom() {
                 }
                 return defaultVoice
             }()
-            let rate = profile.baseRate + Int(multiRoleGlobalRate)
-            let pitch = profile.basePitch
-            let style = profile.baseStyle
+            let rate = profile.rate + Int(multiRoleGlobalRate)
+            let pitch = profile.pitch
+            let style = profile.style
             map[profile.name] = TTSConfigInfo(
                 voice: voice.isEmpty ? "默认" : voice,
                 rate: rate,
