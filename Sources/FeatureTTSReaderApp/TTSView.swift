@@ -248,6 +248,9 @@ struct TTSView: View {
             if showPreview {
                 requestPreview
             }
+            
+            // 说话人分析
+            speakerAnalysisSection
         } header: {
             Label("语音测试", systemImage: "waveform")
         }
@@ -864,6 +867,85 @@ private func synthesizeAndPlayCustom() {
                 isSynthesizingCustom = false
             }
         }
+    }
+
+    // MARK: - Speaker Analysis Section
+
+    @ViewBuilder
+    private var speakerAnalysisSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "person.2.badge.gearshape")
+                    .foregroundColor(.secondary)
+                Text("说话人分析预览（长按复制）")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+
+            if testText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("在上方输入测试文本即可看到说话人识别结果")
+                    .font(.caption2)
+                    .foregroundColor(.tertiary)
+                    .italic()
+            } else {
+                let analyzer = CharacterAnalyzer()
+                let dialogues = analyzer.detectDialogues(in: testText)
+                let speakerMap = buildSpeakerMap(from: dialogues)
+
+                if speakerMap.isEmpty {
+                    Text("未检测到对话标记，将作为旁白整段朗读")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(Array(speakerMap.keys.sorted()), id: \.self) { speaker in
+                        if let info = speakerMap[speaker] {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(info.isNarrator ? Color.gray : Color.accentColor)
+                                    .frame(width: 6, height: 6)
+                                Text("\(speaker) → \(info.voice)")
+                                    .font(.caption2.monospaced())
+                                if let rate = info.rate, rate != 0 {
+                                    Text("r=\(rate)")
+                                        .font(.caption2.monospaced())
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+    }
+
+    private func buildSpeakerMap(from dialogues: [DialogueMatch]) -> [String: (voice: String, rate: Int?, isNarrator: Bool)] {
+        var map: [String: (voice: String, rate: Int?, isNarrator: Bool)] = [:]
+        let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
+        let femaleVoice = availableVoices.first(where: { $0.gender == "Female" })?.id ?? ""
+        let maleVoice = availableVoices.first(where: { $0.gender == "Male" })?.id ?? ""
+        let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+
+        for d in dialogues {
+            let speaker = d.speaker ?? "旁白"
+            if map[speaker] == nil {
+                let isNarrator = speaker == "旁白" || speaker.isEmpty
+                let voice: String
+                let rate: Int? = Int(testRate)
+                if isNarrator {
+                    voice = femaleVoice.isEmpty ? defaultVoice : femaleVoice
+                } else {
+                    // 简单按长度判断性别（演示用），实际应用中有角色性别信息
+                    voice = speaker.count % 2 == 0 ? femaleVoice : maleVoice
+                    if voice.isEmpty { voice = defaultVoice }
+                }
+                map[speaker] = (voice: voice.isEmpty ? "默认音色" : voice, rate: rate, isNarrator: isNarrator)
+            }
+        }
+        return map
     }
 
     @ViewBuilder
