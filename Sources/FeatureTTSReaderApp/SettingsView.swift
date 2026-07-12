@@ -168,6 +168,26 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(isTestingEdge)
+
+                    VStack(spacing: 6) {
+                        HStack {
+                            Image(systemName: "speedometer")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                            Text("全局语速")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(Int(UserDefaults.standard.double(forKey: "globalRate")))")
+                                .font(.caption.monospaced())
+                                .frame(width: 24)
+                        }
+                        Slider(value: Binding(
+                            get: { UserDefaults.standard.double(forKey: "globalRate") },
+                            set: { UserDefaults.standard.set($0, forKey: "globalRate") }
+                        ), in: -10...10, step: 1)
+                    }
+                    .padding(.vertical, 4)
                 }
 
                 // MARK: - 书架设置
