@@ -600,8 +600,9 @@ struct TTSView: View {
                                     set: { customCharacterVoices[speaker] = $0 }
                                 )) {
                                     Text("自动分配").tag("")
-                                    ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
-                                        Text(v.displayName).tag(v.id)
+                                ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
+                                    Text(v.displayName).tag(v.id)
+}
 }
                                 .pickerStyle(.menu)
                                 .frame(width: 140)
