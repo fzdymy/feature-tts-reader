@@ -636,6 +636,10 @@ private func synthesizeAndPlayCustom() {
             }
             let defaultVoiceID = charVoiceMap.values.first ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
             
+            // Fixed narrator voice - always use female voice for narrator
+            let narratorVoiceID = charVoiceMap["旁白"] ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") && $0.gender == "Female" })?.id ?? ""
+            let defaultVoiceID = charVoiceMap.values.first ?? availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+            
             // Build known characters set for speaker matching
             let knownCharacters = Set(result.characters.map { $0.name })
             
