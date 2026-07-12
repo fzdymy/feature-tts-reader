@@ -29,18 +29,36 @@ struct TTSView: View {
     @State private var testPitch: Double = 0
     @State private var showPreview = false
 
-// MARK: - Multi-Role Test State
+    // MARK: - Multi-Role Test State
     @State private var isTestingMultiRole = false
     @State private var multiRoleTestResult = ""
     @State private var multiRoleGlobalRate: Double = 0
 
     // MARK: - Custom Multi-Role Test State
     @State private var customMultiRoleText = ""
-    @State private var isScanningCharacters = false
-    @State private var customScanResult: CharacterScanner.Result?
+    @State private var isProcessingCustom = false
+    @State private var customWorkerSegments: [AISegment] = []
     @State private var customCharacterVoices: [String: String] = [:] // characterName -> voiceID
-    @State private var isSynthesizingCustom = false
     @State private var customSynthesisResult = ""
+    @State private var isProcessingWorker = false
+    @State private var workerProgress: Double = 0
+    @State private var workerProgressMessage = ""
+
+    // MARK: - AI Worker Config State
+    @State private var aiWorkerConfigs: [AIWorkerConfig] = []
+    @State private var selectedWorkerID: UUID? {
+        didSet {
+            if let id = selectedWorkerID {
+                UserDefaults.standard.set(id.uuidString, forKey: "selectedAIWorkerID")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "selectedAIWorkerID")
+            }
+        }
+    }
+    @State private var showWorkerEditSheet = false
+    @State private var editingWorkerConfig: AIWorkerConfig?
+    @State private var showAddWorkerSheet = false
+    @State private var workerTestResult = ""
 
     // MARK: - Sheet State
     @State private var showAddSheet = false
@@ -109,6 +127,7 @@ struct TTSView: View {
                     customMultiRoleSection
                 }
                 statusSection
+                aiWorkerSection
             }
             .navigationTitle("语音引擎")
             .toolbar {
@@ -139,8 +158,30 @@ struct TTSView: View {
                     }
                 }
             }
+            .sheet(item: $editingWorkerConfig) { config in
+                WorkerEditView(config: config) { updated in
+                    if let idx = aiWorkerConfigs.firstIndex(where: { $0.id == config.id }) {
+                        aiWorkerConfigs[idx] = updated
+                        saveWorkerConfigs()
+                    }
+                }
+            }
+            .sheet(isPresented: $showAddWorkerSheet) {
+                WorkerEditView { config in
+                    var newConfig = config
+                    if newConfig.name == "默认" || newConfig.name.isEmpty {
+                        newConfig.name = "Worker \(aiWorkerConfigs.count + 1)"
+                    }
+                    aiWorkerConfigs.append(newConfig)
+                    if aiWorkerConfigs.count == 1 {
+                        selectedWorkerID = newConfig.id
+                    }
+                    saveWorkerConfigs()
+                }
+            }
             .task {
                 await loadServers()
+                await loadWorkerConfigs()
             }
             .task(id: selectedServerID) {
                 await loadVoices()
@@ -293,6 +334,140 @@ struct TTSView: View {
         }
     }
 
+    }
+
+    // MARK: - AI Worker Section
+
+    private var aiWorkerSection: some View {
+        Section {
+            if aiWorkerConfigs.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("暂无 AI Worker 配置")
+                        .font(.subheadline.weight(.medium))
+                    Text("点击下方按钮添加 Worker，用于小说角色、情绪识别")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+            } else {
+                ForEach(aiWorkerConfigs) { config in
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(config.isDefault ? Color.accentColor : Color.secondary)
+                            .frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(config.name)
+                                .font(.subheadline.weight(.medium))
+                            Text(config.baseURL)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        if config.isDefault {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.accentColor)
+                                .font(.subheadline)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectWorker(config.id)
+                    }
+                    .contextMenu {
+                        Button { selectWorker(config.id) } label: {
+                            Label("设为默认", systemImage: "checkmark.circle")
+                        }
+                        Button(role: .destructive) { deleteWorker(config.id) } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+
+            Button {
+                showAddWorkerSheet = true
+            } label: {
+                Label("添加 AI Worker", systemImage: "plus.circle")
+            }
+
+            if !workerTestResult.isEmpty {
+                HStack {
+                    Image(systemName: workerTestResult.hasPrefix("成功") ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(workerTestResult.hasPrefix("成功") ? .green : .red)
+                    Text(workerTestResult)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+            }
+        } header: {
+            Label("AI 剧本解析 Worker", systemImage: "brain.head.profile")
+        }
+    }
+
+    private func loadWorkerConfigs() async {
+        if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
+           let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
+            await MainActor.run {
+                aiWorkerConfigs = decoded
+            }
+            if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
+               let id = UUID(uuidString: savedID),
+               aiWorkerConfigs.contains(where: { $0.id == id }) {
+                await MainActor.run { selectedWorkerID = id }
+            } else if aiWorkerConfigs.first?.isDefault == true {
+                await MainActor.run { selectedWorkerID = aiWorkerConfigs.first?.id }
+            }
+        }
+    }
+
+    private func saveWorkerConfigs() {
+        if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
+            UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
+        }
+    }
+
+    private func selectWorker(_ id: UUID) {
+        selectedWorkerID = id
+        for i in aiWorkerConfigs.indices {
+            aiWorkerConfigs[i].isDefault = aiWorkerConfigs[i].id == id
+        }
+        saveWorkerConfigs()
+    }
+
+    private func deleteWorker(_ id: UUID) {
+        aiWorkerConfigs.removeAll { $0.id == id }
+        if selectedWorkerID == id {
+            selectedWorkerID = aiWorkerConfigs.first?.id
+        }
+        saveWorkerConfigs()
+    }
+
+    private func testWorkerConnection(_ config: AIWorkerConfig) {
+        workerTestResult = "测试中..."
+        Task {
+            do {
+                _ = try await AIWorkerService.shared.testConnection(config: config)
+                await MainActor.run { workerTestResult = "成功 ✓" }
+            } catch {
+                await MainActor.run { workerTestResult = "失败: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    private func getSelectedWorkerConfig() -> AIWorkerConfig? {
+        if let id = selectedWorkerID {
+            return aiWorkerConfigs.first { $0.id == id }
+        }
+        return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
+    }
+
+    private func getDefaultWorkerConfig() -> AIWorkerConfig? {
+        return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
+    }
+
     // MARK: - Multi-Role Test Section
 
     private var multiRoleTestSection: some View {
@@ -410,46 +585,136 @@ struct TTSView: View {
 
     // MARK: - Custom Multi-Role Section
 
-    private var customMultiRoleSection: some View {
+private var customMultiRoleSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
-                TextField("粘贴或输入小说文本（自动识别角色、匹配音色、流水合成播放）", text: $customMultiRoleText, axis: .vertical)
+                TextField("粘贴或输入小说文本（AI Worker 解析角色、情绪、语气、流水合成播放）", text: $customMultiRoleText, axis: .vertical)
                     .font(.body)
                     .lineLimit(4...8)
                     .padding(8)
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
 
-                // 角色扫描与结果
-                if isScanningCharacters {
-                    HStack {
-                        ProgressView().scaleEffect(0.8)
-                        Text("正在识别角色...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                // 处理状态
+                if isProcessingWorker {
+                    VStack(spacing: 8) {
+                        ProgressView(value: workerProgress) {
+                            Text(workerProgressMessage)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
-                } else if let result = customScanResult, !result.characters.isEmpty {
+                } else if !customWorkerSegments.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("识别到 \(result.characters.count) 个角色")
+                        Text("解析到 \(customWorkerSegments.count) 个片段，\(Set(customWorkerSegments.map { $0.speaker }).count) 个角色")
                             .font(.caption.weight(.medium))
                             .foregroundColor(.secondary)
 
-                        ForEach(result.characters.prefix(10)) { profile in
+                        let speakers = Array(Set(customWorkerSegments.map { $0.speaker })).sorted()
+                        ForEach(speakers.prefix(10), id: \.self) { speaker in
                             HStack {
-                                Text(profile.name)
+                                Text(speaker)
                                     .font(.subheadline)
                                 Spacer()
                                 Picker("", selection: Binding(
-                                    get: { customCharacterVoices[profile.name] ?? "" },
-                                    set: { customCharacterVoices[profile.name] = $0 }
+                                    get: { customCharacterVoices[speaker] ?? "" },
+                                    set: { customCharacterVoices[speaker] = $0 }
                                 )) {
                                     Text("自动分配").tag("")
                                     ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
                                         Text(v.displayName).tag(v.id)
-                                    }
-                                }
+}
+}
+
+    // MARK: - Worker Edit Sheet
+
+    private struct WorkerEditView: View {
+        @Environment(\.dismiss) private var dismiss
+
+        let existingID: UUID?
+        @State private var name: String
+        @State private var baseURL: String
+        @State private var authKey: String
+        @State private var model: String
+        @State private var sliceCharLimit: Int
+        @State private var timeout: Double
+        let onSave: (AIWorkerConfig) -> Void
+
+        init(config: AIWorkerConfig? = nil, onSave: @escaping (AIWorkerConfig) -> Void) {
+            self.existingID = config?.id
+            _name = State(initialValue: config?.name ?? "")
+            _baseURL = State(initialValue: config?.baseURL ?? "")
+            _authKey = State(initialValue: config?.authKey ?? "")
+            _model = State(initialValue: config?.model ?? "qwen-plus")
+            _sliceCharLimit = State(initialValue: config?.sliceCharLimit ?? 1000)
+            _timeout = State(initialValue: config?.timeout ?? 30)
+            self.onSave = onSave
+        }
+
+        var body: some View {
+            NavigationStack {
+                Form {
+                    Section {
+                        LabeledContent("名称") {
+                            TextField("例如：我的 Qwen Worker", text: $name)
+                        }
+                        LabeledContent("Base URL") {
+                            TextField("https://your-worker.workers.dev", text: $baseURL)
+                                .font(.caption.monospaced())
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                        }
+                        LabeledContent("Auth Key") {
+                            TextField("X-Auth-Key 密钥", text: $authKey)
+                                .font(.caption.monospaced())
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                        }
+                        LabeledContent("模型") {
+                            TextField("qwen-plus", text: $model)
+                                .font(.caption.monospaced())
+                        }
+                        LabeledContent("单片字符限制") {
+                            TextField("1000", value: $sliceCharLimit, format: .number)
+                                .keyboardType(.numberPad)
+                        }
+                        LabeledContent("超时 (秒)") {
+                            TextField("30", value: $timeout, format: .number)
+                                .keyboardType(.decimalPad)
+                        }
+                    } header: {
+                        Label("Worker 配置", systemImage: "brain.head.profile")
+                    }
+                }
+                .navigationTitle(existingID != nil ? "编辑 Worker" : "添加 Worker")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("取消") { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("保存") {
+                            let config = AIWorkerConfig(
+                                id: existingID ?? UUID(),
+                                name: name,
+                                baseURL: baseURL,
+                                authKey: authKey,
+                                model: model,
+                                sliceCharLimit: sliceCharLimit,
+                                timeout: timeout
+                            )
+                            onSave(config)
+                            dismiss()
+                        }
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || baseURL.isEmpty || authKey.isEmpty)
+                    }
+                }
+            }
+        }
+    }
+}
                                 .pickerStyle(.menu)
                                 .frame(width: 140)
                             }
@@ -469,13 +734,13 @@ struct TTSView: View {
                 // 控制按钮
                 VStack(spacing: 8) {
                     Button {
-                        scanCustomCharacters()
+                        processCustomWithWorker()
                     } label: {
-                        Label("识别角色并匹配音色", systemImage: "magnifyingglass")
+                        Label("AI 解析并匹配音色", systemImage: "brain.head.profile")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(isScanningCharacters || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedServerID == nil)
+                    .disabled(isProcessingWorker || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil)
 
                     Button {
                         synthesizeAndPlayCustom()
@@ -531,91 +796,228 @@ struct TTSView: View {
 
     // MARK: - Custom Multi-Role Actions
 
-    private func scanCustomCharacters() {
+    private func processCustomWithWorker() {
         let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        isScanningCharacters = true
-        customScanResult = nil
+        guard let workerConfig = getSelectedWorkerConfig() else {
+            customSynthesisResult = "请先在设置中配置 AI Worker"
+            return
+        }
+
+        guard let serverID = selectedServerID else {
+            customSynthesisResult = "请先选择 TTS 服务器"
+            return
+        }
+
+        isProcessingWorker = true
+        customWorkerSegments.removeAll()
         customCharacterVoices.removeAll()
         customSynthesisResult = ""
+        workerProgress = 0
+        workerProgressMessage = "准备中..."
 
         Task {
-            // Use the new RobustCharacterExtractor with aggressive mode for better accuracy
-            let extractor = RobustCharacterExtractor(config: .aggressive)
-            let extractionResult = await extractor.extract(from: text)
-
-            await MainActor.run {
-                // Convert ExtractionResult to a format compatible with existing UI
-                var profiles: [CharacterProfile] = []
-
-                for char in extractionResult.characters {
-                    let profile = CharacterProfile(
-                        id: char.id,
-                        name: char.name,
-                        aliases: char.aliases,
-                        gender: char.gender == "男性" ? "Male" : (char.gender == "女性" ? "Female" : "Unknown"),
-                        age: char.age,
-                        tone: char.tone,
-                        voice: char.voiceID.isEmpty ? "" : char.voiceID,
-                        rate: char.rate,
-                        pitch: char.pitch,
-                        style: char.style,
-                        sensitivity: 50,
-                        isNarrator: char.isNarrator,
-                        role: char.isNarrator ? .narrator : .character,
-                        bookID: nil
-                    )
-                    profiles.append(profile)
-                }
-
-                // Add narrator if not already present
-                if !profiles.contains(where: { $0.isNarrator }), let narrator = extractionResult.narratorName {
-                    let narratorProfile = CharacterProfile(
-                        id: UUID(),
-                        name: narrator,
-                        aliases: [],
-                        gender: "Unknown",
-                        age: "未知",
-                        tone: "平稳",
-                        voice: "zh-CN-XiaoxiaoNeural",
-                        rate: 0,
-                        pitch: 0,
-                        style: "neutral",
-                        sensitivity: 50,
-                        isNarrator: true,
-                        role: .narrator,
-                        bookID: nil
-                    )
-                    profiles.insert(narratorProfile, at: 0)
-                }
-
-                // Create a result object compatible with the old format
-                let compatResult = CharacterScanner.Result(characters: profiles, edges: [])
-                customScanResult = compatResult
-                isScanningCharacters = false
-
-                // Auto-assign voices based on gender
-                var voices: [String: String] = [:]
-                for profile in profiles.prefix(10) {
-                    let matchedVoice = availableVoices.first { v in
-                        v.locale.hasPrefix("zh-CN") &&
-                        (profile.gender == "Male" && v.gender == "Male" || profile.gender == "Female" && v.gender == "Female")
-                    } ?? availableVoices.first { $0.locale.hasPrefix("zh-CN") }
-                    if let v = matchedVoice {
-                        voices[profile.name] = v.id
+            do {
+                let segments = try await AIWorkerService.shared.processChapter(
+                    text: customMultiRoleText,
+                    config: workerConfig,
+                    progress: { progress, message in
+                        await MainActor.run {
+                            workerProgress = progress
+                            workerProgressMessage = message
+                        }
                     }
+                )
+
+                await MainActor.run {
+                    customWorkerSegments = segments
+                    isProcessingWorker = false
+                    workerProgress = 1.0
+                    workerProgressMessage = "解析完成，共 \(segments.count) 个片段"
+
+                    // 自动分�配音色（基于 speaker 名称）
+                    assignVoicesToSegments(segments)
+                    customSynthesisResult = "解析完成，共 \(segments.count) 个片段，可开始合成"
                 }
-                customCharacterVoices = voices
-                customSynthesisResult = "识别到 \(profiles.count) 个角色，可开始合成"
+            } catch {
+                await MainActor.run {
+                    isProcessingWorker = false
+                    workerProgress = 0
+                    customSynthesisResult = "解析失败: \(error.localizedDescription)"
+                }
             }
         }
     }
 
-private func synthesizeAndPlayCustom() {
-        guard let id = selectedServerID,
-              let result = customScanResult,
-              !result.characters.isEmpty else { return }
+    private func getSelectedWorkerConfig() -> AIWorkerConfig? {
+        if let id = selectedWorkerID {
+            return aiWorkerConfigs.first { $0.id == id }
+        }
+        return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
+    }
+
+    private func assignVoicesToSegments(_ segments: [AISegment]) {
+        let speakers = Set(segments.map { $0.speaker })
+        var voices: [String: String] = [:]
+
+        for speaker in speakers {
+            // 如果已有手动分配，保留
+            if let existing = customCharacterVoices[speaker], !existing.isEmpty {
+                voices[speaker] = existing
+                continue
+            }
+            // 自动匹配：从可用音色中按性别分配（简单启发式）
+            let matchedVoice = availableVoices.first { v in
+                v.locale.hasPrefix("zh-CN") &&
+                (speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她")) == (v.gender == "Female")
+            } ?? availableVoices.first { $0.locale.hasPrefix("zh-CN") }
+
+            if let v = matchedVoice {
+                voices[speaker] = v.id
+            }
+        }
+        customCharacterVoices = voices
+    }
+
+    private func synthesizeAndPlayCustom() {
+        guard let serverID = selectedServerID,
+              !customWorkerSegments.isEmpty else { return }
+
+        isProcessingCustom = true
+        customSynthesisResult = "正在合成首段..."
+
+        Task {
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            let globalRate = multiRoleGlobalRate
+
+            // 首段合成并立即播放
+            do {
+                let firstSegment = customWorkerSegments[0]
+                let voiceID = customCharacterVoices[firstSegment.speaker] ?? ""
+                let rate = Int(globalRate)
+                let pitch = 0
+                let style = firstSegment.emotion.ssmlStyle
+
+                let audioData = try await EdgeTTSService.shared.synthesizeWithSSML(
+                    text: firstSegment.text,
+                    voice: voiceID,
+                    rate: rate,
+                    pitch: pitch,
+                    style: style,
+                    serverID: serverID
+                )
+
+                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                try audioData.write(to: url, options: .atomic)
+
+                let segment = ScriptSegment(
+                    id: UUID(),
+                    characterName: firstSegment.speaker,
+                    voice: voiceID,
+                    rate: rate,
+                    pitch: pitch,
+                    style: style,
+                    text: firstSegment.text,
+                    emotionTag: firstSegment.emotion.rawValue,
+                    paragraphIndex: 0
+                )
+                let item = TTSQueueItem(
+                    segment: segment,
+                    audioURL: url,
+                    audioData: audioData,
+                    chapterTitle: "自定义多角色",
+                    bookTitle: "测试",
+                    bookID: "custom",
+                    chapterIndex: 0,
+                    segmentIndex: 0,
+                    totalSegments: customWorkerSegments.count,
+                    paragraphIndex: 0,
+                    sentenceIndex: nil,
+                    anchor: nil
+                )
+
+                await MainActor.run {
+                    store.audioController.appendToQueue([item])
+                    customSynthesisResult = "第 1/\(customWorkerSegments.count) 段合成完成，开始播放..."
+                }
+            } catch {
+                await MainActor.run {
+                    customSynthesisResult = "首段合成失败: \(error.localizedDescription)"
+                    isSynthesizingCustom = false
+                }
+                return
+            }
+
+            // 后台并行合成剩余段落
+            await MainActor.run { customSynthesisResult = "首段播放中，后台合成剩余 \(customWorkerSegments.count - 1) 段..." }
+            var restItems: [TTSQueueItem] = []
+
+            for (idx, segment) in customWorkerSegments.dropFirst().enumerated() {
+                let voiceID = customCharacterVoices[segment.speaker] ?? ""
+                let rate = Int(globalRate)
+                let pitch = 0
+                let style = segment.emotion.ssmlStyle
+
+                do {
+                    let audioData = try await EdgeTTSService.shared.synthesizeWithSSML(
+                        text: segment.text,
+                        voice: voiceID,
+                        rate: rate,
+                        pitch: pitch,
+                        style: style,
+                        serverID: serverID
+                    )
+
+                    let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                    let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                    try audioData.write(to: url, options: .atomic)
+
+                    let seg = ScriptSegment(
+                        id: UUID(),
+                        characterName: segment.speaker,
+                        voice: voiceID,
+                        rate: rate,
+                        pitch: pitch,
+                        style: style,
+                        text: segment.text,
+                        emotionTag: segment.emotion.rawValue,
+                        paragraphIndex: idx + 1
+                    )
+                    let item = TTSQueueItem(
+                        segment: seg,
+                        audioURL: url,
+                        audioData: audioData,
+                        chapterTitle: "自定义多角色",
+                        bookTitle: "测试",
+                        bookID: "custom",
+                        chapterIndex: 0,
+                        segmentIndex: idx + 1,
+                        totalSegments: customWorkerSegments.count,
+                        paragraphIndex: idx + 1,
+                        sentenceIndex: nil,
+                        anchor: nil
+                    )
+                    restItems.append(item)
+
+                    await MainActor.run {
+                        customSynthesisResult = "已合成 \(idx + 2)/\(customWorkerSegments.count) 段..."
+                    }
+                } catch {
+                    await MainActor.run {
+                        customSynthesisResult = "第 \(idx + 2) 段合成失败: \(error.localizedDescription)"
+                    }
+                }
+            }
+
+            await MainActor.run {
+                store.audioController.appendToQueue(restItems)
+                customSynthesisResult = "\(customWorkerSegments.count)/\(customWorkerSegments.count) 段全部入队，正在流式播放"
+                isSynthesizingCustom = false
+            }
+        }
+    }
 
         isSynthesizingCustom = true
         customSynthesisResult = "正在分析对话..."
@@ -963,8 +1365,8 @@ private func synthesizeAndPlayCustom() {
                     .foregroundColor(.secondary)
             }
 
-            if let result = customScanResult, !result.characters.isEmpty {
-                let config = buildCustomTTSConfig(from: result)
+            if !customWorkerSegments.isEmpty {
+                let config = buildCustomTTSConfig(from: customWorkerSegments)
 
                 if config.isEmpty {
                     Text("未检测到对话，将以旁白身份整段朗读")
@@ -1006,7 +1408,7 @@ private func synthesizeAndPlayCustom() {
                     }
 
                     // 显示原文分段预览
-                    let segments = buildSegmentsPreview(from: result)
+                    let segments = buildSegmentsPreview(from: customWorkerSegments)
                     if !segments.isEmpty {
                         Divider().padding(.vertical, 4)
                         Text("原文分段预览")
@@ -1028,7 +1430,7 @@ private func synthesizeAndPlayCustom() {
                     }
                 }
             } else {
-                // 未扫描时使用简单正则预览
+                // 未处理时使用简单正则预览
                 let analyzer = CharacterAnalyzer()
                 let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
                 let simpleMap = buildSimpleSpeakerMap(from: dialogues)
@@ -1066,42 +1468,44 @@ private func synthesizeAndPlayCustom() {
         let isNarrator: Bool
     }
 
-    private func buildCustomTTSConfig(from result: CharacterScanner.Result) -> [String: TTSConfigInfo] {
+    private func buildCustomTTSConfig(from segments: [AISegment]) -> [String: TTSConfigInfo] {
         var map: [String: TTSConfigInfo] = [:]
         let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
         
+        // Collect unique speakers
+        let speakers = Set(segments.map { $0.speaker })
+        
         // Build character voice map (same logic as synthesizeAndPlayCustom)
         var charVoiceMap: [String: String] = [:]
-        for profile in result.characters {
-            if let voiceID = customCharacterVoices[profile.name], !voiceID.isEmpty {
-                charVoiceMap[profile.name] = voiceID
+        for speaker in speakers where speaker != "旁白" {
+            if let voiceID = customCharacterVoices[speaker], !voiceID.isEmpty {
+                charVoiceMap[speaker] = voiceID
             } else if let matched = availableVoices.first(where: { 
-                $0.locale.hasPrefix("zh-CN") && 
-                (profile.gender == "Male" && $0.gender == "Male" || profile.gender == "Female" && $0.gender == "Female")
+                $0.locale.hasPrefix("zh-CN") 
             }) {
-                charVoiceMap[profile.name] = matched.id
+                charVoiceMap[speaker] = matched.id
             }
         }
-        let narratorVoice = charVoiceMap["旁白"] ?? availableVoices.first(where: { $0.gender == "Female" })?.id ?? defaultVoice
+        let narratorVoice = customCharacterVoices["旁白"] ?? charVoiceMap["旁白"] ?? availableVoices.first(where: { $0.gender == "Female" })?.id ?? defaultVoice
 
-        for profile in result.characters {
-            let voice = customCharacterVoices[profile.name] ?? charVoiceMap[profile.name] ?? {
-                if let matched = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") &&
-                    (profile.gender == "Male" && $0.gender == "Male" || profile.gender == "Female" && $0.gender == "Female") }) {
+        for speaker in speakers {
+            let voice = customCharacterVoices[speaker] ?? charVoiceMap[speaker] ?? {
+                if let matched = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") }) {
                     return matched.id
                 }
                 return defaultVoice
             }()
-            let rate = profile.rate + Int(multiRoleGlobalRate)
-            let pitch = profile.pitch
-            let style = profile.style
-            map[profile.name] = TTSConfigInfo(
+            let isNarrator = speaker == "旁白"
+            let rate = isNarrator ? 0 + Int(multiRoleGlobalRate) : Int(multiRoleGlobalRate)
+            let pitch = 0
+            let style = ""
+            map[speaker] = TTSConfigInfo(
                 voice: voice.isEmpty ? "默认" : voice,
                 rate: rate,
                 pitch: pitch,
                 style: style,
-                isNarrator: false
+                isNarrator: isNarrator
             )
         }
         // 旁白
@@ -1121,94 +1525,8 @@ private func synthesizeAndPlayCustom() {
         let text: String
     }
 
-    private func buildSegmentsPreview(from result: CharacterScanner.Result) -> [SegmentPreview] {
-        let analyzer = CharacterAnalyzer()
-        let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
-        let knownCharacters = Set(result.characters.map { $0.name })
-
-        var dialoguesWithSpeakers: [(speaker: String?, content: String, range: Range<String.Index>)] = []
-        for dialogue in dialogues {
-            var speaker = dialogue.speaker
-            if speaker == nil || speaker?.isEmpty == true {
-                let lower = dialogue.range.lowerBound
-                let beforeEnd = customMultiRoleText.index(customMultiRoleText.startIndex, offsetBy: customMultiRoleText.distance(from: customMultiRoleText.startIndex, to: lower))
-                let beforeStart = customMultiRoleText.index(beforeEnd, offsetBy: -min(300, customMultiRoleText.distance(from: customMultiRoleText.startIndex, to: beforeEnd)), limitedBy: customMultiRoleText.startIndex) ?? customMultiRoleText.startIndex
-                let context = String(customMultiRoleText[beforeStart..<beforeEnd])
-                if let inferred = analyzer.inferSpeaker(from: context, knownCharacters: Array(knownCharacters)) {
-                    speaker = inferred
-                }
-            }
-            dialoguesWithSpeakers.append((speaker: speaker, content: dialogue.content, range: dialogue.range))
-        }
-
-        var segments: [(speaker: String?, text: String)] = []
-        var lastEnd = customMultiRoleText.startIndex
-
-        for dialogue in dialoguesWithSpeakers {
-            if dialogue.range.lowerBound > lastEnd {
-                let narrationText = String(customMultiRoleText[lastEnd..<dialogue.range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !narrationText.isEmpty {
-                    segments.append((speaker: "旁白", text: narrationText))
-                }
-            }
-            let speakerName = dialogue.speaker ?? ""
-            var matchedSpeaker: String? = nil
-            if !speakerName.isEmpty {
-                if knownCharacters.contains(speakerName) {
-                    matchedSpeaker = speakerName
-                } else {
-                    for profile in result.characters {
-                        if profile.aliases.contains(speakerName) || profile.name.contains(speakerName) || speakerName.contains(profile.name) {
-                            matchedSpeaker = profile.name
-                            break
-                        }
-                    }
-                }
-            }
-            segments.append((speaker: matchedSpeaker, text: dialogue.content))
-            lastEnd = dialogue.range.upperBound
-        }
-
-        if lastEnd < customMultiRoleText.endIndex {
-            let trailing = String(customMultiRoleText[lastEnd...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trailing.isEmpty {
-                segments.append((speaker: "旁白", text: trailing))
-            }
-        }
-
-        if segments.isEmpty {
-            let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let sentences = text.split { "。！？.!?".contains($0) }.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            for sentence in sentences {
-                segments.append((speaker: "旁白", text: sentence))
-            }
-        }
-
-        return segments.map { SegmentPreview(speaker: $0.speaker ?? "旁白", text: $0.text) }
-    }
-
-    private func buildSimpleSpeakerMap(from dialogues: [DialogueMatch]) -> [String: (voice: String, isNarrator: Bool)] {
-        var map: [String: (voice: String, isNarrator: Bool)] = [:]
-        let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
-        let femaleVoice = availableVoices.first(where: { $0.gender == "Female" })?.id ?? ""
-        let maleVoice = availableVoices.first(where: { $0.gender == "Male" })?.id ?? ""
-        let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
-
-        for d in dialogues {
-            let speaker = d.speaker ?? "旁白"
-            if map[speaker] == nil {
-                let isNarrator = speaker == "旁白" || speaker.isEmpty
-                var voice: String
-                if isNarrator {
-                    voice = femaleVoice.isEmpty ? defaultVoice : femaleVoice
-                } else {
-                    voice = speaker.count % 2 == 0 ? femaleVoice : maleVoice
-                    if voice.isEmpty { voice = defaultVoice }
-                }
-                map[speaker] = (voice: voice.isEmpty ? "默认音色" : voice, isNarrator: isNarrator)
-            }
-        }
-        return map
+    private func buildSegmentsPreview(from segments: [AISegment]) -> [SegmentPreview] {
+        return segments.map { SegmentPreview(speaker: $0.speaker, text: $0.text) }
     }
 
     @ViewBuilder
@@ -1318,6 +1636,43 @@ private func synthesizeAndPlayCustom() {
             if selectedServerID == nil {
                 selectedServerID = serverConfigs.first?.id
             }
+        }
+    }
+
+    private func loadWorkerConfigs() async {
+        let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs")
+        if let data = data,
+           let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
+            await MainActor.run {
+                aiWorkerConfigs = decoded
+                if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
+                   let id = UUID(uuidString: savedID),
+                   aiWorkerConfigs.contains(where: { $0.id == id }) {
+                    selectedWorkerID = id
+                } else {
+                    selectedWorkerID = aiWorkerConfigs.first?.id
+                }
+            }
+        } else if aiWorkerConfigs.isEmpty {
+            // Add a default placeholder
+            await MainActor.run {
+                let defaultConfig = AIWorkerConfig(
+                    name: "默认 Worker",
+                    baseURL: "https://your-worker.workers.dev",
+                    authKey: "your-auth-key-here",
+                    model: "qwen-plus",
+                    isDefault: true
+                )
+                aiWorkerConfigs = [defaultConfig]
+                selectedWorkerID = defaultConfig.id
+                saveWorkerConfigs()
+            }
+        }
+    }
+
+    private func saveWorkerConfigs() {
+        if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
+            UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
         }
     }
 

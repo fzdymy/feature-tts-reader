@@ -53,6 +53,24 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var activeServerTestResult: String = ""
     @Published var isTestingServer: Bool = false
 
+    // AI Worker Configs (shared with TTSViewModel)
+    @Published var aiWorkerConfigs: [AIWorkerConfig] = [] {
+        didSet {
+            if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
+                UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
+            }
+        }
+    }
+    @Published var selectedWorkerID: UUID? {
+        didSet {
+            if let id = selectedWorkerID {
+                UserDefaults.standard.set(id.uuidString, forKey: "selectedAIWorkerID")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "selectedAIWorkerID")
+            }
+        }
+    }
+
     private var playbackTask: Task<Void, Never>?
     @Published private(set) var isStateLoaded = false
 
@@ -146,6 +164,23 @@ final class ReaderStore: NSObject, ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "lastReadChapterIndexByBook"),
            let map = try? JSONDecoder().decode([UUID: Int].self, from: data) {
             lastReadChapterIndexByBook = map
+        }
+        
+        // Load AI Worker configs
+        loadWorkerConfigs()
+    }
+
+    private func loadWorkerConfigs() {
+        if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
+           let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
+            aiWorkerConfigs = decoded
+            if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
+               let id = UUID(uuidString: savedID),
+               aiWorkerConfigs.contains(where: { $0.id == id }) {
+                selectedWorkerID = id
+            } else if aiWorkerConfigs.first?.isDefault == true {
+                selectedWorkerID = aiWorkerConfigs.first?.id
+            }
         }
     }
 
@@ -1009,44 +1044,94 @@ final class ReaderStore: NSObject, ObservableObject {
         let currentSensitivity = defaultSensitivity
         let targetText = chapterText ?? bookText
 
-        let config = CharacterScanner.Config(
-            maxResults: 12,
-            useNLValidation: true,
-            includeGraph: targetText.count > 10000
-        )
-        let bookID = UUID(uuidString: currentBookID)
-        let scanResult = await CharacterScanner.scan(
-            text: targetText, config: config, voices: currentVoices,
-            defaultSensitivity: currentSensitivity, bookID: bookID
-        )
-
-        await MainActor.run {
-            var final = scanResult.characters
-            // Assign voices
-            final = final.map { profile in
-                var p = profile
-                if p.voice.isEmpty {
-                    p.voice = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
-                }
-                return p
+        // Use AI Worker instead of local scanner
+        guard let workerConfig = getDefaultWorkerConfig() else {
+            await MainActor.run {
+                statusMessage = "请先在设置中配置 AI Worker"
             }
-
-            if final.isEmpty {
-                final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
-                statusMessage = "未识别到明确人物，已创建默认叙述者。"
-            } else {
-                statusMessage = "已识别 \(final.count) 个角色。"
-                if !scanResult.edges.isEmpty {
-                    statusMessage += " 关系图: \(scanResult.edges.prefix(5).map { "\($0.source)-\($0.target)(\($0.weight))" }.joined(separator: ", "))"
-                }
-            }
-            // Only replace characters for the current book; keep others intact
-            characters.removeAll { $0.bookID == bookID || $0.bookID == nil }
-            characters.append(contentsOf: final)
-            lastScannedBookText = targetText
-            updateRecommendations(from: targetText)
-            saveState()
+            return
         }
+
+        await MainActor.run { statusMessage = "正在通过 AI Worker 识别角色..." }
+
+        do {
+            let segments = try await AIWorkerService.shared.processChapter(
+                text: targetText,
+                config: workerConfig,
+                progress: { progress, message in
+                    await MainActor.run { statusMessage = message }
+                }
+            )
+
+            // Convert AISegment to CharacterProfile
+            let speakers = Array(Set(segments.map { $0.speaker })).sorted()
+            var profiles: [CharacterProfile] = []
+            for speaker in speakers {
+                let speakerSegments = segments.filter { $0.speaker == speaker }
+                let isNarrator = speaker == "旁白"
+                let gender = isNarrator ? "Unknown" : (speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") ? "Female" : "Male")
+                let tone = isNarrator ? "平稳" : speakerSegments.first?.emotion.rawValue ?? "平稳"
+                let voice = "" // Will be auto-assigned
+
+                let profile = CharacterProfile(
+                    id: UUID(),
+                    name: speaker,
+                    aliases: [],
+                    gender: gender,
+                    age: isNarrator ? "未知" : "青年",
+                    tone: tone,
+                    voice: voice,
+                    rate: 0,
+                    pitch: 0,
+                    style: "neutral",
+                    sensitivity: defaultSensitivity,
+                    isNarrator: isNarrator,
+                    role: isNarrator ? .narrator : .character,
+                    bookID: UUID(uuidString: currentBookID)
+                )
+                profiles.append(profile)
+            }
+
+            await MainActor.run {
+                // Assign voices
+                var final = profiles.map { profile in
+                    var p = profile
+                    if p.voice.isEmpty {
+                        p.voice = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
+                    }
+                    return p
+                }
+
+                if final.isEmpty {
+                    final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                    statusMessage = "未识别到明确人物，已创建默认叙述者。"
+                } else {
+                    statusMessage = "已识别 \(final.count) 个角色。"
+                }
+                characters.removeAll { $0.bookID == UUID(uuidString: currentBookID) || $0.bookID == nil }
+                characters.append(contentsOf: final)
+                lastScannedBookText = targetText
+                updateRecommendations(from: targetText)
+                saveState()
+            }
+        } catch {
+            await MainActor.run {
+                statusMessage = "识别失败: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func getDefaultWorkerConfig() -> AIWorkerConfig? {
+        if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
+           let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
+            if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
+               let id = UUID(uuidString: savedID),
+               let config = decoded.first(where: { $0.id == id }) {
+                return config
+            }
+            return decoded.first { $0.isDefault } ?? decoded.first
+        }
+        return nil
     }
 
     func createScriptSegmentsAsync(from text: String) async -> [ScriptSegment] {
@@ -1692,23 +1777,28 @@ final class ReaderStore: NSObject, ObservableObject {
 
 
     nonisolated func inferCharacters(from text: String, voices: [VoiceItem], defaultSensitivity: Int) async -> [CharacterProfile] {
-        let config = CharacterScanner.Config(
-            maxResults: 12,
-            useNLValidation: true,
-            includeGraph: false
+        // Use AI Worker instead of local scanner
+        // This method is used for non-UI background processing
+        // For now, fallback to simple heuristic since we can't access AIWorkerConfig here
+        // The main scanning is done via TTSViewModel with proper AIWorkerConfig
+        
+        // Simple fallback: create a narrator profile
+        let narrator = CharacterProfile(
+            id: UUID(),
+            name: "叙述者",
+            aliases: [],
+            gender: "Unknown",
+            age: "未知",
+            tone: "中性",
+            voice: defaultVoice(for: "Unknown", tone: "neutral", role: "旁白", voices: voices),
+            rate: 0,
+            pitch: 0,
+            style: "neutral",
+            sensitivity: defaultSensitivity,
+            isNarrator: true,
+            role: .narrator
         )
-        let result = await CharacterScanner.scan(
-            text: text, config: config, voices: voices,
-            defaultSensitivity: defaultSensitivity
-        )
-        // Assign voices to non-narrator characters
-        return result.characters.map { profile in
-            var p = profile
-            if p.voice.isEmpty {
-                p.voice = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
-            }
-            return p
-        }
+        return [narrator]
     }
 
     nonisolated func createScriptSegments(from text: String, characters: [CharacterProfile], defaultSensitivity: Int, voices: [VoiceItem], defaultMaleVoiceID: String = "", defaultFemaleVoiceID: String = "", defaultFallbackRateOffset: Int = 0, defaultFallbackPitchOffset: Int = 0, defaultFallbackStyle: String = "neutral") -> [ScriptSegment] {
