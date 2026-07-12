@@ -764,23 +764,36 @@ struct TTSView: View {
     }
 
     private func assignVoicesToSegments(_ segments: [AISegment]) {
-        let speakers = Set(segments.map { $0.speaker })
+        let speakers = Array(Set(segments.map { $0.speaker })).sorted()
+        let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
+        guard !zhVoices.isEmpty else { return }
+
+        let femaleVoices = zhVoices.filter { $0.gender == "Female" }
+        let maleVoices = zhVoices.filter { $0.gender == "Male" }
+        var femaleIdx = 0, maleIdx = 0, neutralIdx = 0
+        let neutralVoices = zhVoices
+
         var voices: [String: String] = [:]
 
         for speaker in speakers {
-            // 如果已有手动分配，保留
+            // 保留手动分配
             if let existing = customCharacterVoices[speaker], !existing.isEmpty {
                 voices[speaker] = existing
                 continue
             }
-            // 自动匹配：从可用音色中按性别分配（简单启发式）
-            let matchedVoice = availableVoices.first { v in
-                v.locale.hasPrefix("zh-CN") &&
-                (speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她")) == (v.gender == "Female")
-            } ?? availableVoices.first { $0.locale.hasPrefix("zh-CN") }
 
-            if let v = matchedVoice {
-                voices[speaker] = v.id
+            let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她")
+            let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他")
+
+            if isFemale, !femaleVoices.isEmpty {
+                voices[speaker] = femaleVoices[femaleIdx % femaleVoices.count].id
+                femaleIdx += 1
+            } else if isMale, !maleVoices.isEmpty {
+                voices[speaker] = maleVoices[maleIdx % maleVoices.count].id
+                maleIdx += 1
+            } else {
+                voices[speaker] = neutralVoices[neutralIdx % neutralVoices.count].id
+                neutralIdx += 1
             }
         }
         customCharacterVoices = voices
