@@ -627,6 +627,23 @@ final class CharacterAnalyzer: @unchecked Sendable {
             if raw.count >= 2 && raw.count <= 4 { return raw }
         }
 
+        // Priority 4: Name + speech verb with optional descriptive text in between
+        // e.g., "马皇后微微点头，应道：" or "朱皇帝笑呵呵的应下，随即又咂了咂嘴，嘿嘿笑了一声道："
+        let nameWithActionPattern = RegexCache.shared.get(
+            "([\\p{Han}]{2,4}).*?(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥)[：:]?$"
+        )!
+        if let match = nameWithActionPattern.matches(in: trimmed, range: nsRange).last {
+            let raw = String(trimmed[Range(match.range(at: 1), in: trimmed)!])
+            if raw.count >= 2 && raw.count <= 4 { return raw }
+        }
+
+        // Priority 3: Title suffix pattern
+        let titlePattern = RegexCache.shared.get("([\\p{Han}]{2,4})(?:先生|小姐|姑娘|公子|师父|师傅|少爷|太太|夫人|阁下|大人|前辈|掌门|教主)[：:]?$")!
+        if let match = titlePattern.matches(in: trimmed, range: nsRange).last {
+            let raw = String(trimmed[Range(match.range(at: 1), in: trimmed)!])
+            if raw.count >= 2 && raw.count <= 4 { return raw }
+        }
+
         return nil
     }
 
@@ -637,8 +654,9 @@ final class CharacterAnalyzer: @unchecked Sendable {
         if let groups = line.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
             return groups[1]
         }
-        // Priority 2: speech verb prefix
-        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4})(?=笑道|说道|问道|喊道|叫道|喝道|骂道|答道|回答|解释说|解释道|忽然道|低声道|轻声道|怒道|叹道|哭道|骂道|喝道|厉声道|正色道)"), groups.count > 1 {
+        // Priority 2: speech verb prefix with optional descriptive text
+        // e.g., "马皇后微微点头，应道：" or "朱皇帝笑呵呵的应下，随即又咂了咂嘴，嘿嘿笑了一声道："
+        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4}).*?(?=笑道|说道|问道|喊道|叫道|喝道|骂道|答道|回答|解释说|解释道|忽然道|低声道|轻声道|怒道|叹道|哭道|骂道|喝道|厉声道|正色道)"), groups.count > 1 {
             return groups[1]
         }
         // Priority 3: "Name：" before quote
