@@ -643,8 +643,6 @@ private func synthesizeAndPlayCustom() {
             var segments: [(speaker: String?, text: String)] = []
             var lastEnd = customMultiRoleText.startIndex
             
-            var lastEnd = customMultiRoleText.startIndex
-            
             for dialogue in dialoguesWithSpeakers {
                 // Add narration before this dialogue
                 if dialogue.range.lowerBound > lastEnd {
