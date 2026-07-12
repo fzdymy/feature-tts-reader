@@ -8,8 +8,10 @@ enum DebugLogger {
         return f
     }()
 
-    private static let isoFormatter: ISO8601DateFormatter = {
-        ISO8601DateFormatter()
+    private static let isoFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+        return f
     }()
 
     private static var logDir: URL? {
@@ -27,10 +29,11 @@ enum DebugLogger {
     static func log(
         flow: String,
         step: String,
-        details: [String: Any?] = [:],
+        details: [String: Any] = [:],
         file: String = #fileID,
         line: Int = #line
     ) {
+        let capturedDetails = details
         queue.async {
             let timestamp = Date()
             let filename = "debug_\(dateFormatter.string(from: timestamp)).json"
@@ -43,8 +46,8 @@ enum DebugLogger {
                 "file": file,
                 "line": line,
             ]
-            for (k, v) in details {
-                entry[k] = v ?? NSNull()
+            for (k, v) in capturedDetails {
+                entry[k] = v
             }
 
             let url = dir.appendingPathComponent(filename)
