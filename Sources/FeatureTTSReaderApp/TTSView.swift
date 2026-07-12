@@ -43,6 +43,7 @@ struct TTSView: View {
     @State private var isProcessingWorker = false
     @State private var workerProgress: Double = 0
     @State private var workerProgressMessage = ""
+    @State private var isSynthesizingCustom = false
 
     // MARK: - AI Worker Config State
     @State private var aiWorkerConfigs: [AIWorkerConfig] = []
@@ -641,7 +642,7 @@ struct TTSView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isSynthesizingCustom || customScanResult == nil || customScanResult?.characters.isEmpty == true || selectedServerID == nil)
+                    .disabled(isSynthesizingCustom || customWorkerSegments.isEmpty || selectedServerID == nil)
 
                     if !customSynthesisResult.isEmpty {
                         let isSuccess = customSynthesisResult.hasPrefix("已入队") || customSynthesisResult.contains("播放")
@@ -779,7 +780,7 @@ struct TTSView: View {
                 let pitch = 0
                 let style = firstSegment.emotion.ssmlStyle
 
-                let audioData = try await EdgeTTSService.shared.synthesizeWithSSML(
+                let audioData = try await EdgeTTSService.shared.synthesizeSSML(
                     text: firstSegment.text,
                     voice: voiceID,
                     rate: rate,
@@ -841,7 +842,7 @@ struct TTSView: View {
                 let style = segment.emotion.ssmlStyle
 
                 do {
-                    let audioData = try await EdgeTTSService.shared.synthesizeWithSSML(
+                    let audioData = try await EdgeTTSService.shared.synthesizeSSML(
                         text: segment.text,
                         voice: voiceID,
                         rate: rate,
@@ -1346,6 +1347,25 @@ struct TTSView: View {
         let pitch: Int
         let style: String
         let isNarrator: Bool
+    }
+
+    private func buildSimpleSpeakerMap(from dialogues: [DialogueMatch]) -> [String: TTSConfigInfo] {
+        var map: [String: TTSConfigInfo] = [:]
+        for dialogue in dialogues {
+            let speaker = dialogue.speaker ?? "旁白"
+            guard map[speaker] == nil else { continue }
+            let isNarrator = speaker == "旁白"
+            let hasFemaleIndicators = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘")
+            let voice = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }.first?.id ?? ""
+            map[speaker] = TTSConfigInfo(
+                voice: voice,
+                rate: isNarrator ? 0 : 2,
+                pitch: hasFemaleIndicators ? 3 : 0,
+                style: "neutral",
+                isNarrator: isNarrator
+            )
+        }
+        return map
     }
 
     private func buildCustomTTSConfig(from segments: [AISegment]) -> [String: TTSConfigInfo] {
