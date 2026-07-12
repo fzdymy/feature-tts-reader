@@ -248,9 +248,6 @@ struct TTSView: View {
             if showPreview {
                 requestPreview
             }
-            
-            // 说话人分析
-            speakerAnalysisSection
         } header: {
             Label("语音测试", systemImage: "waveform")
         }
@@ -462,6 +459,11 @@ struct TTSView: View {
                     .padding(8)
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
+                }
+
+                // 说话人分析与发送配置预览
+                if !customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    customSpeakerAnalysisSection
                 }
 
                 // 控制按钮
@@ -885,7 +887,7 @@ private func synthesizeAndPlayCustom() {
             if testText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("在上方输入测试文本即可看到说话人识别结果")
                     .font(.caption2)
-                    .foregroundColor(.tertiary)
+                    .foregroundColor(.gray)
                     .italic()
             } else {
                 let analyzer = CharacterAnalyzer()
@@ -943,6 +945,254 @@ private func synthesizeAndPlayCustom() {
                     if voice.isEmpty { voice = defaultVoice }
                 }
                 map[speaker] = (voice: voice.isEmpty ? "默认音色" : voice, rate: rate, isNarrator: isNarrator)
+            }
+        }
+        return map
+    }
+
+    // MARK: - Custom Speaker Analysis Section
+
+    @ViewBuilder
+    private var customSpeakerAnalysisSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "person.2.badge.gearshape")
+                    .foregroundColor(.secondary)
+                Text("预计 TTS 配置（长按复制）")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+
+            if let result = customScanResult, !result.characters.isEmpty {
+                let config = buildCustomTTSConfig(from: result)
+
+                if config.isEmpty {
+                    Text("未检测到对话，将以旁白身份整段朗读")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(Array(config.keys.sorted()), id: \.self) { speaker in
+                        if let info = config[speaker] {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(info.isNarrator ? Color.gray : Color.accentColor)
+                                    .frame(width: 6, height: 6)
+                                Text("\(speaker)")
+                                    .font(.caption2.monospaced())
+                                    .fontWeight(.medium)
+                                Text("→")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Text("v=\(info.voice)")
+                                    .font(.caption2.monospaced())
+                                if info.rate != 0 {
+                                    Text("r=\(info.rate)")
+                                        .font(.caption2.monospaced())
+                                        .foregroundColor(.secondary)
+                                }
+                                if info.pitch != 0 {
+                                    Text("p=\(info.pitch)")
+                                        .font(.caption2.monospaced())
+                                        .foregroundColor(.secondary)
+                                }
+                                if !info.style.isEmpty {
+                                    Text("s=\(info.style)")
+                                        .font(.caption2.monospaced())
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .textSelection(.enabled)
+                        }
+                    }
+
+                    // 显示原文分段预览
+                    let segments = buildSegmentsPreview(from: result)
+                    if !segments.isEmpty {
+                        Divider().padding(.vertical, 4)
+                        Text("原文分段预览")
+                            .font(.caption2.weight(.medium))
+                            .foregroundColor(.secondary)
+                        ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
+                            HStack(alignment: .top, spacing: 4) {
+                                Text("\(idx + 1).")
+                                    .font(.caption2.monospaced())
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 20, alignment: .trailing)
+                                Text("【\(seg.speaker)】\(seg.text)")
+                                    .font(.caption2)
+                                    .lineLimit(2)
+                                    .foregroundColor(seg.speaker == "旁白" ? .secondary : .primary)
+                            }
+                            .textSelection(.enabled)
+                        }
+                    }
+                }
+            } else {
+                // 未扫描时使用简单正则预览
+                let analyzer = CharacterAnalyzer()
+                let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
+                let simpleMap = buildSimpleSpeakerMap(from: dialogues)
+
+                if simpleMap.isEmpty {
+                    Text("未检测到对话标记，将作为旁白整段发送")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(Array(simpleMap.keys.sorted()), id: \.self) { speaker in
+                        if let info = simpleMap[speaker] {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(info.isNarrator ? Color.gray : Color.accentColor)
+                                    .frame(width: 6, height: 6)
+                                Text("\(speaker) → v=\(info.voice)")
+                                    .font(.caption2.monospaced())
+                            }
+                            .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+    }
+
+    private struct TTSConfigInfo {
+        let voice: String
+        let rate: Int
+        let pitch: Int
+        let style: String
+        let isNarrator: Bool
+    }
+
+    private func buildCustomTTSConfig(from result: ScanResult) -> [String: TTSConfigInfo] {
+        var map: [String: TTSConfigInfo] = [:]
+        let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
+        let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+        let narratorVoice = charVoiceMap["旁白"] ?? availableVoices.first(where: { $0.gender == "Female" })?.id ?? defaultVoice
+
+        for profile in result.characters {
+            let voice = customCharacterVoices[profile.name] ?? charVoiceMap[profile.name] ?? {
+                if let matched = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") &&
+                    (profile.gender == "Male" && $0.gender == "Male" || profile.gender == "Female" && $0.gender == "Female") }) {
+                    return matched.id
+                }
+                return defaultVoice
+            }()
+            let rate = profile.baseRate + Int(multiRoleGlobalRate)
+            let pitch = profile.basePitch
+            let style = profile.baseStyle
+            map[profile.name] = TTSConfigInfo(
+                voice: voice.isEmpty ? "默认" : voice,
+                rate: rate,
+                pitch: pitch,
+                style: style,
+                isNarrator: false
+            )
+        }
+        // 旁白
+        let narratorRate = 0 + Int(multiRoleGlobalRate)
+        map["旁白"] = TTSConfigInfo(
+            voice: narratorVoice.isEmpty ? "默认" : narratorVoice,
+            rate: narratorRate,
+            pitch: 0,
+            style: "",
+            isNarrator: true
+        )
+        return map
+    }
+
+    private struct SegmentPreview {
+        let speaker: String
+        let text: String
+    }
+
+    private func buildSegmentsPreview(from result: ScanResult) -> [SegmentPreview] {
+        let analyzer = CharacterAnalyzer()
+        let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
+        let knownCharacters = Set(result.characters.map { $0.name })
+
+        var dialoguesWithSpeakers: [(speaker: String?, content: String, range: Range<String.Index>)] = []
+        for dialogue in dialogues {
+            var speaker = dialogue.speaker
+            if speaker == nil || speaker?.isEmpty == true {
+                let lower = dialogue.range.lowerBound
+                let beforeEnd = customMultiRoleText.index(customMultiRoleText.startIndex, offsetBy: customMultiRoleText.distance(from: customMultiRoleText.startIndex, to: lower))
+                let beforeStart = customMultiRoleText.index(beforeEnd, offsetBy: -min(300, customMultiRoleText.distance(from: customMultiRoleText.startIndex, to: beforeEnd)), limitedBy: customMultiRoleText.startIndex) ?? customMultiRoleText.startIndex
+                let context = String(customMultiRoleText[beforeStart..<beforeEnd])
+                if let inferred = analyzer.inferSpeaker(from: context, knownCharacters: Array(knownCharacters)) {
+                    speaker = inferred
+                }
+            }
+            dialoguesWithSpeakers.append((speaker: speaker, content: dialogue.content, range: dialogue.range))
+        }
+
+        var segments: [(speaker: String?, text: String)] = []
+        var lastEnd = customMultiRoleText.startIndex
+
+        for dialogue in dialoguesWithSpeakers {
+            if dialogue.range.lowerBound > lastEnd {
+                let narrationText = String(customMultiRoleText[lastEnd..<dialogue.range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !narrationText.isEmpty {
+                    segments.append((speaker: "旁白", text: narrationText))
+                }
+            }
+            let speakerName = dialogue.speaker ?? ""
+            var matchedSpeaker: String? = nil
+            if !speakerName.isEmpty {
+                if knownCharacters.contains(speakerName) {
+                    matchedSpeaker = speakerName
+                } else {
+                    for profile in result.characters {
+                        if profile.aliases.contains(speakerName) || profile.name.contains(speakerName) || speakerName.contains(profile.name) {
+                            matchedSpeaker = profile.name
+                            break
+                        }
+                    }
+                }
+            }
+            segments.append((speaker: matchedSpeaker, text: dialogue.content))
+            lastEnd = dialogue.range.upperBound
+        }
+
+        if lastEnd < customMultiRoleText.endIndex {
+            let trailing = String(customMultiRoleText[lastEnd...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trailing.isEmpty {
+                segments.append((speaker: "旁白", text: trailing))
+            }
+        }
+
+        if segments.isEmpty {
+            let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sentences = text.split { "。！？.!?".contains($0) }.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            for sentence in sentences {
+                segments.append((speaker: "旁白", text: sentence))
+            }
+        }
+
+        return segments.map { SegmentPreview(speaker: $0.speaker ?? "旁白", text: $0.text) }
+    }
+
+    private func buildSimpleSpeakerMap(from dialogues: [DialogueMatch]) -> [String: (voice: String, isNarrator: Bool)] {
+        var map: [String: (voice: String, isNarrator: Bool)] = [:]
+        let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
+        let femaleVoice = availableVoices.first(where: { $0.gender == "Female" })?.id ?? ""
+        let maleVoice = availableVoices.first(where: { $0.gender == "Male" })?.id ?? ""
+        let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
+
+        for d in dialogues {
+            let speaker = d.speaker ?? "旁白"
+            if map[speaker] == nil {
+                let isNarrator = speaker == "旁白" || speaker.isEmpty
+                let voice: String
+                if isNarrator {
+                    voice = femaleVoice.isEmpty ? defaultVoice : femaleVoice
+                } else {
+                    voice = speaker.count % 2 == 0 ? femaleVoice : maleVoice
+                    if voice.isEmpty { voice = defaultVoice }
+                }
+                map[speaker] = (voice: voice.isEmpty ? "默认音色" : voice, isNarrator: isNarrator)
             }
         }
         return map
