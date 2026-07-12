@@ -1,6 +1,7 @@
 import Foundation
 
 /// AI Worker 服务：切片 -> 请求 Worker -> 合并返回
+@MainActor
 final class AIWorkerService {
     static let shared = AIWorkerService()
 

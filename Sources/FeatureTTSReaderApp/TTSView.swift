@@ -407,7 +407,7 @@ struct TTSView: View {
         }
     }
 
-    private func loadWorkerConfigs() async {
+    func loadWorkerConfigs() async {
         if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
            let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
             await MainActor.run {
@@ -423,13 +423,13 @@ struct TTSView: View {
         }
     }
 
-    private func saveWorkerConfigs() {
+    func saveWorkerConfigs() {
         if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
             UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
         }
     }
 
-    private func selectWorker(_ id: UUID) {
+    func selectWorker(_ id: UUID) {
         selectedWorkerID = id
         for i in aiWorkerConfigs.indices {
             aiWorkerConfigs[i].isDefault = aiWorkerConfigs[i].id == id
@@ -437,7 +437,7 @@ struct TTSView: View {
         saveWorkerConfigs()
     }
 
-    private func deleteWorker(_ id: UUID) {
+    func deleteWorker(_ id: UUID) {
         aiWorkerConfigs.removeAll { $0.id == id }
         if selectedWorkerID == id {
             selectedWorkerID = aiWorkerConfigs.first?.id
@@ -445,7 +445,7 @@ struct TTSView: View {
         saveWorkerConfigs()
     }
 
-    private func testWorkerConnection(_ config: AIWorkerConfig) {
+    func testWorkerConnection(_ config: AIWorkerConfig) {
         workerTestResult = "测试中..."
         Task {
             do {
@@ -457,14 +457,14 @@ struct TTSView: View {
         }
     }
 
-    private func getSelectedWorkerConfig() -> AIWorkerConfig? {
+    func getSelectedWorkerConfig() -> AIWorkerConfig? {
         if let id = selectedWorkerID {
             return aiWorkerConfigs.first { $0.id == id }
         }
         return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
     }
 
-    private func getDefaultWorkerConfig() -> AIWorkerConfig? {
+    func getDefaultWorkerConfig() -> AIWorkerConfig? {
         return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
     }
 
@@ -627,7 +627,7 @@ private var customMultiRoleSection: some View {
                                         Text(v.displayName).tag(v.id)
     // MARK: - Worker Edit Sheet
 
-    private struct WorkerEditView: View {
+    struct WorkerEditView: View {
         @Environment(\.dismiss) private var dismiss
 
         let existingID: UUID?
@@ -793,7 +793,7 @@ private var customMultiRoleSection: some View {
 
     // MARK: - Custom Multi-Role Actions
 
-    private func processCustomWithWorker() {
+    func processCustomWithWorker() {
         let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
@@ -847,14 +847,14 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func getSelectedWorkerConfig() -> AIWorkerConfig? {
+    func getSelectedWorkerConfig() -> AIWorkerConfig? {
         if let id = selectedWorkerID {
             return aiWorkerConfigs.first { $0.id == id }
         }
         return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
     }
 
-    private func assignVoicesToSegments(_ segments: [AISegment]) {
+    func assignVoicesToSegments(_ segments: [AISegment]) {
         let speakers = Set(segments.map { $0.speaker })
         var voices: [String: String] = [:]
 
@@ -877,7 +877,7 @@ private var customMultiRoleSection: some View {
         customCharacterVoices = voices
     }
 
-    private func synthesizeAndPlayCustom() {
+    func synthesizeAndPlayCustom() {
         guard let serverID = selectedServerID,
               !customWorkerSegments.isEmpty else { return }
 
@@ -1323,7 +1323,7 @@ private var customMultiRoleSection: some View {
         .cornerRadius(8)
     }
 
-    private func buildSpeakerMap(from dialogues: [DialogueMatch]) -> [String: (voice: String, rate: Int?, isNarrator: Bool)] {
+    func buildSpeakerMap(from dialogues: [DialogueMatch]) -> [String: (voice: String, rate: Int?, isNarrator: Bool)] {
         var map: [String: (voice: String, rate: Int?, isNarrator: Bool)] = [:]
         let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let femaleVoice = availableVoices.first(where: { $0.gender == "Female" })?.id ?? ""
@@ -1465,7 +1465,7 @@ private var customMultiRoleSection: some View {
         let isNarrator: Bool
     }
 
-    private func buildCustomTTSConfig(from segments: [AISegment]) -> [String: TTSConfigInfo] {
+    func buildCustomTTSConfig(from segments: [AISegment]) -> [String: TTSConfigInfo] {
         var map: [String: TTSConfigInfo] = [:]
         let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
@@ -1522,7 +1522,7 @@ private var customMultiRoleSection: some View {
         let text: String
     }
 
-    private func buildSegmentsPreview(from segments: [AISegment]) -> [SegmentPreview] {
+    func buildSegmentsPreview(from segments: [AISegment]) -> [SegmentPreview] {
         return segments.map { SegmentPreview(speaker: $0.speaker, text: $0.text) }
     }
 
@@ -1579,13 +1579,13 @@ private var customMultiRoleSection: some View {
 
     // MARK: - Actions
 
-    private func statusDot(_ status: String) -> some View {
+    func statusDot(_ status: String) -> some View {
         Circle()
             .fill(statusColor(status))
             .frame(width: 8, height: 8)
     }
 
-    private func statusColor(_ status: String) -> Color {
+    func statusColor(_ status: String) -> Color {
         if status.contains("就绪") || status.contains("200") || status.contains("服务") {
             return .green
         } else if status == "未测试" || status.isEmpty {
@@ -1597,7 +1597,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func deleteServer(_ config: EdgeTTSServerConfig) {
+    func deleteServer(_ config: EdgeTTSServerConfig) {
         if selectedServerID == config.id {
             selectedServerID = serverConfigs.first(where: { $0.id != config.id })?.id
         }
@@ -1606,14 +1606,14 @@ private var customMultiRoleSection: some View {
         saveServers()
     }
 
-    private func saveServers() {
+    func saveServers() {
         let valid = serverConfigs.filter { !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         Task {
             await EdgeTTSService.shared.setServers(valid)
         }
     }
 
-    private func loadServers() async {
+    func loadServers() async {
         let servers = await EdgeTTSService.shared.configuredServers
         await MainActor.run {
             serverConfigs = servers
@@ -1636,7 +1636,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func loadWorkerConfigs() async {
+    func loadWorkerConfigs() async {
         let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs")
         if let data = data,
            let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
@@ -1667,13 +1667,13 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func saveWorkerConfigs() {
+    func saveWorkerConfigs() {
         if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
             UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
         }
     }
 
-    private func loadVoices() async {
+    func loadVoices() async {
         guard let id = selectedServerID else { return }
         let voices = await EdgeTTSService.shared.fetchVoices(serverID: id)
         await MainActor.run {
@@ -1684,7 +1684,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func testConnection() {
+    func testConnection() {
         guard let id = selectedServerID else { return }
         serverStatuses[id] = "测试中..."
         Task {
@@ -1698,7 +1698,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func testAllServers() {
+    func testAllServers() {
         isTestingAll = true
         for s in serverConfigs {
             serverStatuses[s.id] = "测试中..."
@@ -1716,7 +1716,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func testSynthesis() {
+    func testSynthesis() {
         guard !isTestingSynthesis, let id = selectedServerID else { return }
         isTestingSynthesis = true
         testResult = ""
@@ -1734,7 +1734,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    private func runMultiRoleTest() {
+    func runMultiRoleTest() {
         guard let id = selectedServerID else { return }
         isTestingMultiRole = true
         multiRoleTestResult = ""

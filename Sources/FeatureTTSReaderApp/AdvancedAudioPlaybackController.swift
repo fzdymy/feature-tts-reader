@@ -442,10 +442,12 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private func startRMS() {
         guard !rmsInstallRequested else { return }
         rmsInstallRequested = true
+        let playerRef = player
+        let isPlayingRef = isPlaying
         rmsTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let rms = self.player?.averagePower(forChannel: 0) ?? -160
-            let normalized = self.isPlaying ? max(0, (rms + 80) / 80) : 0
+            let rms = playerRef?.averagePower(forChannel: 0) ?? -160
+            let normalized = isPlayingRef ? max(0, (rms + 80) / 80) : 0
             Task { @MainActor in self.audioVolumeRMS = normalized }
         }
         RunLoop.main.add(rmsTimer!, forMode: .common)
