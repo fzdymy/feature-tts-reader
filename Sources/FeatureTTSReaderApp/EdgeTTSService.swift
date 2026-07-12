@@ -191,13 +191,22 @@ actor EdgeTTSService {
             candidates = servers
         }
 
+        DebugLogger.log(flow: "edge_tts", step: "synthesize_start", details: [
+            "text_preview": String(trimmed.prefix(200)),
+            "text_length": trimmed.count,
+            "voice": voice ?? "(default)",
+            "rate": rate,
+            "pitch": pitch,
+            "style": style,
+            "server_id": serverID?.uuidString ?? "(first_available)",
+        ])
+
         var lastError: Error?
         for server in candidates {
             guard let baseURL = URL(string: server.url) else {
                 lastError = EdgeTTSError.invalidServerURL
                 continue
             }
-            // Normalize: strip trailing slash so lastPathComponent is meaningful
             let normalizedURL: URL = {
                 let urlStr = baseURL.absoluteString
                 if urlStr.hasSuffix("/") {
@@ -213,10 +222,19 @@ actor EdgeTTSService {
             }
             do {
                 let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), style: style, apiKey: server.apiKey)
+                DebugLogger.log(flow: "edge_tts", step: "synthesize_request", details: [
+                    "url": endpoint.absoluteString,
+                    "query_items": request.url?.query ?? "",
+                ])
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     throw EdgeTTSError.invalidResponse("无效响应")
                 }
+                DebugLogger.log(flow: "edge_tts", step: "synthesize_response", details: [
+                    "status_code": http.statusCode,
+                    "data_length": data.count,
+                    "server_url": server.url,
+                ])
                 if (200...299).contains(http.statusCode) {
                     guard !data.isEmpty else { throw EdgeTTSError.emptyResponse }
                     return data
@@ -230,8 +248,14 @@ actor EdgeTTSService {
         }
 
         if let lastError {
+            DebugLogger.log(flow: "edge_tts", step: "synthesize_error", details: [
+                "error": (lastError as? EdgeTTSError)?.localizedDescription ?? lastError.localizedDescription,
+            ])
             throw lastError
         }
+        DebugLogger.log(flow: "edge_tts", step: "synthesize_error", details: [
+            "error": "未知错误",
+        ])
         throw EdgeTTSError.networkError("未知错误")
     }
 
@@ -252,6 +276,12 @@ actor EdgeTTSService {
         } else {
             candidates = servers
         }
+
+        DebugLogger.log(flow: "edge_tts", step: "synthesizeSSML_start", details: [
+            "ssml_preview": String(trimmed.prefix(300)),
+            "ssml_length": trimmed.count,
+            "server_id": serverID?.uuidString ?? "(first_available)",
+        ])
 
         var lastError: Error?
         for server in candidates {
@@ -274,10 +304,22 @@ actor EdgeTTSService {
             }
             do {
                 var request = try buildPostRequest(to: endpoint, ssml: trimmed, apiKey: server.apiKey)
+                let bodyPreview = (request.httpBody).flatMap { String(data: $0, encoding: .utf8) } ?? "(binary)"
+                DebugLogger.log(flow: "edge_tts", step: "synthesizeSSML_request", details: [
+                    "url": endpoint.absoluteString,
+                    "http_method": "POST",
+                    "headers": request.allHTTPHeaderFields ?? [:],
+                    "body_preview": String(bodyPreview.prefix(300)),
+                ])
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     throw EdgeTTSError.invalidResponse("无效响应")
                 }
+                DebugLogger.log(flow: "edge_tts", step: "synthesizeSSML_response", details: [
+                    "status_code": http.statusCode,
+                    "data_length": data.count,
+                    "server_url": server.url,
+                ])
                 if (200...299).contains(http.statusCode) {
                     guard !data.isEmpty else { throw EdgeTTSError.emptyResponse }
                     return data
@@ -291,8 +333,14 @@ actor EdgeTTSService {
         }
 
         if let lastError {
+            DebugLogger.log(flow: "edge_tts", step: "synthesizeSSML_error", details: [
+                "error": (lastError as? EdgeTTSError)?.localizedDescription ?? lastError.localizedDescription,
+            ])
             throw lastError
         }
+        DebugLogger.log(flow: "edge_tts", step: "synthesizeSSML_error", details: [
+            "error": "未知错误",
+        ])
         throw EdgeTTSError.networkError("未知错误")
     }
 

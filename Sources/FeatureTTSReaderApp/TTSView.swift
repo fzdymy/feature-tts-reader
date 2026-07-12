@@ -693,6 +693,11 @@ struct TTSView: View {
         let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
+        DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker", details: [
+            "original_text_length": text.count,
+            "original_text_preview": String(text.prefix(200)),
+        ])
+
         guard let workerConfig = getSelectedWorkerConfig() else {
             customSynthesisResult = "请先在设置中配置 AI Worker"
             return
@@ -723,6 +728,11 @@ struct TTSView: View {
                     }
                 )
 
+                DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker_success", details: [
+                    "segments_count": segments.count,
+                    "speakers": Array(Set(segments.map { $0.speaker })),
+                ])
+
                 await MainActor.run {
                     customWorkerSegments = segments
                     isProcessingWorker = false
@@ -734,6 +744,9 @@ struct TTSView: View {
                     customSynthesisResult = "解析完成，共 \(segments.count) 个片段，可开始合成"
                 }
             } catch {
+                DebugLogger.log(flow: "custom_multi_role", step: "processCustomWithWorker_error", details: [
+                    "error": error.localizedDescription,
+                ])
                 await MainActor.run {
                     isProcessingWorker = false
                     workerProgress = 0
@@ -772,6 +785,14 @@ struct TTSView: View {
 
         isProcessingCustom = true
         customSynthesisResult = "正在合成首段..."
+
+        DebugLogger.log(flow: "custom_synthesize", step: "start", details: [
+            "total_segments": customWorkerSegments.count,
+            "segments": customWorkerSegments.map { s in
+                ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
+            },
+            "character_voices": customCharacterVoices.mapValues { $0 },
+        ])
 
         Task {
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
@@ -829,6 +850,9 @@ struct TTSView: View {
                     customSynthesisResult = "第 1/\(customWorkerSegments.count) 段合成完成，开始播放..."
                 }
             } catch {
+                DebugLogger.log(flow: "custom_synthesize", step: "first_segment_error", details: [
+                    "error": error.localizedDescription,
+                ])
                 await MainActor.run {
                     customSynthesisResult = "首段合成失败: \(error.localizedDescription)"
                     isSynthesizingCustom = false
@@ -891,6 +915,11 @@ struct TTSView: View {
                         customSynthesisResult = "已合成 \(idx + 2)/\(customWorkerSegments.count) 段..."
                     }
                 } catch {
+                    DebugLogger.log(flow: "custom_synthesize", step: "remaining_segment_error", details: [
+                        "segment_index": idx + 1,
+                        "speaker": segment.speaker,
+                        "error": error.localizedDescription,
+                    ])
                     await MainActor.run {
                         customSynthesisResult = "第 \(idx + 2) 段合成失败: \(error.localizedDescription)"
                     }
@@ -902,6 +931,10 @@ struct TTSView: View {
                 customSynthesisResult = "\(customWorkerSegments.count)/\(customWorkerSegments.count) 段全部入队，正在流式播放"
                 isSynthesizingCustom = false
             }
+            DebugLogger.log(flow: "custom_synthesize", step: "complete", details: [
+                "total_segments": customWorkerSegments.count,
+                "successful_items": restItems.count + 1,
+            ])
         }
     }
 

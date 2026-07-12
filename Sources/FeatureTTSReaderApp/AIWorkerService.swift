@@ -17,6 +17,15 @@ final class AIWorkerService {
         var allSegments: [AISegment] = []
         var context: String? = nil
 
+        DebugLogger.log(flow: "ai_worker", step: "processChapter_start", details: [
+            "original_text_length": text.count,
+            "original_text_preview": String(text.prefix(200)),
+            "slices_count": slices.count,
+            "worker_name": config.name,
+            "worker_url": config.baseURL,
+            "slice_char_limit": config.sliceCharLimit,
+        ])
+
         for (idx, slice) in slices.enumerated() {
             await progress?(Double(idx) / Double(slices.count), "正在解析第 \(idx + 1)/\(slices.count) 片...")
 
@@ -31,6 +40,13 @@ final class AIWorkerService {
             allSegments.append(contentsOf: response.segments)
             context = response.nextContext
         }
+
+        DebugLogger.log(flow: "ai_worker", step: "processChapter_end", details: [
+            "total_segments": allSegments.count,
+            "segments_preview": allSegments.prefix(5).map { s in
+                ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
+            },
+        ])
 
         await progress?(1.0, "解析完成，共 \(allSegments.count) 个片段")
         return allSegments
@@ -91,6 +107,7 @@ final class AIWorkerService {
 
     private func sendRequest(_ request: AIWorkerRequest, config: AIWorkerConfig) async throws -> AIWorkerResult {
         guard let url = URL(string: config.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
+            DebugLogger.log(flow: "ai_worker", step: "sendRequest_invalidURL", details: ["url": config.baseURL])
             throw AIWorkerError.invalidURL
         }
 
@@ -104,28 +121,81 @@ final class AIWorkerService {
         encoder.keyEncodingStrategy = .convertToSnakeCase
         urlRequest.httpBody = try encoder.encode(request)
 
+        DebugLogger.log(flow: "ai_worker", step: "sendRequest_outgoing", details: [
+            "url": url.absoluteString,
+            "method": "POST",
+            "headers": [
+                "Content-Type": "application/json",
+                "X-Auth-Key": config.authKey.isEmpty ? "(empty)" : "***\(config.authKey.suffix(4))",
+            ],
+            "body": [
+                "text_preview": String(request.text.prefix(300)),
+                "text_length": request.text.count,
+                "slice_index": request.sliceIndex,
+                "total_slices": request.totalSlices,
+                "has_context": request.context != nil,
+            ],
+        ])
+
         let (data, response) = try await URLSession.shared.data(for: urlRequest)
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            DebugLogger.log(flow: "ai_worker", step: "sendRequest_invalidResponse", details: [
+                "url": url.absoluteString,
+            ])
             throw AIWorkerError.invalidResponse
         }
+
+        let responseBody = String(data: data, encoding: .utf8) ?? "(binary)"
+        DebugLogger.log(flow: "ai_worker", step: "sendRequest_response", details: [
+            "url": url.absoluteString,
+            "status_code": httpResponse.statusCode,
+            "response_body_preview": String(responseBody.prefix(500)),
+            "response_body_length": responseBody.count,
+        ])
 
         switch httpResponse.statusCode {
         case 200:
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             do {
-                return try decoder.decode(AIWorkerResult.self, from: data)
+                let result = try decoder.decode(AIWorkerResult.self, from: data)
+                DebugLogger.log(flow: "ai_worker", step: "sendRequest_decoded", details: [
+                    "format": "AIWorkerResult",
+                    "segments_count": result.segments.count,
+                    "has_next_context": result.nextContext != nil,
+                    "segments_preview": result.segments.prefix(5).map { s in
+                        ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
+                    },
+                ])
+                return result
             } catch {
                 let segments = try decoder.decode([AISegment].self, from: data)
+                DebugLogger.log(flow: "ai_worker", step: "sendRequest_decoded", details: [
+                    "format": "raw_array",
+                    "segments_count": segments.count,
+                    "segments_preview": segments.prefix(5).map { s in
+                        ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
+                    },
+                ])
                 return AIWorkerResult(segments: segments, nextContext: nil)
             }
         case 401:
+            DebugLogger.log(flow: "ai_worker", step: "sendRequest_unauthorized", details: [
+                "url": url.absoluteString,
+                "auth_key_preview": "***\(config.authKey.suffix(4))",
+            ])
             throw AIWorkerError.unauthorized
         case 429:
+            DebugLogger.log(flow: "ai_worker", step: "sendRequest_rateLimited")
             throw AIWorkerError.rateLimited
         default:
             let errorMsg = String(data: data, encoding: .utf8) ?? "未知错误"
+            DebugLogger.log(flow: "ai_worker", step: "sendRequest_error", details: [
+                "url": url.absoluteString,
+                "status_code": httpResponse.statusCode,
+                "error_body": String(errorMsg.prefix(500)),
+            ])
             throw AIWorkerError.serverError(httpResponse.statusCode, errorMsg)
         }
     }
