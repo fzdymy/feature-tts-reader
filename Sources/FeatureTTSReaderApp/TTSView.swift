@@ -673,8 +673,8 @@ struct TTSView: View {
                         let voiceID = await MainActor.run {
                             customCharacterVoices[segment.speaker] ?? ""
                         }
-                        let rate = Int(globalRate)
-                        let pitch = 0
+                        let rate = Int(globalRate) + TTSView.rateOffset(for: segment)
+                        let pitch = TTSView.pitchOffset(for: segment, speakerName: segment.speaker)
                         let style = segment.emotion.ssmlStyle
 
                         let audioData = try await EdgeTTSService.shared.synthesize(
@@ -800,6 +800,32 @@ struct TTSView: View {
         customCharacterVoices = voices
     }
 
+    /// 根据情绪和角色名计算语速偏移
+    private static func rateOffset(for segment: AISegment) -> Int {
+        switch segment.emotion {
+        case .angry, .shouting, .excited: return 4
+        case .happy, .cheerful, .surprised: return 2
+        case .sad, .fearful, .whispering, .calm, .gentle: return -2
+        default: return 0
+        }
+    }
+
+    /// 根据情绪和角色名计算音调偏移
+    private static func pitchOffset(for segment: AISegment, speakerName: String) -> Int {
+        let isFemale = speakerName.contains("女") || speakerName.contains("小姐") || speakerName.contains("姑娘") || speakerName.contains("她")
+        let genderOffset = isFemale ? 4 : (speakerName == "旁白" ? 0 : -2)
+        let emotionOffset: Int = {
+            switch segment.emotion {
+            case .excited, .happy, .cheerful: return 3
+            case .surprised: return 5
+            case .sad, .fearful, .whispering, .calm: return -2
+            case .angry, .shouting: return 2
+            default: return 0
+            }
+        }()
+        return genderOffset + emotionOffset
+    }
+
     private func synthesizeAndPlayCustom() {
         guard let serverID = selectedServerID,
               !customWorkerSegments.isEmpty else { return }
@@ -823,8 +849,8 @@ struct TTSView: View {
             do {
                 let firstSegment = customWorkerSegments[0]
                 let voiceID = customCharacterVoices[firstSegment.speaker] ?? ""
-                let rate = Int(globalRate)
-                let pitch = 0
+                let rate = Int(globalRate) + Self.rateOffset(for: firstSegment)
+                let pitch = Self.pitchOffset(for: firstSegment, speakerName: firstSegment.speaker)
                 let style = firstSegment.emotion.ssmlStyle
 
                 let audioData = try await EdgeTTSService.shared.synthesize(
@@ -887,8 +913,8 @@ struct TTSView: View {
 
             for (idx, segment) in customWorkerSegments.dropFirst().enumerated() {
                 let voiceID = customCharacterVoices[segment.speaker] ?? ""
-                let rate = Int(globalRate)
-                let pitch = 0
+                let rate = Int(globalRate) + Self.rateOffset(for: segment)
+                let pitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
                 let style = segment.emotion.ssmlStyle
 
                 do {
