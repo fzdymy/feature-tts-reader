@@ -475,7 +475,16 @@ struct TTSView: View {
                             .font(.caption.weight(.medium))
                             .foregroundColor(.secondary)
 
-                        let speakers = Array(Set(customWorkerSegments.map { $0.speaker })).sorted()
+                        let speakers: [String] = {
+                            var freq: [String: Int] = [:]
+                            for s in customWorkerSegments { freq[s.speaker, default: 0] += 1 }
+                            var sorted = freq.keys.sorted { freq[$0, default: 0] > freq[$1, default: 0] }
+                            if let idx = sorted.firstIndex(of: "旁白") {
+                                sorted.remove(at: idx)
+                                sorted.insert("旁白", at: 0)
+                            }
+                            return sorted
+                        }()
                         ForEach(speakers.prefix(10), id: \.self) { speaker in
                             let segmentCount = customWorkerSegments.filter { $0.speaker == speaker }.count
                             let emotions = customWorkerSegments.filter { $0.speaker == speaker }.map { $0.emotion }
@@ -494,6 +503,7 @@ struct TTSView: View {
                             )
                         }
                     }
+                }
 
                 // 说话人分析与发送配置预览
                 if !customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -980,7 +990,7 @@ struct TTSView: View {
         let voiceID = customCharacterVoices[speaker] ?? ""
         let globalRate = multiRoleGlobalRate
 
-        Log(flow: "custom_synthesize", step: "character_resynthesis_start", details: [
+        DebugLogger.log(flow: "custom_synthesize", step: "character_resynthesis_start", details: [
                         "speaker": speaker,
                         "segments": segments.count,
                         "voice": voiceID,
@@ -1708,6 +1718,71 @@ struct WorkerEditView: View {
                 }
             }
         }
+    }
+}
+
+struct CharacterRoleCard: View {
+    let speaker: String
+    let segmentCount: Int
+    let emotionSummary: String?
+    @Binding var voice: String
+    let isResynthesizing: Bool
+    let availableVoices: [EdgeVoiceInfo]
+    let onResynthesize: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: speaker == "旁白" ? "person.fill" : "person.2.fill")
+                    .font(.caption)
+                    .foregroundColor(speaker == "旁白" ? .blue : .orange)
+                Text(speaker)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                Text("\(segmentCount) 段")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(4)
+            }
+
+            if let emotionSummary {
+                Text(emotionSummary)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Picker("", selection: $voice) {
+                    Text("自动").tag("")
+                    ForEach(availableVoices) { v in
+                        Text(v.displayName).tag(v.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity)
+
+                Button {
+                    onResynthesize()
+                } label: {
+                    if isResynthesizing {
+                        ProgressView().scaleEffect(0.6)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.caption)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isResynthesizing || voice.isEmpty)
+            }
+        }
+        .padding(8)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
     }
 }
 
