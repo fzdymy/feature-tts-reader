@@ -28,6 +28,7 @@ struct TTSView: View {
     @State private var testRate: Double = 0
     @State private var testPitch: Double = 0
     @State private var showPreview = false
+    @State private var isLoadingVoices = false
 
     // MARK: - Multi-Role Test State
     @AppStorage("globalRate") private var multiRoleGlobalRate: Double = 0
@@ -190,7 +191,7 @@ struct TTSView: View {
                 await loadWorkerConfigs()
             }
             .task(id: selectedServerID) {
-                await loadVoices()
+                loadVoicesFromCache()
             }
         }
     }
@@ -251,6 +252,20 @@ struct TTSView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(serverStatuses[selectedServerID ?? UUID()] == "测试中...")
+
+                    Button {
+                        Task { await refreshVoices() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isLoadingVoices {
+                                ProgressView().scaleEffect(0.7)
+                            }
+                            Label("刷新语音列表", systemImage: "arrow.clockwise")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isLoadingVoices)
 
                     Button {
                         testSynthesis()
@@ -1411,14 +1426,41 @@ struct TTSView: View {
         }
     }
 
-    private func loadVoices() async {
+    private func loadVoicesFromCache() {
+        guard let id = selectedServerID,
+              let config = serverConfigs.first(where: { $0.id == id }) else { return }
+        let cacheKey = "cachedVoices_\(config.url)"
+        let decoder = JSONDecoder()
+        if let data = UserDefaults.standard.data(forKey: cacheKey),
+           let cached = try? decoder.decode([EdgeVoiceInfo].self, from: data) {
+            availableVoices = cached
+        } else {
+            availableVoices = []
+        }
+        if testVoice.isEmpty || !availableVoices.contains(where: { $0.id == testVoice }) {
+            testVoice = availableVoices.first?.id ?? ""
+        }
+    }
+
+    private func saveVoicesToCache(_ voices: [EdgeVoiceInfo]) {
+        guard let id = selectedServerID,
+              let config = serverConfigs.first(where: { $0.id == id }) else { return }
+        let cacheKey = "cachedVoices_\(config.url)"
+        let zhVoices = voices.filter { $0.locale.hasPrefix("zh-CN") }
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(zhVoices) {
+            UserDefaults.standard.set(data, forKey: cacheKey)
+        }
+    }
+
+    private func refreshVoices() async {
         guard let id = selectedServerID else { return }
+        isLoadingVoices = true
         let voices = await EdgeTTSService.shared.fetchVoices(serverID: id)
         await MainActor.run {
-            availableVoices = voices.filter { $0.locale.hasPrefix("zh-CN") }
-            if testVoice.isEmpty || !availableVoices.contains(where: { $0.id == testVoice }) {
-                testVoice = availableVoices.first?.id ?? ""
-            }
+            saveVoicesToCache(voices)
+            loadVoicesFromCache()
+            isLoadingVoices = false
         }
     }
 
