@@ -70,6 +70,30 @@ enum Emotion: Codable, CaseIterable {
         }
     }
 
+    var chineseLabel: String {
+        switch self {
+        case .neutral: return "中性"
+        case .happy: return "开心"
+        case .angry: return "愤怒"
+        case .sad: return "悲伤"
+        case .fearful: return "恐惧"
+        case .whispering: return "低语"
+        case .excited: return "激动"
+        case .cheerful: return "愉快"
+        case .calm: return "平静"
+        case .surprised: return "惊讶"
+        case .disgusted: return "厌恶"
+        case .shouting: return "喊叫"
+        case .hopeful: return "希望"
+        case .embarrassed: return "尴尬"
+        case .relieved: return "如释重负"
+        case .confused: return "困惑"
+        case .determined: return "坚定"
+        case .gentle: return "温柔"
+        case .affectionate: return "深情"
+        }
+    }
+
     /// 映射到 Edge TTS style 名称
     var ssmlStyle: String {
         switch self {

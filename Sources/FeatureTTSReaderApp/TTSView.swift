@@ -42,6 +42,7 @@ struct TTSView: View {
     @State private var workerProgress: Double = 0
     @State private var workerProgressMessage = ""
     @State private var isSynthesizingCustom = false
+    @State private var characterResynthesisStates: [String: Bool] = [:]
 
     // MARK: - AI Worker Config State
     @State private var aiWorkerConfigs: [AIWorkerConfig] = []
@@ -109,9 +110,41 @@ struct TTSView: View {
                                     Label("删除", systemImage: "trash")
                                 }
                             }
-                        }
                     }
-                } header: {
+                }
+
+                // 服务器操作按钮
+                HStack(spacing: 12) {
+                    Button {
+                        testAllServers()
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isTestingAll {
+                                ProgressView().scaleEffect(0.7)
+                            }
+                            Label("全部测试", systemImage: "antenna.radiowaves.left.and.right")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isTestingAll)
+
+                    Button {
+                        Task { await refreshVoices() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isLoadingVoices {
+                                ProgressView().scaleEffect(0.7)
+                            }
+                            Label("刷新语音列表", systemImage: "arrow.clockwise")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isLoadingVoices)
+                }
+                .padding(.top, 4)
+            } header: {
                     HStack {
                         Label("服务器", systemImage: "server.rack")
                         Spacer()
@@ -124,7 +157,6 @@ struct TTSView: View {
                 if selectedServerID != nil {
                     testSection
                 }
-                statusSection
                 aiWorkerSection
                 if selectedServerID != nil {
                     customMultiRoleSection
@@ -254,20 +286,6 @@ struct TTSView: View {
                     .disabled(serverStatuses[selectedServerID ?? UUID()] == "测试中...")
 
                     Button {
-                        Task { await refreshVoices() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if isLoadingVoices {
-                                ProgressView().scaleEffect(0.7)
-                            }
-                            Label("刷新语音列表", systemImage: "arrow.clockwise")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isLoadingVoices)
-
-                    Button {
                         testSynthesis()
                     } label: {
                         HStack(spacing: 6) {
@@ -312,46 +330,6 @@ struct TTSView: View {
             }
         } header: {
             Label("语音测试", systemImage: "waveform")
-        }
-    }
-
-    // MARK: - Status Section
-
-    private var statusSection: some View {
-        Section {
-            ForEach(serverConfigs) { config in
-                HStack(spacing: 10) {
-                    statusDot(serverStatuses[config.id] ?? "未测试")
-                        .frame(width: 8)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(config.name.isEmpty ? "未命名" : config.name)
-                            .font(.subheadline)
-                        Text(serverStatuses[config.id] ?? "未测试")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    if config.id == selectedServerID {
-                        Image(systemName: "checkmark")
-                            .foregroundColor(.accentColor)
-                            .font(.caption)
-                    }
-                }
-            }
-
-            Button {
-                testAllServers()
-            } label: {
-                HStack {
-                    if isTestingAll {
-                        ProgressView().scaleEffect(0.7)
-                    }
-                    Label("全部测试", systemImage: "arrow.clockwise")
-                }
-            }
-            .disabled(isTestingAll)
-        } header: {
-            Label("服务器状态", systemImage: "gauge.with.dots.needle.33percent")
         }
     }
 
@@ -499,30 +477,23 @@ struct TTSView: View {
 
                         let speakers = Array(Set(customWorkerSegments.map { $0.speaker })).sorted()
                         ForEach(speakers.prefix(10), id: \.self) { speaker in
-                            HStack {
-                                Text(speaker)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                Spacer()
-                                Picker("", selection: Binding(
+                            let segmentCount = customWorkerSegments.filter { $0.speaker == speaker }.count
+                            let emotions = customWorkerSegments.filter { $0.speaker == speaker }.map { $0.emotion }
+                            let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
+                            CharacterRoleCard(
+                                speaker: speaker,
+                                segmentCount: segmentCount,
+                                emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
+                                voice: Binding(
                                     get: { customCharacterVoices[speaker] ?? "" },
                                     set: { customCharacterVoices[speaker] = $0 }
-                                )) {
-                                    Text("自动").tag("")
-                                ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
-                                    Text(v.displayName).tag(v.id)
-                                }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(width: 130)
-                            }
-                            .padding(.vertical, 1)
+                                ),
+                                isResynthesizing: characterResynthesisStates[speaker] ?? false,
+                                availableVoices: availableVoices.filter { $0.locale.hasPrefix("zh-CN") },
+                                onResynthesize: { resynthesizeCharacter(speaker) }
+                            )
                         }
                     }
-                    .padding(8)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(8)
-                }
 
                 // 说话人分析与发送配置预览
                 if !customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -997,6 +968,83 @@ struct TTSView: View {
                 "total_segments": customWorkerSegments.count,
                 "successful_items": restItems.count + 1,
             ])
+        }
+    }
+
+    private func resynthesizeCharacter(_ speaker: String) {
+        guard let serverID = selectedServerID else { return }
+        let segments = customWorkerSegments.filter { $0.speaker == speaker }
+        guard !segments.isEmpty else { return }
+
+        characterResynthesisStates[speaker] = true
+        let voiceID = customCharacterVoices[speaker] ?? ""
+        let globalRate = multiRoleGlobalRate
+
+        Log(flow: "custom_synthesize", step: "character_resynthesis_start", details: [
+                        "speaker": speaker,
+                        "segments": segments.count,
+                        "voice": voiceID,
+                    ])
+
+        Task {
+            let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            var items: [TTSQueueItem] = []
+
+            for (idx, segment) in segments.enumerated() {
+                let rate = Int(globalRate) + Self.rateOffset(for: segment)
+                let pitch = Self.pitchOffset(for: segment, speakerName: speaker)
+                let style = segment.emotion.ssmlStyle
+
+                do {
+                    let audioData = try await EdgeTTSService.shared.synthesize(
+                        text: segment.text,
+                        voice: voiceID,
+                        rate: Double(rate),
+                        pitch: Double(pitch),
+                        style: style,
+                        serverID: serverID
+                    )
+                    let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                    let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                    try audioData.write(to: url, options: .atomic)
+
+                    let seg = ScriptSegment(
+                        id: UUID(),
+                        characterName: segment.speaker,
+                        voice: voiceID,
+                        rate: rate,
+                        pitch: pitch,
+                        style: style,
+                        text: segment.text,
+                        emotionTag: segment.emotion.rawValue,
+                        paragraphIndex: 0
+                    )
+                    items.append(TTSQueueItem(
+                        segment: seg,
+                        audioURL: url,
+                        audioData: audioData,
+                        chapterTitle: "重新适配",
+                        bookTitle: "测试",
+                        bookID: "custom",
+                        chapterIndex: 0,
+                        segmentIndex: idx,
+                        totalSegments: segments.count,
+                        paragraphIndex: idx,
+                        sentenceIndex: nil,
+                        anchor: nil
+                    ))
+                } catch {
+                    await MainActor.run {
+                        customSynthesisResult = "「\(speaker)」重新适配失败: \(error.localizedDescription)"
+                    }
+                }
+            }
+
+            await MainActor.run {
+                store.audioController.appendToQueue(items)
+                customSynthesisResult = "「\(speaker)」\(items.count) 段已入队"
+                characterResynthesisStates[speaker] = false
+            }
         }
     }
 
