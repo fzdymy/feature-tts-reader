@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// 调试日志：每次 app 启动生成一个 .jsonl 文件追加写入 Documents/debug/
 /// 每行一个 JSON 对象，方便一次性发送整个文件排查问题
@@ -25,16 +26,18 @@ enum DebugLogger {
     }
 
     private static let queue = DispatchQueue(label: "com.featuretts.debuglogger", qos: .utility)
+    private static let urlLock = OSAllocatedUnfairLock()
+    private static var _fileURL: URL? = nil
 
-    private static var fileURL: URL? = nil
+    private static var fileURL: URL? {
+        get { urlLock.withLock { _fileURL } }
+        set { urlLock.withLock { _fileURL = newValue } }
+    }
 
     /// 初始化日志文件（app 启动时调用一次）
     static func startSession() {
-        queue.sync {
-            guard let dir = logDir else { return }
-            let filename = "debug_\(dateFormatter.string(from: Date())).jsonl"
-            fileURL = dir.appendingPathComponent(filename)
-        }
+        let fn = "debug_\(dateFormatter.string(from: Date())).jsonl"
+        fileURL = logDir?.appendingPathComponent(fn)
         log(flow: "session", step: "start", details: ["app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""])
     }
 
@@ -63,15 +66,15 @@ enum DebugLogger {
         else { return }
         let payload = lineStr + "\n"
 
-        queue.async {
-            guard let url = fileURL ?? {
-                // 首次调用时自动初始化
-                let fn = "debug_\(dateFormatter.string(from: Date())).jsonl"
-                let u = logDir?.appendingPathComponent(fn)
-                fileURL = u
-                return u
-            }() else { return }
+        let url = fileURL ?? {
+            let fn = "debug_\(dateFormatter.string(from: Date())).jsonl"
+            let u = logDir?.appendingPathComponent(fn)
+            fileURL = u
+            return u
+        }()
+        guard let url else { return }
 
+        queue.async {
             if FileManager.default.fileExists(atPath: url.path) {
                 guard let fh = try? FileHandle(forWritingTo: url) else { return }
                 try? fh.seekToEnd()
@@ -90,7 +93,7 @@ enum DebugLogger {
 
     /// 当前会话日志文件路径
     static var currentSessionFile: URL? {
-        queue.sync { fileURL }
+        fileURL
     }
 
     /// 列出所有日志文件名（按时间倒序）
