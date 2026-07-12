@@ -334,8 +334,6 @@ struct TTSView: View {
         }
     }
 
-    }
-
     // MARK: - AI Worker Section
 
     private var aiWorkerSection: some View {
@@ -404,28 +402,6 @@ struct TTSView: View {
             }
         } header: {
             Label("AI 剧本解析 Worker", systemImage: "brain.head.profile")
-        }
-    }
-
-    private func loadWorkerConfigs() async {
-        if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
-           let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
-            await MainActor.run {
-                aiWorkerConfigs = decoded
-            }
-            if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
-               let id = UUID(uuidString: savedID),
-               aiWorkerConfigs.contains(where: { $0.id == id }) {
-                await MainActor.run { selectedWorkerID = id }
-            } else if aiWorkerConfigs.first?.isDefault == true {
-                await MainActor.run { selectedWorkerID = aiWorkerConfigs.first?.id }
-            }
-        }
-    }
-
-    private func saveWorkerConfigs() {
-        if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
-            UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
         }
     }
 
@@ -1840,7 +1816,7 @@ private struct ServerEditView: View {
 // MARK: - Worker Edit Sheet
 
 struct WorkerEditView: View {
-    @Environment(.dismiss) private var dismiss
+    @Environment(\.dismiss) private var dismiss
 
     let existingID: UUID?
     @State private var name: String
