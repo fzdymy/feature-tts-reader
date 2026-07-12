@@ -23,6 +23,25 @@ TTS 引擎 (Edge TTS)
     → AVAudioPlayer 逐个播放 → delegate 驱动下一句
 ```
 
+## 核心功能支柱
+
+### 1. 多角色测试模块 (`TTSView.multiRoleTestSection`)
+- **位置**：TTS 设置页 → 「多角色测试」区块
+- **预置 9 段对话**：旁白×5、云希(愤怒)、云健(沉稳)、晓北(调侃)、陕兵(恐惧) —— 各自固定音色/语速/音调/台词
+- **全局语速滑块**：`-10~10`，**叠加**到每个角色自带语速上（角色 +3，全局 +2 → 实际 +5）
+- **真流水线播放**：
+  1. 首段合成 → 写文件 → `appendToQueue([first])` → **立即开播**
+  2. 后台并行合成剩余段 → 收集 `restItems`
+  3. 全部合成完 → `appendToQueue(restItems)` 一次性入队
+  4. `AVAudioPlayer` delegate 依次播完，无竞态
+- **实时进度**：`第 1 段合成完成，开始播放...` → `第 1 段播放中，后续合成中...` → `9/9 段全部入队，正在流式播放`
+- **暂停/继续按钮**：播放时显示暂停图标，暂停后显示继续图标，调用 `AdvancedAudioPlaybackController.pause()` / `resume()`，队列位置不变
+
+### 2. 全局语速叠加控制
+- **作用**：用户可在多角色测试页拖动「全局语速」滑块，数值**加法叠加**到每个角色的基础语速
+- **实现**：`combinedRate = scene.rate + multiRoleGlobalRate`，传给 `EdgeTTSService.synthesize(rate:)`
+- **意义**：无需逐个改角色参数，一键整体加快/放慢整场对话节奏
+
 ## 关键决策
 
 - ❌ **否决 CosyVoice 3 / CAM++ / BERT / MLX** — 改为 Edge TTS HTTP API
