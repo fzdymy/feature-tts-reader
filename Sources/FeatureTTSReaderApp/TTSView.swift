@@ -122,16 +122,24 @@ struct TTSView: View {
 
                 if selectedServerID != nil {
                     testSection
-                    customMultiRoleSection
                 }
                 statusSection
                 aiWorkerSection
+                if selectedServerID != nil {
+                    customMultiRoleSection
+                }
             }
             .navigationTitle("语音引擎")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showAddSheet = true } label: {
                         Image(systemName: "plus")
+                    }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     }
                 }
             }
@@ -451,7 +459,7 @@ struct TTSView: View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
                 TextField("粘贴或输入小说文本（AI Worker 解析角色、情绪、语气、流水合成播放）", text: $customMultiRoleText, axis: .vertical)
-                    .font(.body)
+                    .font(.subheadline)
                     .lineLimit(4...8)
                     .padding(8)
                     .background(Color(.systemGray6))
