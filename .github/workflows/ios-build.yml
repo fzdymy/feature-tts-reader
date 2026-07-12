@@ -24,45 +24,6 @@ jobs:
       - name: Install dependencies
         run: swift package resolve
 
-      - name: Download Core ML model (latest release)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -e
-          echo "::group::Finding latest Core ML model release"
-          LATEST_TAG=$(gh api repos/${{ github.repository }}/releases \
-            --jq 'sort_by(.created_at) | reverse | [.[] | select(.tag_name | startswith("coreml-model"))] | .[0].tag_name // empty')
-          if [ -z "$LATEST_TAG" ]; then
-            echo "::warning::No coreml-model release found. IPA will lack the Core ML model."
-            gh release list --limit 10 || true
-            exit 1
-          fi
-          echo "Latest model release: $LATEST_TAG"
-          echo "::endgroup::"
-
-          echo "::group::Downloading $LATEST_TAG"
-          DL_URL=$(gh api repos/${{ github.repository }}/releases/tags/$LATEST_TAG \
-            --jq '.assets[] | select(.name | endswith(".zip")) | .browser_download_url')
-          curl -fsSL -o Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage.zip "$DL_URL"
-          echo "::endgroup::"
-
-          echo "::group::Extracting mlpackage"
-          cd Sources/FeatureTTSReaderApp/Models
-          rm -rf distilbert_chinese.mlpackage/
-          unzip -o distilbert_chinese.mlpackage.zip
-          rm -f distilbert_chinese.mlpackage.zip
-          ls -la distilbert_chinese.mlpackage/ | head -5
-          echo "::endgroup::"
-
-      - name: Compile Core ML Model
-        run: |
-          mkdir -p /tmp/compiled_models
-          xcrun coremlcompiler compile \
-            Sources/FeatureTTSReaderApp/Models/distilbert_chinese.mlpackage \
-            /tmp/compiled_models
-          echo "Compiled Core ML model:"
-          ls -lh /tmp/compiled_models/distilbert_chinese.mlmodelc/
-
       - name: Build unsigned app
         run: |
           xcodebuild build \
@@ -84,7 +45,7 @@ jobs:
             STRIP_INSTALLED_PRODUCT=YES \
             STRIP_STYLE=all
 
-      - name: Inject model and create IPA
+      - name: Package app into IPA
         run: |
           APP_DIR="build/Payload/FeatureTTSReader.app"
           mkdir -p "$APP_DIR"
@@ -99,13 +60,7 @@ jobs:
             find "$APP_DIR" -type f -permalink +111 -exec strip -S {} + 2>/dev/null || true
           fi
 
-          # 3. Inject compiled Core ML model (.mlmodelc) at app bundle root
-          if [ -d "/tmp/compiled_models/distilbert_chinese.mlmodelc" ]; then
-            cp -R /tmp/compiled_models/distilbert_chinese.mlmodelc "$APP_DIR/"
-            echo "✅ Core ML model (.mlmodelc) injected"
-          fi
-
-          # 4. Create Info.plist
+          # 3. Create Info.plist
           PLIST_PATH="$APP_DIR/Info.plist"
           plutil -create xml1 "$PLIST_PATH"
           plutil -insert CFBundleDevelopmentRegion -string "en" "$PLIST_PATH"
@@ -122,7 +77,7 @@ jobs:
           plutil -insert UIDeviceFamily.0 -integer 1 "$PLIST_PATH"
           plutil -insert UIDeviceFamily.1 -integer 2 "$PLIST_PATH"
 
-          # 5. Create IPA (maximum compression)
+          # 4. Create IPA (maximum compression)
           cd build
           zip -9 -r FeatureTTSReader.ipa Payload
 
