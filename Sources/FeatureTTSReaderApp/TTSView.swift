@@ -625,6 +625,9 @@ private var customMultiRoleSection: some View {
                                     Text("自动分配").tag("")
                                     ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
                                         Text(v.displayName).tag(v.id)
+}
+}
+
     // MARK: - Worker Edit Sheet
 
     struct WorkerEditView: View {
@@ -1632,6 +1635,28 @@ private var customMultiRoleSection: some View {
             }
             if selectedServerID == nil {
                 selectedServerID = serverConfigs.first?.id
+            }
+        }
+    }
+
+            let result = await EdgeTTSService.shared.healthCheck(serverID: id)
+            await MainActor.run {
+                serverStatuses[id] = result
+                store.edgeTTSLastHealth = result
+            }
+        }
+    }
+
+    func testAllServers() {
+        isTestingAll = true
+        for s in serverConfigs {
+            serverStatuses[s.id] = "测试中..."
+        }
+        Task {
+            for s in serverConfigs {
+                let result = await EdgeTTSService.shared.healthCheck(serverID: s.id)
+                await MainActor.run {
+                    serverStatuses[s.id] = result
                 }
             }
             await MainActor.run {
