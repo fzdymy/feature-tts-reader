@@ -285,10 +285,10 @@ final class CharacterAnalyzer: @unchecked Sendable {
     )!
     // Dialogue quote patterns
     private static let quoteExtractPatterns: [NSRegularExpression] = [
-        RegexCache.shared.get("[「\\u300c]([^」\\u300d]+)[」\\u300d]")!,
-        RegexCache.shared.get("['\\u2018]([^'\\u2019]+)['\\u2019]")!,
-        RegexCache.shared.get("[\"\\u201c]([^\"\\u201d]+)[\"\\u201d]")!,
-        RegexCache.shared.get("[『\\u300e]([^』\\u300f]+)[』\\u300f]")!,
+        RegexCache.shared.get("[「\\u300c]([^」\\u300d]+?)[」\\u300d]")!,
+        RegexCache.shared.get("['\\u2018]([^'\\u2019]+?)['\\u2019]")!,
+        RegexCache.shared.get("[\"\\u201c]([^\"\\u201d]+?)[\"\\u201d]")!,
+        RegexCache.shared.get("[『\\u300e]([^』\\u300f]+?)[』\\u300f]")!,
     ]
 
     static func firstCharIsSurname(_ token: String) -> Bool {
