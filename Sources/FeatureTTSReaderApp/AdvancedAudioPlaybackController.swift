@@ -192,10 +192,12 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         isPreloading = true
         let next = queue[0]
         nextItem = next
+        let audioData = next.audioData
+        let audioURL = next.audioURL
         Task.detached { [weak self] in
             guard let self else { return }
             do {
-                let p = try await self.makePlayerAsync(for: next)
+                let p = try await Self.makePlayerAsync(audioData: audioData, audioURL: audioURL)
                 await MainActor.run {
                     self.nextPlayer = p
                     self.nextPlayer?.prepareToPlay()
@@ -211,9 +213,10 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
-    private func makePlayerAsync(for item: TTSQueueItem) async throws -> AVAudioPlayer {
-        if let data = item.audioData, let p = try? AVAudioPlayer(data: data) { return p }
-        if let url = item.audioURL {
+    /// 在非隔离上下文创建 AVAudioPlayer（避免 Sendable 问题）
+    nonisolated private static func makePlayerAsync(audioData: Data?, audioURL: URL?) async throws -> AVAudioPlayer {
+        if let data = audioData, let p = try? AVAudioPlayer(data: data) { return p }
+        if let url = audioURL {
             if let data = try? Data(contentsOf: url), let p = try? AVAudioPlayer(data: data) { return p }
             return try AVAudioPlayer(contentsOf: url)
         }
