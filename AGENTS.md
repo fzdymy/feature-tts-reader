@@ -45,14 +45,12 @@ TTS 引擎 (Edge TTS)
 - **持久化**：`loadWorkerConfigs()` / `saveWorkerConfigs()` → UserDefaults
 
 ### 2. 自定义多角色测试 (`TTSView.customMultiRoleSection`)
-- **文本输入** → **「AI 解析并匹配音色」** → `processCustomWithWorker()`
-  - 调用 `AIWorkerService.shared.processChapter()` 切片+POST
-  - 自动分配音色 `assignVoicesToSegments()`
-  - 显示 Picker 供手动覆盖
-- **「流水合成并播放」** → `synthesizeAndPlayCustom()`
-  - 首段合成完成立即入队播放
-  - 后台并行合成剩余段
-  - `appendToQueue(restItems)` 一次性入队
+- **文本输入** → **「AI 解析并流式播放」** → `processCustomWithWorker()` (已合并)
+  - 循环每片: `AIWorkerService.sliceText()` + `sendRequest()` → 分段
+  - 首片时自动分配音色 `assignVoicesToSegments()` (显示 Picker 供实时覆盖)
+  - 逐段 `EdgeTTSService.synthesize()` → 首段立即 `appendToQueue` 触发播放
+  - 后续段批量 `appendToQueue(restItems)` 追加到队列尾部
+- **「重播」** → `synthesizeAndPlayCustom()`（复用已解析的 `customWorkerSegments`）
 - **全局语速滑块**：`-10~10`，叠加到每个角色的基础语速
 - **暂停/继续按钮**
 
@@ -60,17 +58,19 @@ TTS 引擎 (Edge TTS)
 
 ```
 自定义多角色文本
-  → processCustomWithWorker()
-    → AIWorkerService.sliceText() 按 sliceCharLimit 切分
-    → AIWorkerService.sendRequest() POST AIWorkerRequest
-    → worker.js → Cloudflare AI (qwen-2.5-7b-instruct) → JSON array
-    → 解码 [AISegment] → customWorkerSegments
-  → assignVoicesToSegments() 自动匹配音色
-  → synthesizeAndPlayCustom()
-    → 首段: EdgeTTSService.synthesize() → 写文件 → appendToQueue → 播放
-    → 剩余: 并行 EdgeTTSService.synthesize() → 写文件 → 收集 restItems
-    → appendToQueue(restItems) 全部入队
-    → AVAudioPlayer delegate 驱动
+  → processCustomWithWorker() [一站式流式]
+    切片 [sliceText]
+    ↓
+    第 0 片: sendRequest → AI Worker → [AISegment]
+      → assignVoicesToSegments() 首次分配音色
+      → 逐段: EdgeTTSService.synthesize() → 写文件
+      → 首段: appendToQueue → playNextSeamlessly → 开始播放
+      → 剩余段: collect restItems → appendToQueue(restItems)
+    ↓
+    第 1 片: sendRequest → AI Worker → [AISegment]
+      → 逐段 synthesize → collect restItems → appendToQueue(restItems)
+    ↓ ...
+    → AVAudioPlayer delegate 驱动后续播放
 ```
 
 ## 调试日志 DebugLogger
@@ -141,6 +141,9 @@ TTS 引擎 (Edge TTS)
 | `1e496f8` | **fix: Picker 闭合括号修复 struct 层级** |
 | `9dd7ede` | **fix: 删除冗余 CharacterAnalyzer 合成块, synthesizeSSML→synthesize** |
 | `9ecd6d1` | **fix: 添加 Worker 编辑/状态检测 UI** |
+| `ac5daca` | **fix: iOS 端 JSON 响应兜底修复 — 自动转义 LLM 返回中 text 字段未转义的双引号** |
+| `643ef6a` | **fix: 播放重复 — 按钮未禁用(isProcessing→isSynthesizing) + 预加载路径队列不移除** |
+| `3056022` | **feat: 分片流式合成 — 每片 AI 解析后立即合成入队播放 (合并为单按钮)** |
 
 | 提交 | 描述 |
 |------|------|
