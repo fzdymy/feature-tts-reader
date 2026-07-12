@@ -626,8 +626,6 @@ private var customMultiRoleSection: some View {
                                     ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
                                         Text(v.displayName).tag(v.id)
 }
-}
-
     // MARK: - Worker Edit Sheet
 
     private struct WorkerEditView: View {
