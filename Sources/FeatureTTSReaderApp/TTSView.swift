@@ -407,7 +407,7 @@ struct TTSView: View {
         }
     }
 
-    func loadWorkerConfigs() async {
+    private func loadWorkerConfigs() async {
         if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
            let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
             await MainActor.run {
@@ -423,13 +423,13 @@ struct TTSView: View {
         }
     }
 
-    func saveWorkerConfigs() {
+    private func saveWorkerConfigs() {
         if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
             UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
         }
     }
 
-    func selectWorker(_ id: UUID) {
+    private func selectWorker(_ id: UUID) {
         selectedWorkerID = id
         for i in aiWorkerConfigs.indices {
             aiWorkerConfigs[i].isDefault = aiWorkerConfigs[i].id == id
@@ -437,7 +437,7 @@ struct TTSView: View {
         saveWorkerConfigs()
     }
 
-    func deleteWorker(_ id: UUID) {
+    private func deleteWorker(_ id: UUID) {
         aiWorkerConfigs.removeAll { $0.id == id }
         if selectedWorkerID == id {
             selectedWorkerID = aiWorkerConfigs.first?.id
@@ -445,7 +445,7 @@ struct TTSView: View {
         saveWorkerConfigs()
     }
 
-    func testWorkerConnection(_ config: AIWorkerConfig) {
+    private func testWorkerConnection(_ config: AIWorkerConfig) {
         workerTestResult = "测试中..."
         Task {
             do {
@@ -457,14 +457,14 @@ struct TTSView: View {
         }
     }
 
-    func getSelectedWorkerConfig() -> AIWorkerConfig? {
+    private func getSelectedWorkerConfig() -> AIWorkerConfig? {
         if let id = selectedWorkerID {
             return aiWorkerConfigs.first { $0.id == id }
         }
         return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
     }
 
-    func getDefaultWorkerConfig() -> AIWorkerConfig? {
+    private func getDefaultWorkerConfig() -> AIWorkerConfig? {
         return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
     }
 
@@ -630,89 +630,6 @@ private var customMultiRoleSection: some View {
 
     // MARK: - Worker Edit Sheet
 
-    struct WorkerEditView: View {
-        @Environment(\.dismiss) private var dismiss
-
-        let existingID: UUID?
-        @State private var name: String
-        @State private var baseURL: String
-        @State private var authKey: String
-        @State private var model: String
-        @State private var sliceCharLimit: Int
-        @State private var timeout: Double
-        let onSave: (AIWorkerConfig) -> Void
-
-        init(config: AIWorkerConfig? = nil, onSave: @escaping (AIWorkerConfig) -> Void) {
-            self.existingID = config?.id
-            _name = State(initialValue: config?.name ?? "")
-            _baseURL = State(initialValue: config?.baseURL ?? "")
-            _authKey = State(initialValue: config?.authKey ?? "")
-            _model = State(initialValue: config?.model ?? "qwen-plus")
-            _sliceCharLimit = State(initialValue: config?.sliceCharLimit ?? 1000)
-            _timeout = State(initialValue: config?.timeout ?? 30)
-            self.onSave = onSave
-        }
-
-        var body: some View {
-            NavigationStack {
-                Form {
-                    Section {
-                        LabeledContent("名称") {
-                            TextField("例如：我的 Qwen Worker", text: $name)
-                        }
-                        LabeledContent("Base URL") {
-                            TextField("https://your-worker.workers.dev", text: $baseURL)
-                                .font(.caption.monospaced())
-                                .autocorrectionDisabled()
-                                .textInputAutocapitalization(.never)
-                        }
-                        LabeledContent("Auth Key") {
-                            TextField("X-Auth-Key 密钥", text: $authKey)
-                                .font(.caption.monospaced())
-                                .autocorrectionDisabled()
-                                .textInputAutocapitalization(.never)
-                        }
-                        LabeledContent("模型") {
-                            TextField("qwen-plus", text: $model)
-                                .font(.caption.monospaced())
-                        }
-                        LabeledContent("单片字符限制") {
-                            TextField("1000", value: $sliceCharLimit, format: .number)
-                                .keyboardType(.numberPad)
-                        }
-                        LabeledContent("超时 (秒)") {
-                            TextField("30", value: $timeout, format: .number)
-                                .keyboardType(.decimalPad)
-                        }
-                    } header: {
-                        Label("Worker 配置", systemImage: "brain.head.profile")
-                    }
-                }
-                .navigationTitle(existingID != nil ? "编辑 Worker" : "添加 Worker")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("取消") { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("保存") {
-                            let config = AIWorkerConfig(
-                                id: existingID ?? UUID(),
-                                name: name,
-                                baseURL: baseURL,
-                                authKey: authKey,
-                                model: model,
-                                sliceCharLimit: sliceCharLimit,
-                                timeout: timeout
-                            )
-                            onSave(config)
-                            dismiss()
-                        }
-                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || baseURL.isEmpty || authKey.isEmpty)
-                    }
-                }
-            }
-        }
     }
 }
                                 .pickerStyle(.menu)
@@ -796,7 +713,7 @@ private var customMultiRoleSection: some View {
 
     // MARK: - Custom Multi-Role Actions
 
-    func processCustomWithWorker() {
+    private func processCustomWithWorker() {
         let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
@@ -850,14 +767,14 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    func getSelectedWorkerConfig() -> AIWorkerConfig? {
+    private func getSelectedWorkerConfig() -> AIWorkerConfig? {
         if let id = selectedWorkerID {
             return aiWorkerConfigs.first { $0.id == id }
         }
         return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
     }
 
-    func assignVoicesToSegments(_ segments: [AISegment]) {
+    private func assignVoicesToSegments(_ segments: [AISegment]) {
         let speakers = Set(segments.map { $0.speaker })
         var voices: [String: String] = [:]
 
@@ -880,7 +797,7 @@ private var customMultiRoleSection: some View {
         customCharacterVoices = voices
     }
 
-    func synthesizeAndPlayCustom() {
+    private func synthesizeAndPlayCustom() {
         guard let serverID = selectedServerID,
               !customWorkerSegments.isEmpty else { return }
 
@@ -1326,7 +1243,7 @@ private var customMultiRoleSection: some View {
         .cornerRadius(8)
     }
 
-    func buildSpeakerMap(from dialogues: [DialogueMatch]) -> [String: (voice: String, rate: Int?, isNarrator: Bool)] {
+    private func buildSpeakerMap(from dialogues: [DialogueMatch]) -> [String: (voice: String, rate: Int?, isNarrator: Bool)] {
         var map: [String: (voice: String, rate: Int?, isNarrator: Bool)] = [:]
         let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let femaleVoice = availableVoices.first(where: { $0.gender == "Female" })?.id ?? ""
@@ -1468,7 +1385,7 @@ private var customMultiRoleSection: some View {
         let isNarrator: Bool
     }
 
-    func buildCustomTTSConfig(from segments: [AISegment]) -> [String: TTSConfigInfo] {
+    private func buildCustomTTSConfig(from segments: [AISegment]) -> [String: TTSConfigInfo] {
         var map: [String: TTSConfigInfo] = [:]
         let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
@@ -1525,7 +1442,7 @@ private var customMultiRoleSection: some View {
         let text: String
     }
 
-    func buildSegmentsPreview(from segments: [AISegment]) -> [SegmentPreview] {
+    private func buildSegmentsPreview(from segments: [AISegment]) -> [SegmentPreview] {
         return segments.map { SegmentPreview(speaker: $0.speaker, text: $0.text) }
     }
 
@@ -1582,13 +1499,13 @@ private var customMultiRoleSection: some View {
 
     // MARK: - Actions
 
-    func statusDot(_ status: String) -> some View {
+    private func statusDot(_ status: String) -> some View {
         Circle()
             .fill(statusColor(status))
             .frame(width: 8, height: 8)
     }
 
-    func statusColor(_ status: String) -> Color {
+    private func statusColor(_ status: String) -> Color {
         if status.contains("就绪") || status.contains("200") || status.contains("服务") {
             return .green
         } else if status == "未测试" || status.isEmpty {
@@ -1600,7 +1517,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    func deleteServer(_ config: EdgeTTSServerConfig) {
+    private func deleteServer(_ config: EdgeTTSServerConfig) {
         if selectedServerID == config.id {
             selectedServerID = serverConfigs.first(where: { $0.id != config.id })?.id
         }
@@ -1609,14 +1526,14 @@ private var customMultiRoleSection: some View {
         saveServers()
     }
 
-    func saveServers() {
+    private func saveServers() {
         let valid = serverConfigs.filter { !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         Task {
             await EdgeTTSService.shared.setServers(valid)
         }
     }
 
-    func loadServers() async {
+    private func loadServers() async {
         let servers = await EdgeTTSService.shared.configuredServers
         await MainActor.run {
             serverConfigs = servers
@@ -1639,6 +1556,60 @@ private var customMultiRoleSection: some View {
         }
     }
 
+    private func loadWorkerConfigs() async {
+        let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs")
+        if let data = data,
+           let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
+            await MainActor.run {
+                aiWorkerConfigs = decoded
+                if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
+                   let id = UUID(uuidString: savedID),
+                   aiWorkerConfigs.contains(where: { $0.id == id }) {
+                    selectedWorkerID = id
+                } else {
+                    selectedWorkerID = aiWorkerConfigs.first?.id
+                }
+            }
+        } else if aiWorkerConfigs.isEmpty {
+            // Add a default placeholder
+            await MainActor.run {
+                let defaultConfig = AIWorkerConfig(
+                    name: "默认 Worker",
+                    baseURL: "https://your-worker.workers.dev",
+                    authKey: "your-auth-key-here",
+                    model: "qwen-plus",
+                    isDefault: true
+                )
+                aiWorkerConfigs = [defaultConfig]
+                selectedWorkerID = defaultConfig.id
+                saveWorkerConfigs()
+            }
+        }
+    }
+
+    private func saveWorkerConfigs() {
+        if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
+            UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
+        }
+    }
+
+    private func loadVoices() async {
+        guard let id = selectedServerID else { return }
+        let voices = await EdgeTTSService.shared.fetchVoices(serverID: id)
+        await MainActor.run {
+            availableVoices = voices.filter { $0.locale.hasPrefix("zh-CN") }
+            if testVoice.isEmpty || !availableVoices.contains(where: { $0.id == testVoice }) {
+                testVoice = availableVoices.first?.id ?? ""
+            }
+        }
+    }
+
+    private func testConnection() {
+        guard let id = selectedServerID else { return }
+        serverStatuses[id] = "测试中..."
+        Task {
+            let valid = serverConfigs.filter { !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            await EdgeTTSService.shared.setServers(valid)
             let result = await EdgeTTSService.shared.healthCheck(serverID: id)
             await MainActor.run {
                 serverStatuses[id] = result
@@ -1647,7 +1618,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    func testAllServers() {
+    private func testAllServers() {
         isTestingAll = true
         for s in serverConfigs {
             serverStatuses[s.id] = "测试中..."
@@ -1665,7 +1636,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    func testSynthesis() {
+    private func testSynthesis() {
         guard !isTestingSynthesis, let id = selectedServerID else { return }
         isTestingSynthesis = true
         testResult = ""
@@ -1683,7 +1654,7 @@ private var customMultiRoleSection: some View {
         }
     }
 
-    func runMultiRoleTest() {
+    private func runMultiRoleTest() {
         guard let id = selectedServerID else { return }
         isTestingMultiRole = true
         multiRoleTestResult = ""
@@ -1873,6 +1844,93 @@ private struct ServerEditView: View {
                         onSave(config)
                         dismiss()
                     }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Worker Edit Sheet
+
+struct WorkerEditView: View {
+    @Environment(.dismiss) private var dismiss
+
+    let existingID: UUID?
+    @State private var name: String
+    @State private var baseURL: String
+    @State private var authKey: String
+    @State private var model: String
+    @State private var sliceCharLimit: Int
+    @State private var timeout: Double
+    let onSave: (AIWorkerConfig) -> Void
+
+    init(config: AIWorkerConfig? = nil, onSave: @escaping (AIWorkerConfig) -> Void) {
+        self.existingID = config?.id
+        _name = State(initialValue: config?.name ?? "")
+        _baseURL = State(initialValue: config?.baseURL ?? "")
+        _authKey = State(initialValue: config?.authKey ?? "")
+        _model = State(initialValue: config?.model ?? "qwen-plus")
+        _sliceCharLimit = State(initialValue: config?.sliceCharLimit ?? 1000)
+        _timeout = State(initialValue: config?.timeout ?? 30)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("名称") {
+                        TextField("例如：我的 Qwen Worker", text: $name)
+                    }
+                    LabeledContent("Base URL") {
+                        TextField("https://your-worker.workers.dev", text: $baseURL)
+                            .font(.caption.monospaced())
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    }
+                    LabeledContent("Auth Key") {
+                        TextField("X-Auth-Key 密钥", text: $authKey)
+                            .font(.caption.monospaced())
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    }
+                    LabeledContent("模型") {
+                        TextField("qwen-plus", text: $model)
+                            .font(.caption.monospaced())
+                    }
+                    LabeledContent("单片字符限制") {
+                        TextField("1000", value: $sliceCharLimit, format: .number)
+                            .keyboardType(.numberPad)
+                    }
+                    LabeledContent("超时 (秒)") {
+                        TextField("30", value: $timeout, format: .number)
+                            .keyboardType(.decimalPad)
+                    }
+                } header: {
+                    Label("Worker 配置", systemImage: "brain.head.profile")
+                }
+            }
+            .navigationTitle(existingID != nil ? "编辑 Worker" : "添加 Worker")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        let config = AIWorkerConfig(
+                            id: existingID ?? UUID(),
+                            name: name,
+                            baseURL: baseURL,
+                            authKey: authKey,
+                            model: model,
+                            sliceCharLimit: sliceCharLimit,
+                            timeout: timeout
+                        )
+                        onSave(config)
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || baseURL.isEmpty || authKey.isEmpty)
                 }
             }
         }
