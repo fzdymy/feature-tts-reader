@@ -12,6 +12,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     var playbackRate: Float = 1.0
 
     private var player: AVAudioPlayer?
+    private var nextPlayer: AVAudioPlayer?      // 预加载的下一条
+    private var nextItem: TTSQueueItem?         // 对应的队列项
     private var queue: [TTSQueueItem] = []
     private var currentItem: TTSQueueItem?
     private var playbackHistory: [TTSQueueItem] = []
@@ -19,6 +21,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private var rmsTimer: Timer?
     private var rmsInstallRequested = false
     private var remoteCommandCenter = MPRemoteCommandCenter.shared()
+    private var isPreloading = false            // 防重入
 
     override init() {
         super.init()
@@ -95,6 +98,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             isPlaying = false
             currentAnchor = nil
             currentItem = nil
+            nextPlayer = nil
+            nextItem = nil
             queueCount = 0
             stopRMS()
             updateNowPlaying()
@@ -104,6 +109,38 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             }
             return
         }
+        
+        // 1. 如果有预加载的 nextPlayer，直接接管（无缝切换）
+        if let readyPlayer = nextPlayer, let readyItem = nextItem {
+            if let currentItem {
+                playbackHistory.append(currentItem)
+                if playbackHistory.count > 200 {
+                    playbackHistory.removeFirst(playbackHistory.count - 200)
+                }
+            }
+            player?.stop()
+            player = readyPlayer
+            currentItem = readyItem
+            currentAnchor = readyItem.anchor
+            queueCount = queue.count
+            nextPlayer = nil
+            nextItem = nil
+            
+            player?.delegate = self
+            player?.rate = playbackRate
+            player?.enableRate = true
+            player?.volume = 1.0
+            // 准备工作已在预加载时完成，直接播放
+            if player?.play() == true {
+                isPlaying = true
+                startRMS()
+                updateNowPlaying()
+                preloadNextIfNeeded() // 继续预加载下一条
+            }
+            return
+        }
+        
+        // 2. 首次或跳转后：从队列取第一条，创建播放器并预加载下一条
         if let currentItem {
             playbackHistory.append(currentItem)
             if playbackHistory.count > 200 {
@@ -114,29 +151,20 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         currentItem = item
         queueCount = queue.count
         currentAnchor = item.anchor
-
+        
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
-            // Prefer in-memory audio data when available (skips file I/O entirely)
-            if let data = item.audioData, let audioPlayer = try? AVAudioPlayer(data: data) {
-                player = audioPlayer
-            } else if let url = item.audioURL {
-                if let data = try? Data(contentsOf: url), let audioPlayer = try? AVAudioPlayer(data: data) {
-                    player = audioPlayer
-                } else {
-                    player = try AVAudioPlayer(contentsOf: url)
-                }
-            } else {
-                // Both audioData and audioURL are nil; move on
-                playNextSeamlessly()
-                return
-            }
+            player = try makePlayer(for: item)
             player?.delegate = self
             player?.rate = playbackRate
             player?.enableRate = true
             player?.volume = 1.0
             player?.prepareToPlay()
+            
+            // 同步预加载下一条（异步，不阻塞当前播放）
+            preloadNextIfNeeded()
+            
             if player?.play() == true {
                 isPlaying = true
                 startRMS()
@@ -146,6 +174,50 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             Logger.log(error: error, message: "playNext")
             playNextSeamlessly()
         }
+    }
+
+    /// 创建 AVAudioPlayer（内存数据优先，回退文件）
+    private func makePlayer(for item: TTSQueueItem) throws -> AVAudioPlayer {
+        if let data = item.audioData, let p = try? AVAudioPlayer(data: data) { return p }
+        if let url = item.audioURL {
+            if let data = try? Data(contentsOf: url), let p = try? AVAudioPlayer(data: data) { return p }
+            return try AVAudioPlayer(contentsOf: url)
+        }
+        throw NSError(domain: "TTS", code: -1, userInfo: [NSLocalizedDescriptionKey: "No audio source"])
+    }
+
+    /// 异步预加载下一句到 nextPlayer
+    private func preloadNextIfNeeded() {
+        guard !isPreloading, nextPlayer == nil, !queue.isEmpty else { return }
+        isPreloading = true
+        let next = queue[0]
+        nextItem = next
+        Task.detached { [weak self] in
+            guard let self else { return }
+            do {
+                let p = try await self.makePlayerAsync(for: next)
+                await MainActor.run {
+                    self.nextPlayer = p
+                    self.nextPlayer?.prepareToPlay()
+                    self.isPreloading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.nextPlayer = nil
+                    self.nextItem = nil
+                    self.isPreloading = false
+                }
+            }
+        }
+    }
+
+    private func makePlayerAsync(for item: TTSQueueItem) async throws -> AVAudioPlayer {
+        if let data = item.audioData, let p = try? AVAudioPlayer(data: data) { return p }
+        if let url = item.audioURL {
+            if let data = try? Data(contentsOf: url), let p = try? AVAudioPlayer(data: data) { return p }
+            return try AVAudioPlayer(contentsOf: url)
+        }
+        throw NSError(domain: "TTS", code: -1, userInfo: [NSLocalizedDescriptionKey: "No audio source"])
     }
 
     func stop() {
@@ -168,6 +240,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
+        nextPlayer?.stop()
+        nextPlayer = nil
+        nextItem = nil
         self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
@@ -195,6 +270,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
+        nextPlayer?.stop()
+        nextPlayer = nil
+        nextItem = nil
         self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
@@ -219,6 +297,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
+        nextPlayer?.stop()
+        nextPlayer = nil
+        nextItem = nil
         self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
@@ -247,6 +328,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
+        nextPlayer?.stop()
+        nextPlayer = nil
+        nextItem = nil
         self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
@@ -269,6 +353,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         queueCount = queue.count
         player?.stop()
         player = nil
+        nextPlayer?.stop()
+        nextPlayer = nil
+        nextItem = nil
         self.currentAnchor = nil
         currentItem = nil
         isPlaying = false
@@ -336,6 +423,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private func flushPlayback() {
         player?.stop()
         player = nil
+        nextPlayer?.stop()
+        nextPlayer = nil
+        nextItem = nil
         isPlaying = false
         currentAnchor = nil
         currentItem = nil
@@ -399,7 +489,33 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 extension AdvancedAudioPlaybackController: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
-            self.playNextSeamlessly()
+            // 无缝切换：直接使用预加载好的 nextPlayer
+            if let next = self.nextPlayer {
+                self.player?.delegate = nil
+                self.player = next
+                self.player?.delegate = self
+                self.player?.rate = self.playbackRate
+                self.player?.enableRate = true
+                self.player?.volume = 1.0
+                self.currentItem = self.nextItem
+                self.currentAnchor = self.nextItem?.anchor
+                self.nextPlayer = nil
+                self.nextItem = nil
+                self.queueCount = self.queue.count
+                
+                if self.player?.play() == true {
+                    self.isPlaying = true
+                    self.startRMS()
+                    self.updateNowPlaying()
+                    // 启动下一条的预加载
+                    self.preloadNextIfNeeded()
+                } else {
+                    self.playNextSeamlessly() // 兜底
+                }
+            } else {
+                // 没有预加载成功，走原逻辑
+                self.playNextSeamlessly()
+            }
         }
     }
 }

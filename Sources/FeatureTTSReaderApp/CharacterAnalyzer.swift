@@ -602,6 +602,7 @@ final class CharacterAnalyzer: @unchecked Sendable {
     private func inferSpeakerFromContext(_ precedingText: String) -> String? {
         // Must be at end of text (immediately before quote)
         let trimmed = precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
 
         // Priority 1: "Name" immediately followed by speech verb + colon
         let speechVerbPattern = RegexCache.shared.get(
@@ -627,10 +628,11 @@ final class CharacterAnalyzer: @unchecked Sendable {
             if raw.count >= 2 && raw.count <= 4 { return raw }
         }
 
-        // Priority 4: Name + speech verb with optional descriptive text in between
+        // Priority 4: Name + optional descriptive actions + speech verb at END
         // e.g., "马皇后微微点头，应道：" or "朱皇帝笑呵呵的应下，随即又咂了咂嘴，嘿嘿笑了一声道："
+        // Key: name must be at START of trimmed context (or after newline), then any chars, then speech verb at end
         let nameWithActionPattern = RegexCache.shared.get(
-            "([\\p{Han}]{2,4}).*?(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥)[：:]?$"
+            "^[^\\p{Han}]*([\\p{Han}]{2,4})[^\\p{Han}]*.*?(?:说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥)[：:]?$"
         )!
         if let match = nameWithActionPattern.matches(in: trimmed, range: nsRange).last {
             let raw = String(trimmed[Range(match.range(at: 1), in: trimmed)!])
@@ -643,28 +645,31 @@ final class CharacterAnalyzer: @unchecked Sendable {
     // MARK: - Speaker inference (for script building)
 
     func inferSpeaker(from line: String, knownCharacters: [String]) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
         // Priority 1: "Name：" or "Name:" at start
-        if let groups = line.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
+        if let groups = trimmed.firstMatch(regex: "^([\\p{Han}]{2,4})[：:]"), groups.count > 1 {
             return groups[1]
         }
-        // Priority 2: speech verb prefix with optional descriptive text
+        // Priority 2: Name + optional descriptive text + speech verb at end
         // e.g., "马皇后微微点头，应道：" or "朱皇帝笑呵呵的应下，随即又咂了咂嘴，嘿嘿笑了一声道："
-        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4}).*?(?=笑道|说道|问道|喊道|叫道|喝道|骂道|答道|回答|解释说|解释道|忽然道|低声道|轻声道|怒道|叹道|哭道|骂道|喝道|厉声道|正色道)"), groups.count > 1 {
+        if let groups = trimmed.firstMatch(regex: "^([\\p{Han}]{2,4})[^\\p{Han}]*.*?(?=说|道|笑道|喊道|问道|怒道|哭道|叹道|骂道|喝道|叫道|低声道|轻声道|柔声道|冷声道|颤声道|沉声道|厉声道|正色道|接话道|插嘴道|接口道|应声道|抢先道|解释道|回答|追问|吩咐|叮嘱|嘱咐|呵斥|训斥)"), groups.count > 1 {
             return groups[1]
         }
         // Priority 3: "Name：" before quote
-        if let groups = line.firstMatch(regex: "([\\p{Han}]{2,4})[：:][「『“‘]"), groups.count > 1 {
+        if let groups = trimmed.firstMatch(regex: "([\\p{Han}]{2,4})[：:][「『“‘]"), groups.count > 1 {
             return groups[1]
         }
         // Priority 4: Known character name appearing at line start
         for name in knownCharacters {
-            if line.hasPrefix(name) {
+            if trimmed.hasPrefix(name) {
                 return name
             }
         }
         // Priority 5: Known character name + comma (addressed to someone)
         for name in knownCharacters {
-            if line.hasPrefix("\(name)，") || line.hasPrefix("\(name),") {
+            if trimmed.hasPrefix("\(name)，") || trimmed.hasPrefix("\(name),") {
                 return name
             }
         }
