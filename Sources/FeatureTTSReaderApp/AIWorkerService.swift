@@ -170,15 +170,34 @@ final class AIWorkerService {
                 ])
                 return result
             } catch {
-                let segments = try decoder.decode([AISegment].self, from: data)
-                DebugLogger.log(flow: "ai_worker", step: "sendRequest_decoded", details: [
-                    "format": "raw_array",
-                    "segments_count": segments.count,
-                    "segments_preview": segments.prefix(5).map { s in
-                        ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
-                    },
-                ])
-                return AIWorkerResult(segments: segments, nextContext: nil)
+                do {
+                    let segments = try decoder.decode([AISegment].self, from: data)
+                    DebugLogger.log(flow: "ai_worker", step: "sendRequest_decoded", details: [
+                        "format": "raw_array",
+                        "segments_count": segments.count,
+                        "segments_preview": segments.prefix(5).map { s in
+                            ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
+                        },
+                    ])
+                    return AIWorkerResult(segments: segments, nextContext: nil)
+                } catch {
+                    // 最终兜底：LLM 返回的 JSON 中 text 字段可能含未转义双引号，尝试修复
+                    if let rawStr = String(data: data, encoding: .utf8) {
+                        let repaired = repairJSONTextFields(rawStr)
+                        if let repairedData = repaired.data(using: .utf8) {
+                            let segments = try decoder.decode([AISegment].self, from: repairedData)
+                            DebugLogger.log(flow: "ai_worker", step: "sendRequest_decoded", details: [
+                                "format": "repaired",
+                                "segments_count": segments.count,
+                                "segments_preview": segments.prefix(5).map { s in
+                                    ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
+                                },
+                            ])
+                            return AIWorkerResult(segments: segments, nextContext: nil)
+                        }
+                    }
+                    throw AIWorkerError.decodingFailed(error)
+                }
             }
         case 401:
             DebugLogger.log(flow: "ai_worker", step: "sendRequest_unauthorized", details: [
@@ -198,6 +217,51 @@ final class AIWorkerService {
             ])
             throw AIWorkerError.serverError(httpResponse.statusCode, errorMsg)
         }
+    }
+
+    /// 修复 JSON 中 text 字段的未转义双引号
+    private func repairJSONTextFields(_ raw: String) -> String {
+        var result = ""
+        var i = raw.startIndex
+        while i < raw.endIndex {
+            if raw[i] == "\"" {
+                let prefix = raw[raw.startIndex..<i]
+                // 检查是否在 text 字段值内
+                if prefix.hasSuffix("\"text\": \"") || prefix.hasSuffix("\"text\":\"") {
+                    result.append("\"")
+                    i = raw.index(after: i)
+                    // 采集到下一个闭合 " 之前，把中间所有未经转义的 " 转义
+                    var textContent = ""
+                    while i < raw.endIndex {
+                        if raw[i] == "\\" && i < raw.index(before: raw.endIndex) {
+                            textContent.append("\\")
+                            i = raw.index(after: i)
+                            textContent.append(raw[i])
+                            i = raw.index(after: i)
+                        } else if raw[i] == "\"" {
+                            // 检查后面是否紧跟 , 或 } （字段结束）
+                            let nextIdx = raw.index(after: i)
+                            if nextIdx < raw.endIndex, (raw[nextIdx] == "," || raw[nextIdx] == "}" || raw[nextIdx] == "]" || raw[nextIdx] == " " || raw[nextIdx] == "\n" || raw[nextIdx] == "\r" || raw[nextIdx] == "\t") {
+                                break
+                            }
+                            textContent.append("\\\"")
+                            i = raw.index(after: i)
+                        } else {
+                            textContent.append(raw[i])
+                            i = raw.index(after: i)
+                        }
+                    }
+                    result.append(textContent)
+                } else {
+                    result.append("\"")
+                    i = raw.index(after: i)
+                }
+            } else {
+                result.append(raw[i])
+                i = raw.index(after: i)
+            }
+        }
+        return result
     }
 }
 
