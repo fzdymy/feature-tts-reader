@@ -18,7 +18,7 @@ final class AIWorkerService {
         var context: String? = nil
 
         for (idx, slice) in slices.enumerated() {
-            progress?(Double(idx) / Double(slices.count), "正在解析第 \(idx + 1)/\(slices.count) 片...")
+            await progress?(Double(idx) / Double(slices.count), "正在解析第 \(idx + 1)/\(slices.count) 片...")
 
             let request = AIWorkerRequest(
                 text: slice,
@@ -32,7 +32,7 @@ final class AIWorkerService {
             context = response.nextContext
         }
 
-        progress?(1.0, "解析完成，共 \(allSegments.count) 个片段")
+        await progress?(1.0, "解析完成，共 \(allSegments.count) 个片段")
         return allSegments
     }
 

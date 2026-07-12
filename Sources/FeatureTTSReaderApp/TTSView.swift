@@ -583,9 +583,9 @@ struct TTSView: View {
                        text: "陕兵说完，全场再次陷入了一阵死一般的寂静。无边的黑暗，将这五个人的秘密彻底吞噬。"),
     ]
 
-    // MARK: - Custom Multi-Role Section
+        // MARK: - Custom Multi-Role Section
 
-private var customMultiRoleSection: some View {
+    private var customMultiRoleSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
                 TextField("粘贴或输入小说文本（AI Worker 解析角色、情绪、语气、流水合成播放）", text: $customMultiRoleText, axis: .vertical)
@@ -625,12 +625,6 @@ private var customMultiRoleSection: some View {
                                     Text("自动分配").tag("")
                                     ForEach(availableVoices.filter { $0.locale.hasPrefix("zh-CN") }) { v in
                                         Text(v.displayName).tag(v.id)
-}
-}
-
-    // MARK: - Worker Edit Sheet
-
-    }
 }
                                 .pickerStyle(.menu)
                                 .frame(width: 140)
@@ -765,13 +759,6 @@ private var customMultiRoleSection: some View {
                 }
             }
         }
-    }
-
-    private func getSelectedWorkerConfig() -> AIWorkerConfig? {
-        if let id = selectedWorkerID {
-            return aiWorkerConfigs.first { $0.id == id }
-        }
-        return aiWorkerConfigs.first { $0.isDefault } ?? aiWorkerConfigs.first
     }
 
     private func assignVoicesToSegments(_ segments: [AISegment]) {
