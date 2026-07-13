@@ -1053,9 +1053,12 @@ struct TTSView: View {
     ]
 
     /// 去除服务器追加的后缀（zh-CN-Yunfan:DragonHDLatestNeural → zh-CN-Yunfan）
+    /// 标准化音色 ID 基名（剥离服务器后缀 :DragonHD... 及 Neural 尾缀）
     static func baseVoiceID(_ id: String) -> String {
-        if let colon = id.firstIndex(of: ":") { return String(id[..<colon]) }
-        return id
+        var base = id
+        if let colon = id.firstIndex(of: ":") { base = String(id[..<colon]) }
+        if base.hasSuffix("Neural") { base = String(base.dropLast(6)) }
+        return base
     }
 
     /// 提取服务器模型后缀（如 :DragonHDFlashLatestNeural → :DragonHD）
@@ -1077,27 +1080,40 @@ struct TTSView: View {
             .replacingOccurrences(of: "zh-CN-", with: "")
             .replacingOccurrences(of: "zh-HK-", with: "")
             .replacingOccurrences(of: "zh-TW-", with: "")
-            .replacingOccurrences(of: "Neural", with: "")
         let suffix = shortModelSuffix(id)
         return "\(name)/\(engName)\(suffix)"
     }
 
-    /// 音色 ID → 中文名称（自动剥离服务器后缀）
+    /// 拼音 → 中文名映射（不含 Neural 尾缀，baseVoiceID 已自动剥离）
     static func chineseVoiceName(for voiceID: String) -> String {
         let base = baseVoiceID(voiceID)
         let map: [String: String] = [
-            "zh-CN-XiaoxiaoNeural": "小晓", "zh-CN-XiaochenNeural": "晓辰",
-            "zh-CN-XiaohanNeural": "晓涵", "zh-CN-XiaomoNeural": "晓墨",
-            "zh-CN-XiaomengNeural": "晓萌", "zh-CN-XiaoruiNeural": "晓睿",
-            "zh-CN-XiaoshuangNeural": "晓双", "zh-CN-XiaoxuanNeural": "晓萱",
-            "zh-CN-XiaoyanNeural": "晓颜", "zh-CN-XiaoyiNeural": "晓伊",
-            "zh-CN-XiaozhenNeural": "晓臻",
-            "zh-CN-YunxiNeural": "云希", "zh-CN-YunyangNeural": "云扬",
-            "zh-CN-YunyeNeural": "云野", "zh-CN-YunjianNeural": "云健",
-            "zh-CN-YunfengNeural": "云峰", "zh-CN-YunxiaNeural": "云夏",
-            "zh-CN-YunzeNeural": "云泽",
-            "zh-HK-HiuMaanNeural": "晓曼", "zh-HK-WanLungNeural": "云龙",
-            "zh-TW-HsiaoChenNeural": "晓臻", "zh-TW-YunJheNeural": "云哲",
+            // zh-CN 女声
+            "zh-CN-Xiaoxiao": "小晓", "zh-CN-Xiaochen": "晓辰",
+            "zh-CN-Xiaohan": "晓涵", "zh-CN-Xiaomo": "晓墨",
+            "zh-CN-Xiaomeng": "晓萌", "zh-CN-Xiaorui": "晓睿",
+            "zh-CN-Xiaoshuang": "晓双", "zh-CN-Xiaoxuan": "晓萱",
+            "zh-CN-Xiaoyan": "晓颜", "zh-CN-Xiaoyi": "晓伊",
+            "zh-CN-Xiaozhen": "晓臻", "zh-CN-Xiaoyu": "晓雨",
+            // zh-CN 男声
+            "zh-CN-Yunxi": "云希", "zh-CN-Yunyang": "云扬",
+            "zh-CN-Yunye": "云野", "zh-CN-Yunjian": "云健",
+            "zh-CN-Yunfeng": "云峰", "zh-CN-Yunxia": "云夏",
+            "zh-CN-Yunze": "云泽", "zh-CN-Yunhao": "云皓",
+            "zh-CN-Yunqi": "云奇", "zh-CN-Yunyi": "云逸",
+            "zh-CN-Yunxiao": "云霄", "zh-CN-Yunjia": "云嘉",
+            "zh-CN-Yunxi": "云希", "zh-CN-Yunxia": "云夏",
+            // 方言
+            "zh-CN-henan-Yundeng": "云登",
+            "zh-CN-shaanxi-Xiaoni": "晓妮",
+            "zh-CN-sichuan-Xiaomo": "晓墨",
+            "zh-CN-sichuan-Yunxi": "云希",
+            // 粤语
+            "zh-HK-HiuGaai": "晓佳", "zh-HK-HiuMaan": "晓曼",
+            "zh-HK-WanLung": "云龙",
+            // 台语
+            "zh-TW-HsiaoChen": "晓臻", "zh-TW-HsiaoYu": "晓雨",
+            "zh-TW-YunJhe": "云哲", "zh-TW-HsiaoChen": "晓臻",
         ]
         return map[base] ?? base
     }
@@ -2165,10 +2181,7 @@ struct CharacterRoleCard: View {
 
     private var selectedLabel: String {
         guard !voice.isEmpty else { return "自动" }
-        if let match = availableVoices.first(where: { $0.id == voice }) {
-            return TTSView.shortVoiceLabel(voice, name: match.name)
-        }
-        return TTSView.chineseVoiceName(for: voice)
+        return TTSView.shortVoiceLabel(voice, name: TTSView.chineseVoiceName(for: voice))
     }
 
     private var genderLabel: (String, String, Color)? {
@@ -2239,7 +2252,7 @@ struct CharacterRoleCard: View {
                     ForEach(availableVoices) { v in
                         Button { voice = v.id } label: {
                             HStack {
-                                Text(TTSView.shortVoiceLabel(v.id, name: v.name))
+                                Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
                                     .font(.subheadline)
                                 if voice == v.id { Spacer(); Image(systemName: "checkmark") }
                             }
@@ -2284,13 +2297,13 @@ struct CharacterRoleCard: View {
                     Text("推荐: ")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    + Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: availableVoices.first(where: { $0.id == autoMatchedVoiceID })?.name ?? TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
+                    + Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
                         .font(.caption2.weight(.medium))
                         .foregroundColor(.accentColor)
                 }
                 HStack(spacing: 4) {
                     Text("")
-                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: availableVoices.first(where: { $0.id == autoMatchedVoiceID })?.name ?? TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
+                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
                         .font(.caption2)
                         .foregroundColor(.secondary.opacity(0.6))
                 }
