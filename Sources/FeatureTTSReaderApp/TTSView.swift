@@ -1019,9 +1019,17 @@ struct TTSView: View {
         }
     }
 
-    /// 解析别名 → 主名
+    /// 解析别名 → 主名（最多 5 层，防循环）
     private func resolveAlias(_ name: String) -> String {
-        characterAliases[name] ?? name
+        var current = name
+        var visited = Set<String>()
+        var depth = 0
+        while let next = characterAliases[current], next != current, !visited.contains(current), depth < 5 {
+            visited.insert(current)
+            current = next
+            depth += 1
+        }
+        return current
     }
 
     /// 获取说话人的音色（别名自动继承主角色的音色）
@@ -1039,6 +1047,7 @@ struct TTSView: View {
     /// 角色操作：合并（将 source 标记为 target 的别名）
     private func mergeCharacter(_ source: String, into target: String) {
         guard source != target, !source.isEmpty, !target.isEmpty else { return }
+        guard characterAliases[target] == nil else { return } // target 不能是别名
         // 如果 source 本身是某个角色的别名，先解除
         characterAliases.removeValue(forKey: source)
         // source 已有的别名也转向 target
@@ -1104,8 +1113,8 @@ struct TTSView: View {
     /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
     static func resolveGender(speaker: String, aiGender: Gender?) -> Gender {
         if let g = aiGender, g != .unknown { return g }
-        let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") || speaker.contains("姐") || speaker.contains("娘") || speaker.contains("妈") || speaker.contains("婆")
-        let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他") || speaker.contains("叔") || speaker.contains("爸") || speaker.contains("父")
+        let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") || speaker.contains("姐") || speaker.contains("娘") || speaker.contains("妈") || speaker.contains("婆") || speaker.contains("奶") || speaker.contains("妹") || speaker.contains("嫂") || speaker.contains("婶") || speaker.contains("女士") || speaker.contains("太太") || speaker.contains("夫人")
+        let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他") || speaker.contains("叔") || speaker.contains("爸") || speaker.contains("父") || speaker.contains("先生") || speaker.contains("少爷") || speaker.contains("公子") || speaker.contains("郎") || speaker.contains("伯") || speaker.contains("舅")
         if isFemale { return .female }
         if isMale { return .male }
         return .unknown

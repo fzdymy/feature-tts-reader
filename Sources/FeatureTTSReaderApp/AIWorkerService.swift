@@ -159,27 +159,27 @@ final class AIWorkerService {
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             do {
-                let result = try decoder.decode(AIWorkerResult.self, from: data)
+                let segments = try decoder.decode([AISegment].self, from: data)
                 DebugLogger.log(flow: "ai_worker", step: "sendRequest_decoded", details: [
-                    "format": "AIWorkerResult",
-                    "segments_count": result.segments.count,
-                    "has_next_context": result.nextContext != nil,
-                    "segments_preview": result.segments.prefix(5).map { s in
+                    "format": "raw_array",
+                    "segments_count": segments.count,
+                    "segments_preview": segments.prefix(5).map { s in
                         ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
                     },
                 ])
-                return result
+                return AIWorkerResult(segments: segments, nextContext: nil)
             } catch {
                 do {
-                    let segments = try decoder.decode([AISegment].self, from: data)
+                    let result = try decoder.decode(AIWorkerResult.self, from: data)
                     DebugLogger.log(flow: "ai_worker", step: "sendRequest_decoded", details: [
-                        "format": "raw_array",
-                        "segments_count": segments.count,
-                        "segments_preview": segments.prefix(5).map { s in
+                        "format": "AIWorkerResult",
+                        "segments_count": result.segments.count,
+                        "has_next_context": result.nextContext != nil,
+                        "segments_preview": result.segments.prefix(5).map { s in
                             ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
                         },
                     ])
-                    return AIWorkerResult(segments: segments, nextContext: nil)
+                    return result
                 } catch {
                     // 最终兜底：LLM 返回的 JSON 中 text 字段可能含未转义双引号，尝试修复
                     if let rawStr = String(data: data, encoding: .utf8) {
