@@ -155,3 +155,19 @@ TTS 引擎 (Edge TTS)
 | `62300cd` | **P0: AVAudioEngine→AVAudioPlayer 重写（修复LiveContainer崩溃）** |
 | `f9287f0` | **P0: 纯段落ID定位，删除全部像素估算代码** |
 | `1965409~c5975eb` | TTS批修复 (1-8) |
+
+## 修复记录 (2026-07-13)
+
+| 提交 | 描述 |
+|------|------|
+| `57aa236` | **perf: health check 改用 /api/v1/tts (更快)** |
+| `afd0f95` | **feat: 拆分解析/播放按钮 + AI 性别检测 (AISegment.gender / worker.js gender)** |
+| `26d0bb7` | **feat: tone→volume 映射, SSML volume 支持 (vol 查询参数 / buildSSML prosody volume)** |
+| `e8dc97f` | **feat: 全局音量滑块 + Settings 页同步 (resolvedVolume dB叠加)** |
+| `(current)` | **fix: 流式逐段入队 / 角色卡不消失 / 刷新自动匹配音色 / 稳定播放控制** |
+
+## 当前已知问题
+
+1. **worker.js 偶尔空响应** — LLM 复杂场景下返回空, 已添加基础 prompt 降级重试 (需重新部署 `temp/worker.js`)
+2. **config voices 为空** — 服务器 `/api/v1/config` 返回 empty voices 列表, 音色列表依赖刷新缓存
+3. **性别检测准确率** — 取决于 LLM 对角色的理解, `unknown` 时回退名字关键词

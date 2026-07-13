@@ -470,7 +470,7 @@ struct TTSView: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
 
-                // 处理状态
+                // 处理状态（不遮盖角色卡）
                 if isProcessingWorker || isSynthesizingCustom {
                     VStack(spacing: 8) {
                         ProgressView(value: workerProgress) {
@@ -481,7 +481,10 @@ struct TTSView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
-                } else if !customWorkerSegments.isEmpty {
+                }
+
+                // 角色卡 — 只要 segments 存在就永远显示，不因合成/播放状态消失
+                if !customWorkerSegments.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("解析到 \(customWorkerSegments.count) 个片段，\(Set(customWorkerSegments.map { $0.speaker }).count) 个角色")
                             .font(.caption.weight(.medium))
@@ -608,8 +611,8 @@ struct TTSView: View {
                         }
                     }
 
-                    // 暂停/继续按钮（仅在播放时显示）
-                    if store.audioController.isPlaying && !isSynthesizingCustom {
+                    // 播放控制（队列有内容时稳定显示，不闪烁）
+                    if store.audioController.queueCount > 0 || store.audioController.isPlaying {
                         HStack {
                             Button {
                                 store.audioController.pause()
@@ -627,6 +630,17 @@ struct TTSView: View {
                             } label: {
                                 HStack(spacing: 6) {
                                     Label("继续", systemImage: "play.circle.fill")
+                                        .fixedSize()
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                store.audioController.stop()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Label("停止", systemImage: "stop.circle.fill")
                                         .fixedSize()
                                 }
                                 .frame(maxWidth: .infinity)
@@ -730,8 +744,7 @@ struct TTSView: View {
                         hasVoiceAssignments = true
                     }
 
-                    // 逐段合成入队
-                    var restItems: [TTSQueueItem] = []
+                    // 逐段合成 → 逐段入队（真正的流式）
                     for (segIdx, segment) in segments.enumerated() {
                         let voiceID = await MainActor.run {
                             customCharacterVoices[segment.speaker] ?? ""
@@ -781,27 +794,15 @@ struct TTSView: View {
                             anchor: nil
                         )
 
-                        if !firstSegmentPlayed {
-                            // 首段入队即播放
-                            await MainActor.run {
-                                store.audioController.appendToQueue([item])
-                                customSynthesisResult = "第 1 段合成完成，开始播放..."
+                        // 每段合成后立即入队，不等待同片其他段
+                        await MainActor.run {
+                            store.audioController.appendToQueue([item])
+                            if !firstSegmentPlayed {
                                 firstSegmentPlayed = true
+                                customSynthesisResult = "第 1 段合成完成，开始播放..."
+                            } else {
+                                customSynthesisResult = "已合成第 \(segIdx + 1)/\(segments.count) 段(片\(sliceIdx + 1))，持续流式..."
                             }
-                        } else {
-                            restItems.append(item)
-                        }
-
-                        let played = firstSegmentPlayed ? "播放中" : "准备中"
-                        await MainActor.run {
-                            customSynthesisResult = "已合成 \(sliceIdx * 10 + segIdx + 1) 段，\(played)..."
-                        }
-                    }
-
-                    // 本片剩余段批量入队
-                    if !restItems.isEmpty {
-                        await MainActor.run {
-                            store.audioController.appendToQueue(restItems)
                         }
                     }
                 }
@@ -954,6 +955,26 @@ struct TTSView: View {
         customCharacterVoices = voices
     }
 
+    /// 根据说话人自动匹配音色（基于性别，优先从 zh-CN 女声/男声中选择）
+    private static func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
+        let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
+        guard !zhVoices.isEmpty else { return "" }
+        let resolved: Gender = {
+            if gender != .unknown { return gender }
+            return TTSView.resolveGender(speaker: speaker, aiGender: nil)
+        }()
+        switch resolved {
+        case .female:
+            let f = zhVoices.filter { $0.gender == "Female" }
+            return f.first?.id ?? zhVoices.first?.id ?? ""
+        case .male:
+            let m = zhVoices.filter { $0.gender == "Male" }
+            return m.first?.id ?? zhVoices.first?.id ?? ""
+        case .unknown:
+            return zhVoices.first?.id ?? ""
+        }
+    }
+
     /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
     static func resolveGender(speaker: String, aiGender: Gender?) -> Gender {
         if let g = aiGender, g != .unknown { return g }
@@ -1100,9 +1121,9 @@ struct TTSView: View {
                 return
             }
 
-            // 后台并行合成剩余段落
-            await MainActor.run { customSynthesisResult = "首段播放中，后台合成剩余 \(customWorkerSegments.count - 1) 段..." }
-            var restItems: [TTSQueueItem] = []
+            // 逐段合成 → 逐段入队（真正的流式）
+            await MainActor.run { customSynthesisResult = "第 1/\(customWorkerSegments.count) 段播放中，继续合成后续..." }
+            var totalSuccess = 1
 
             for (idx, segment) in customWorkerSegments.dropFirst().enumerated() {
                 let voiceID = customCharacterVoices[segment.speaker] ?? ""
@@ -1151,10 +1172,12 @@ struct TTSView: View {
                         sentenceIndex: nil,
                         anchor: nil
                     )
-                    restItems.append(item)
 
+                    // 立即入队，不等待后续合成
                     await MainActor.run {
-                        customSynthesisResult = "已合成 \(idx + 2)/\(customWorkerSegments.count) 段..."
+                        store.audioController.appendToQueue([item])
+                        totalSuccess += 1
+                        customSynthesisResult = "已合成 \(totalSuccess)/\(customWorkerSegments.count) 段，持续流式播放..."
                     }
                 } catch {
                     DebugLogger.log(flow: "custom_synthesize", step: "remaining_segment_error", details: [
@@ -1169,13 +1192,12 @@ struct TTSView: View {
             }
 
             await MainActor.run {
-                store.audioController.appendToQueue(restItems)
-                customSynthesisResult = "\(customWorkerSegments.count)/\(customWorkerSegments.count) 段全部入队，正在流式播放"
                 isSynthesizingCustom = false
+                customSynthesisResult = "\(totalSuccess)/\(customWorkerSegments.count) 段全部入队，正在流式播放"
             }
             DebugLogger.log(flow: "custom_synthesize", step: "complete", details: [
                 "total_segments": customWorkerSegments.count,
-                "successful_items": restItems.count + 1,
+                "successful_items": totalSuccess,
             ])
         }
     }
@@ -1186,14 +1208,21 @@ struct TTSView: View {
         guard !segments.isEmpty else { return }
 
         characterResynthesisStates[speaker] = true
-        let voiceID = customCharacterVoices[speaker] ?? ""
+        // 先自动匹配音色（如果当前为空或为"自动"），再合成
+        let currentVoice = customCharacterVoices[speaker] ?? ""
+        let autoVoice = TTSView.autoMatchVoice(for: speaker, gender: segments.first?.gender ?? .unknown, availableVoices: availableVoices)
+        let resolvedVoice = currentVoice.isEmpty ? autoVoice : currentVoice
+        if resolvedVoice != currentVoice {
+            customCharacterVoices[speaker] = resolvedVoice
+        }
         let globalRate = multiRoleGlobalRate
         let globalVolume = globalVolumeOffset
 
         DebugLogger.log(flow: "custom_synthesize", step: "character_resynthesis_start", details: [
                         "speaker": speaker,
                         "segments": segments.count,
-                        "voice": voiceID,
+                        "voice": resolvedVoice,
+                        "auto_matched": resolvedVoice != currentVoice,
                     ])
 
         Task {
@@ -1209,7 +1238,7 @@ struct TTSView: View {
                 do {
                     let audioData = try await EdgeTTSService.shared.synthesize(
                         text: segment.text,
-                        voice: voiceID,
+                        voice: resolvedVoice,
                         rate: Double(rate),
                         pitch: Double(pitch),
                         style: style,
@@ -1223,7 +1252,7 @@ struct TTSView: View {
                     let seg = ScriptSegment(
                         id: UUID(),
                         characterName: segment.speaker,
-                        voice: voiceID,
+                        voice: resolvedVoice,
                         rate: rate,
                         pitch: pitch,
                         style: style,
