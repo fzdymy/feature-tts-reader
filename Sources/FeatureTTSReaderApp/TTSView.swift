@@ -976,7 +976,7 @@ struct TTSView: View {
     ]
 
     /// 音色 ID → 中文名称
-    private static func chineseVoiceName(for voiceID: String) -> String {
+    static func chineseVoiceName(for voiceID: String) -> String {
         let map: [String: String] = [
             "zh-CN-XiaoxiaoNeural": "小晓", "zh-CN-XiaochenNeural": "晓辰",
             "zh-CN-XiaohanNeural": "晓涵", "zh-CN-XiaomoNeural": "晓墨",
