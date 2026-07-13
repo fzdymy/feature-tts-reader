@@ -66,6 +66,9 @@ struct EdgeVoiceInfo: Codable, Sendable, Identifiable {
         return base
     }
 }
+}
+
+private struct ServerConfigResponse: Decodable {
     var voices: [EdgeVoiceInfo]
 }
 
