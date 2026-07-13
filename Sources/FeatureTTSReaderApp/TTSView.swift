@@ -33,6 +33,7 @@ struct TTSView: View {
     // MARK: - Multi-Role Test State
     @AppStorage("globalRate") private var multiRoleGlobalRate: Double = 0
     @AppStorage("globalVolume") private var globalVolumeOffset: Double = 0
+    @AppStorage("globalOverlap") private var globalOverlapMs: Double = 80
 
     // MARK: - Custom Multi-Role Test State
     @State private var customMultiRoleText = ""
@@ -584,6 +585,23 @@ struct TTSView: View {
                             .frame(width: 24)
                     }
                     Slider(value: $globalVolumeOffset, in: -10...10, step: 1)
+                }
+                .padding(.vertical, 4)
+
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "waveform.path.ecg")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("重叠(ms)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(globalOverlapMs))")
+                            .font(.caption.monospaced())
+                            .frame(width: 32)
+                    }
+                    Slider(value: $globalOverlapMs, in: 0...200, step: 10)
                 }
                 .padding(.vertical, 4)
 

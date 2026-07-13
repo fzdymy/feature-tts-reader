@@ -223,8 +223,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     private func scheduleNextIfNeeded() {
         guard let next = nextPlayer, let current = player,
               current.isPlaying, current.duration > 0 else { return }
-        // 80ms 重叠，足以掩盖音频时钟粒度与 delegate 回调延迟；duration/2 兜底防极短片段
-        let overlap: TimeInterval = 0.08
+        // 全局可调重叠(ms)，默认 80ms
+        let overlapMs = UserDefaults.standard.double(forKey: "globalOverlap")
+        let overlap = overlapMs > 0 ? overlapMs / 1000.0 : 0.08
         let safeOverlap = min(overlap, current.duration / 2)
         let startTime = current.deviceCurrentTime + current.duration - safeOverlap
         next.play(atTime: max(startTime, current.deviceCurrentTime))
