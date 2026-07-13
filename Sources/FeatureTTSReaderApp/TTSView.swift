@@ -2270,15 +2270,10 @@ struct CharacterRoleCard: View {
                     }
                     ForEach(availableVoices) { v in
                         Button { voice = v.id } label: {
-                            VStack(alignment: .leading, spacing: 1) {
-                                HStack {
-                                    Text(TTSView.chineseVoiceName(for: v.id))
-                                        .font(.body)
-                                    if voice == v.id { Spacer(); Image(systemName: "checkmark") }
-                                }
-                                Text(v.id)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
+                            HStack {
+                                Text("\(TTSView.chineseVoiceName(for: v.id))  \(v.id)")
+                                    .font(.subheadline)
+                                if voice == v.id { Spacer(); Image(systemName: "checkmark") }
                             }
                         }
                     }
@@ -2337,33 +2332,36 @@ struct CharacterRoleCard: View {
         .background(Color(.systemGray6))
         .cornerRadius(8)
         .contentShape(Rectangle())
-        .onTapGesture {}
-        .contextMenu {
-            Button("重命名", systemImage: "pencil") {
-                renameText = speaker
-                showRenameAlert = true
-            }
-            if !aliases.isEmpty, let onSplit {
-                Menu("分离别名...", systemImage: "arrow.triangle.branch") {
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                Button("重命名", systemImage: "pencil") {
+                    renameText = speaker
+                    showRenameAlert = true
+                }
+                if !aliases.isEmpty, let onSplit {
                     ForEach(aliases, id: \.self) { alias in
-                        Button("\(alias)") {
-                            onSplit(alias)
+                        Button { onSplit(alias) } label: {
+                            Label("分离「\(alias)」", systemImage: "arrow.triangle.branch")
                         }
                     }
                 }
-            }
-            if !otherSpeakers.isEmpty {
-                Menu("合并到...", systemImage: "arrow.triangle.merge") {
-                    ForEach(otherSpeakers, id: \.self) { target in
-                        Button("\(target)") {
-                            onMerge(target)
+                if !otherSpeakers.isEmpty {
+                    Menu("合并到...") {
+                        ForEach(otherSpeakers, id: \.self) { target in
+                            Button("\(target)") { onMerge(target) }
                         }
                     }
                 }
-            }
-            Divider()
-            Button("删除角色", systemImage: "trash", role: .destructive) {
-                showDeleteConfirm = true
+                Divider()
+                Button("删除角色", systemImage: "trash", role: .destructive) {
+                    showDeleteConfirm = true
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
         }
         .alert("重命名角色", isPresented: $showRenameAlert) {
