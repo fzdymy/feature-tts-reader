@@ -514,8 +514,6 @@ struct TTSView: View {
                             let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
                             let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender)
                             let autoVoiceID = TTSView.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
-                            let autoVoiceName = availableVoices.first(where: { $0.id == autoVoiceID })?.displayName
-                                ?? TTSView.defaultChineseVoices.first(where: { $0.id == autoVoiceID })?.displayName
                             CharacterRoleCard(
                                 speaker: speaker,
                                 aliases: aliases,
@@ -523,7 +521,6 @@ struct TTSView: View {
                                 emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
                                 gender: resolvedGender,
                                 autoMatchedVoiceID: autoVoiceID,
-                                autoMatchedVoiceName: autoVoiceName,
                                 voice: Binding(
                                     get: { voiceForSpeaker(speaker) },
                                     set: { customCharacterVoices[speaker] = $0 }
@@ -1633,8 +1630,9 @@ struct TTSView: View {
         // Build character voice map
         var charVoiceMap: [String: String] = [:]
         for speaker in speakers where speaker != "旁白" {
-            if let voiceID = voiceForSpeaker(speaker), !voiceID.isEmpty {
-                charVoiceMap[speaker] = voiceID
+            let v = voiceForSpeaker(speaker)
+            if !v.isEmpty {
+                charVoiceMap[speaker] = v
             } else if let matched = availableVoices.first(where: {
                 $0.locale.hasPrefix("zh-CN")
             }) {
@@ -2082,7 +2080,6 @@ struct CharacterRoleCard: View {
     let emotionSummary: String?
     let gender: Gender
     let autoMatchedVoiceID: String
-    let autoMatchedVoiceName: String?
     @Binding var voice: String
     let isResynthesizing: Bool
     let availableVoices: [EdgeVoiceInfo]
