@@ -9,7 +9,7 @@ struct EdgeVoiceInfo: Codable, Sendable, Identifiable {
 
     /// 本地化显示名：中文名 + 性别图标
     var displayName: String {
-        let base = TTSView.baseVoiceID(id)
+        let base = EdgeVoiceInfo.baseVoiceID(id)
         let chineseName: String = {
             switch base {
             // zh-CN 女声
@@ -58,7 +58,14 @@ struct EdgeVoiceInfo: Codable, Sendable, Identifiable {
         return "\(chineseName) \(genderIcon)"
     }
 
-private struct ServerConfigResponse: Decodable {
+    /// 剥离服务器后缀 & Neural 尾缀
+    static func baseVoiceID(_ id: String) -> String {
+        var base = id
+        if let colon = id.firstIndex(of: ":") { base = String(id[..<colon]) }
+        if base.hasSuffix("Neural") { base = String(base.dropLast(6)) }
+        return base
+    }
+}
     var voices: [EdgeVoiceInfo]
 }
 
