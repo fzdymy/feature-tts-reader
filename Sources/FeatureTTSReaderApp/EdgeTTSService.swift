@@ -165,7 +165,7 @@ actor EdgeTTSService {
         return []
     }
 
-    func synthesize(text: String, voice: String? = nil, rate: Double = 0, pitch: Double = 0, style: String = "", serverID: UUID? = nil) async throws -> Data {
+    func synthesize(text: String, voice: String? = nil, rate: Double = 0, pitch: Double = 0, style: String = "", volume: String = "default", serverID: UUID? = nil) async throws -> Data {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EdgeTTSError.emptyResponse }
 
@@ -189,6 +189,7 @@ actor EdgeTTSService {
             "rate": rate,
             "pitch": pitch,
             "style": style,
+            "volume": volume,
             "server_id": serverID?.uuidString ?? "(first_available)",
         ])
 
@@ -212,7 +213,7 @@ actor EdgeTTSService {
                 endpoint = normalizedURL.appendingPathComponent("tts")
             }
             do {
-                let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), style: style, apiKey: server.apiKey)
+                let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), style: style, volume: volume, apiKey: server.apiKey)
                 DebugLogger.log(flow: "edge_tts", step: "synthesize_request", details: [
                     "url": endpoint.absoluteString,
                     "query_items": request.url?.query ?? "",
@@ -429,7 +430,7 @@ actor EdgeTTSService {
         return result.isEmpty ? [EdgeTTSServerConfig(name: "默认", url: Self.defaultServerURL, apiKey: apiKey)] : result
     }
 
-    private func buildGetRequest(to endpoint: URL, text: String, voice: String?, rate: Int, pitch: Int, style: String, apiKey: String) throws -> URLRequest {
+    private func buildGetRequest(to endpoint: URL, text: String, voice: String?, rate: Int, pitch: Int, style: String, volume: String = "default", apiKey: String) throws -> URLRequest {
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw EdgeTTSError.invalidServerURL
         }
@@ -440,6 +441,9 @@ actor EdgeTTSService {
         ]
         if !style.isEmpty {
             items.append(URLQueryItem(name: "s", value: style))
+        }
+        if volume != "default" {
+            items.append(URLQueryItem(name: "vol", value: volume))
         }
         if let voice = voice, !voice.isEmpty {
             items.append(URLQueryItem(name: "v", value: voice))
@@ -454,7 +458,7 @@ actor EdgeTTSService {
         return request
     }
 
-    static func buildSSML(text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?) -> String {
+    static func buildSSML(text: String, voice: String?, rate: Double, pitch: Double, emotionTag: String?, volume: String = "default") -> String {
         let emotion = (emotionTag ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let rateValue: String
         switch rate {
@@ -472,8 +476,14 @@ actor EdgeTTSService {
         case let p where p < 0: pitchValue = "\(Int(p))%"
         default: pitchValue = "0%"
         }
+        let volumeAttr: String
+        if volume != "default" {
+            volumeAttr = " volume=\"\(volume)\""
+        } else {
+            volumeAttr = ""
+        }
 
-        var result = "<prosody rate=\"\(rateValue)\" pitch=\"\(pitchValue)\">"
+        var result = "<prosody rate=\"\(rateValue)\" pitch=\"\(pitchValue)\"\(volumeAttr)>"
         if !emotion.isEmpty && Self.supportedEmotions.contains(emotion) {
             result = "<mstts:express-as type=\"\(emotion)\" xmlns:mstts=\"http://www.w3.org/2001/mstts\">" + result
         }

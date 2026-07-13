@@ -720,6 +720,7 @@ struct TTSView: View {
                         let rate = Int(globalRate) + TTSView.rateOffset(for: segment)
                         let pitch = TTSView.pitchOffset(for: segment, speakerName: segment.speaker)
                         let style = segment.emotion.ssmlStyle
+                        let volume = TTSView.volumeFromTone(segment.tone)
 
                         let audioData = try await EdgeTTSService.shared.synthesize(
                             text: segment.text,
@@ -727,6 +728,7 @@ struct TTSView: View {
                             rate: Double(rate),
                             pitch: Double(pitch),
                             style: style,
+                            volume: volume,
                             serverID: serverID
                         )
 
@@ -953,6 +955,24 @@ struct TTSView: View {
         }
     }
 
+    /// 从 tone 语气关键词推导音量（Edge TTS SSML volume）
+    private static func volumeFromTone(_ tone: String) -> String {
+        let t = tone
+        if t.contains("大喊") || t.contains("怒吼") || t.contains("咆哮") || t.contains("吼叫") || t.contains("大喝") || t.contains("厉喝") || t.contains("怒喝") {
+            return "x-loud"
+        }
+        if t.contains("喊") || t.contains("叫") || t.contains("嚷") || t.contains("喝令") || t.contains("厉声") || t.contains("怒声") || t.contains("高喝") {
+            return "loud"
+        }
+        if t.contains("低语") || t.contains("轻声") || t.contains("悄悄") || t.contains("小声") || t.contains("窃窃") || t.contains("低喃") || t.contains("低声道") || t.contains("低声") {
+            return "soft"
+        }
+        if t.contains("耳语") || t.contains("气声") || t.contains("呢喃") || t.contains("默念") || t.contains("无声") || t.contains("沉吟") {
+            return "x-soft"
+        }
+        return "default"
+    }
+
     /// 根据情绪和角色名计算音调偏移
     private static func pitchOffset(for segment: AISegment, speakerName: String) -> Int {
         let gender = resolveGender(speaker: speakerName, aiGender: segment.gender)
@@ -1001,6 +1021,7 @@ struct TTSView: View {
                 let rate = Int(globalRate) + Self.rateOffset(for: firstSegment)
                 let pitch = Self.pitchOffset(for: firstSegment, speakerName: firstSegment.speaker)
                 let style = firstSegment.emotion.ssmlStyle
+                let volume = TTSView.volumeFromTone(firstSegment.tone)
 
                 let audioData = try await EdgeTTSService.shared.synthesize(
                     text: firstSegment.text,
@@ -1008,6 +1029,7 @@ struct TTSView: View {
                     rate: Double(rate),
                     pitch: Double(pitch),
                     style: style,
+                    volume: volume,
                     serverID: serverID
                 )
 
@@ -1065,6 +1087,7 @@ struct TTSView: View {
                 let rate = Int(globalRate) + Self.rateOffset(for: segment)
                 let pitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
                 let style = segment.emotion.ssmlStyle
+                let volume = TTSView.volumeFromTone(segment.tone)
 
                 do {
                     let audioData = try await EdgeTTSService.shared.synthesize(
@@ -1073,6 +1096,7 @@ struct TTSView: View {
                         rate: Double(rate),
                         pitch: Double(pitch),
                         style: style,
+                        volume: volume,
                         serverID: serverID
                     )
 
@@ -1157,6 +1181,7 @@ struct TTSView: View {
                 let rate = Int(globalRate) + Self.rateOffset(for: segment)
                 let pitch = Self.pitchOffset(for: segment, speakerName: speaker)
                 let style = segment.emotion.ssmlStyle
+                let volume = TTSView.volumeFromTone(segment.tone)
 
                 do {
                     let audioData = try await EdgeTTSService.shared.synthesize(
@@ -1165,6 +1190,7 @@ struct TTSView: View {
                         rate: Double(rate),
                         pitch: Double(pitch),
                         style: style,
+                        volume: volume,
                         serverID: serverID
                     )
                     let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
