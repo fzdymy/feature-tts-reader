@@ -115,6 +115,10 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         
         // 1. 如果有预加载的 nextPlayer，直接接管（无缝切换）
         if let readyPlayer = nextPlayer, let readyItem = nextItem {
+            DebugLogger.log(flow: "playback", step: "switch_preloaded", details: [
+                "segment_index": readyItem.segmentIndex ?? -1,
+                "queue_remaining": queue.count
+            ])
             if !queue.isEmpty { queue.removeFirst() }
             if let currentItem {
                 playbackHistory.append(currentItem)
@@ -146,6 +150,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         
         // 2. 没有预加载好 → 等待预加载完成（最多 200ms），避免无重叠 fallback
         if isPreloading {
+            DebugLogger.log(flow: "playback", step: "switch_wait_preload", details: [
+                "queue_remaining": queue.count
+            ])
             Task { @MainActor in
                 let start = Date()
                 while self.isPreloading && self.nextPlayer == nil && Date().timeIntervalSince(start) < 0.2 {
@@ -157,6 +164,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
         
         // 3. 彻底没有预加载 → 首次或跳转后：创建播放器并预加载下一条
+        DebugLogger.log(flow: "playback", step: "switch_fallback_new_player", details: [
+            "queue_remaining": queue.count
+        ])
         if let currentItem {
             playbackHistory.append(currentItem)
             if playbackHistory.count > 200 {
@@ -522,6 +532,13 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 extension AdvancedAudioPlaybackController: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
+            let finishTime = CACurrentMediaTime()
+            DebugLogger.log(flow: "playback", step: "segment_finish", details: [
+                "segment_index": self.currentItem?.segmentIndex ?? -1,
+                "duration": player.duration,
+                "finish_time": finishTime,
+                "flag": flag
+            ])
             if let next = self.nextPlayer {
                 if !self.queue.isEmpty { self.queue.removeFirst() }
                 self.player?.delegate = nil
@@ -537,6 +554,14 @@ extension AdvancedAudioPlaybackController: AVAudioPlayerDelegate {
                 self.queueCount = self.queue.count
 
                 // nextPlayer 可能已被 scheduleNextIfNeeded 提前启动（play(atTime:)）
+                let switchTime = CACurrentMediaTime()
+                DebugLogger.log(flow: "playback", step: "segment_switch", details: [
+                    "prev_segment_index": self.currentItem?.segmentIndex ?? -1,
+                    "next_segment_index": self.nextItem?.segmentIndex ?? -1,
+                    "switch_time": switchTime,
+                    "gap_ms": Int((switchTime - finishTime) * 1000),
+                    "next_is_playing": next.isPlaying
+                ])
                 if next.isPlaying {
                     self.isPlaying = true
                     self.startRMS()
