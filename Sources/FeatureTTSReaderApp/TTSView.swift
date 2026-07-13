@@ -821,16 +821,15 @@ struct TTSView: View {
                     try await withThrowingTaskGroup(of: (Int, TTSQueueItem).self) { group in
                         for (segIdx, segment) in segments.enumerated() {
                             let vID = voiceIDs[segIdx]
-                            group.addTask { [segIdx, segment, vID] in
-                                let rate = Int(sRate) + TTSView.rateOffset(for: segment)
-                                let pitch = TTSView.pitchOffset(for: segment, speakerName: segment.speaker)
-                                let style = segment.emotion.ssmlStyle
-                                let volume = TTSView.resolvedVolume(tone: segment.tone, globalOffset: sVol)
-
+                            let segRate = Int(sRate) + Self.rateOffset(for: segment)
+                            let segPitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
+                            let segStyle = segment.emotion.ssmlStyle
+                            let segVol = Self.resolvedVolume(tone: segment.tone, globalOffset: sVol)
+                            group.addTask { [segIdx, segment, vID, segRate, segPitch, segStyle, segVol] in
                                 let audioData = try await EdgeTTSService.shared.synthesize(
                                     text: segment.text, voice: vID,
-                                    rate: Double(rate), pitch: Double(pitch),
-                                    style: style, volume: volume, serverID: sID
+                                    rate: Double(segRate), pitch: Double(segPitch),
+                                    style: segStyle, volume: segVol, serverID: sID
                                 )
                                 let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
                                 let url = sDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
@@ -838,8 +837,8 @@ struct TTSView: View {
 
                                 let seg = ScriptSegment(
                                     id: UUID(), characterName: segment.speaker,
-                                    voice: vID, rate: rate, pitch: pitch,
-                                    style: style, text: segment.text,
+                                    voice: vID, rate: segRate, pitch: segPitch,
+                                    style: segStyle, text: segment.text,
                                     emotionTag: segment.emotion.rawValue, paragraphIndex: sIdx
                                 )
                                 return (segIdx, TTSQueueItem(
@@ -1348,24 +1347,24 @@ struct TTSView: View {
             try await withThrowingTaskGroup(of: (Int, Result<TTSQueueItem, Error>).self) { group in
                 for (idx, segment) in remainingSegments.enumerated() {
                     let vID = voiceIDs[idx]
-                    group.addTask { [idx, segment, vID] in
+                    let segRate = Int(sRate) + Self.rateOffset(for: segment)
+                    let segPitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
+                    let segStyle = segment.emotion.ssmlStyle
+                    let segVol = TTSView.resolvedVolume(tone: segment.tone, globalOffset: sVol)
+                    group.addTask { [idx, segment, vID, segRate, segPitch, segStyle, segVol] in
                         do {
-                            let rate = Int(sRate) + Self.rateOffset(for: segment)
-                            let pitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
-                            let style = segment.emotion.ssmlStyle
-                            let volume = TTSView.resolvedVolume(tone: segment.tone, globalOffset: sVol)
                             let audioData = try await EdgeTTSService.shared.synthesize(
                                 text: segment.text, voice: vID,
-                                rate: Double(rate), pitch: Double(pitch),
-                                style: style, volume: volume, serverID: sID
+                                rate: Double(segRate), pitch: Double(segPitch),
+                                style: segStyle, volume: segVol, serverID: sID
                             )
                             let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
                             let url = sDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
                             try audioData.write(to: url, options: .atomic)
                             let seg = ScriptSegment(
                                 id: UUID(), characterName: segment.speaker,
-                                voice: vID, rate: rate, pitch: pitch,
-                                style: style, text: segment.text,
+                                voice: vID, rate: segRate, pitch: segPitch,
+                                style: segStyle, text: segment.text,
                                 emotionTag: segment.emotion.rawValue, paragraphIndex: idx + 1
                             )
                             return (idx, .success(TTSQueueItem(
