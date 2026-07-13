@@ -951,6 +951,8 @@ Picker("发音人", selection: $testVoice) {
                 let slices = AIWorkerService.shared.sliceText(text, maxChars: workerConfig.sliceCharLimit)
                 let totalSlices = slices.count
                 var hasVoiceAssignments = false
+                var remainingText = text
+                var context: String? = nil
 
                 for (sliceIdx, slice) in slices.enumerated() {
                     await MainActor.run {
@@ -958,19 +960,46 @@ Picker("发音人", selection: $testVoice) {
                         workerProgress = Double(sliceIdx) / Double(totalSlices)
                     }
 
-                    let request = AIWorkerRequest(
-                        text: slice,
-                        sliceIndex: sliceIdx,
-                        totalSlices: totalSlices,
-                        context: nil
-                    )
-                    let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
-                    let segments = response.segments
+                    var retryCount = 0
+                    let maxRetries = 2
+                    var segments: [AISegment] = []
+
+                    while retryCount <= maxRetries {
+                        let request = AIWorkerRequest(
+                            text: slice,
+                            sliceIndex: sliceIdx,
+                            totalSlices: totalSlices,
+                            context: context
+                        )
+                        let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
+                        segments = response.segments
+
+                        // 检查结果是否完整：最后一段以标点结尾，且段落数合理
+                        let isComplete = isResultComplete(segments, originalText: slice)
+                        if isComplete || retryCount == maxRetries {
+                            break
+                        }
+
+                        // 不完整：用剩余文本重试
+                        if let lastSeg = segments.last,
+                           let range = slice.range(of: lastSeg.text) {
+                            let consumed = slice[..<range.upperBound]
+                            remainingText = String(slice[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                            context = "已解析：\(consumed.prefix(200))"
+                            DebugLogger.log(flow: "custom_multi_role", step: "parse_retry", details: [
+                                "slice_index": sliceIdx,
+                                "retry": retryCount + 1,
+                                "remaining_length": remainingText.count,
+                            ])
+                        }
+                        retryCount += 1
+                    }
 
                     DebugLogger.log(flow: "custom_multi_role", step: "parseCustomWithWorker_slice", details: [
                         "slice_index": sliceIdx,
                         "total_slices": totalSlices,
                         "segments_in_slice": segments.count,
+                        "retries": retryCount,
                     ])
 
                     await MainActor.run {
@@ -1004,6 +1033,16 @@ Picker("发音人", selection: $testVoice) {
                 }
             }
         }
+    }
+
+    /// 判断 AI Worker 返回结果是否完整
+    private func isResultComplete(_ segments: [AISegment], originalText: String) -> Bool {
+        guard let last = segments.last else { return false }
+        let lastText = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 以中文/英文标点结尾视为完整
+        let endsWithPunct = lastText.last.map { "。！？.!?".contains($0) } ?? false
+        // 段落数过少也可能不完整（简单启发式）
+        return endsWithPunct && segments.count >= 2
     }
 
     private func assignVoicesToSegments(_ segments: [AISegment]) {
