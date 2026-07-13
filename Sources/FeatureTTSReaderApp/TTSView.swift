@@ -1102,7 +1102,6 @@ struct TTSView: View {
             "zh-CN-Yunze": "云泽", "zh-CN-Yunhao": "云皓",
             "zh-CN-Yunqi": "云奇", "zh-CN-Yunyi": "云逸",
             "zh-CN-Yunxiao": "云霄", "zh-CN-Yunjia": "云嘉",
-            "zh-CN-Yunxi": "云希", "zh-CN-Yunxia": "云夏",
             // 方言
             "zh-CN-henan-Yundeng": "云登",
             "zh-CN-shaanxi-Xiaoni": "晓妮",
@@ -1113,7 +1112,7 @@ struct TTSView: View {
             "zh-HK-WanLung": "云龙",
             // 台语
             "zh-TW-HsiaoChen": "晓臻", "zh-TW-HsiaoYu": "晓雨",
-            "zh-TW-YunJhe": "云哲", "zh-TW-HsiaoChen": "晓臻",
+            "zh-TW-YunJhe": "云哲",
         ]
         return map[base] ?? base
     }
