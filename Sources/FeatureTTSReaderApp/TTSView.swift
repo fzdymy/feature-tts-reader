@@ -696,6 +696,11 @@ struct TTSView: View {
 
     // MARK: - Actor 并发保序合成缓冲
 
+    private final class SendableStoreRef: @unchecked Sendable {
+        weak var controller: AdvancedAudioPlaybackController?
+        init(_ controller: AdvancedAudioPlaybackController?) { self.controller = controller }
+    }
+
     private actor StatusTracker {
         var isFirst = true
         var hasMarked = false
@@ -711,8 +716,13 @@ struct TTSView: View {
         var buffer: [Int: TTSQueueItem] = [:]
         var nextExpected = 0
         var flushedCount = 0
+        let onReady: @Sendable ([TTSQueueItem]) async -> Void
 
-        func insert(_ idx: Int, _ item: TTSQueueItem) -> [TTSQueueItem] {
+        init(onReady: @Sendable @escaping ([TTSQueueItem]) async -> Void) {
+            self.onReady = onReady
+        }
+
+        func insert(_ idx: Int, _ item: TTSQueueItem) async {
             buffer[idx] = item
             var ready: [TTSQueueItem] = []
             while let item = buffer.removeValue(forKey: nextExpected) {
@@ -720,14 +730,18 @@ struct TTSView: View {
                 nextExpected += 1
             }
             flushedCount += ready.count
-            return ready
+            if !ready.isEmpty {
+                await onReady(ready)
+            }
         }
 
-        func flushAll() -> [TTSQueueItem] {
+        func flushRemaining() async {
             let sorted = buffer.sorted { $0.key < $1.key }
             buffer.removeAll()
             flushedCount += sorted.count
-            return sorted.map { $0.value }
+            if !sorted.isEmpty {
+                await onReady(sorted.map { $0.value })
+            }
         }
     }
 
@@ -804,7 +818,7 @@ struct TTSView: View {
                         hasVoiceAssignments = true
                     }
 
-                    // 并发合成 → 保序入队（消除逐段等待停顿）
+                    // 并发合成 → 流式保序入队（完成一段立刻入队，消除等待停顿）
                     let voices = availableVoices
                     let sRate = globalRate
                     let sVol = globalVolume
@@ -816,8 +830,13 @@ struct TTSView: View {
                         let raw = voiceForSpeaker(seg.speaker)
                         return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: voices) : raw
                     }
+                    let audioRef = SendableStoreRef(store.audioController)
 
-                    let buf = SynthesisBuffer()
+                    let buf = SynthesisBuffer { [audioRef] items in
+                        await MainActor.run {
+                            audioRef.controller?.appendToQueue(items)
+                        }
+                    }
                     try await withThrowingTaskGroup(of: (Int, TTSQueueItem).self) { group in
                         for (segIdx, segment) in segments.enumerated() {
                             let vID = voiceIDs[segIdx]
@@ -851,15 +870,11 @@ struct TTSView: View {
                             }
                         }
                         for try await (idx, item) in group {
-                            _ = await buf.insert(idx, item)
+                            await buf.insert(idx, item)
                         }
                     }
-                    let sliceItems = await buf.flushAll()
-                    let isFirstSlice = await statusTracker.markFirst()
-                    await MainActor.run {
-                        store.audioController.appendToQueue(sliceItems)
-                        customSynthesisResult = isFirstSlice ? "第 1 段合成完成，开始播放..." : "已合成，持续流式..."
-                    }
+                    // 流式已在 insert 中完成，此处仅处理剩余（异常情况兜底）
+                    await buf.flushRemaining()
                 }
 
                 await MainActor.run {
@@ -1328,11 +1343,10 @@ struct TTSView: View {
                 return
             }
 
-            // 并发合成 → 保序入队（消除逐段等待停顿）
+            // 并发合成 → 流式保序入队（完成一段立刻入队，消除等待停顿）
             await MainActor.run { customSynthesisResult = "第 1/\(customWorkerSegments.count) 段播放中，继续合成后续..." }
 
             let remainingSegments = Array(customWorkerSegments.dropFirst())
-            let synthBuf = SynthesisBuffer()
             let voices = availableVoices
             let sRate = globalRate
             let sVol = globalVolume
@@ -1342,6 +1356,13 @@ struct TTSView: View {
             let voiceIDs: [String] = remainingSegments.map { seg in
                 let raw = voiceForSpeaker(seg.speaker)
                 return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: voices) : raw
+            }
+            let audioRef = SendableStoreRef(store.audioController)
+
+            let synthBuf = SynthesisBuffer { [audioRef] items in
+                await MainActor.run {
+                    audioRef.controller?.appendToQueue(items)
+                }
             }
 
             try await withThrowingTaskGroup(of: (Int, Result<TTSQueueItem, Error>).self) { group in
@@ -1382,7 +1403,7 @@ struct TTSView: View {
                 for try await (idx, result) in group {
                     switch result {
                     case .success(let item):
-                        _ = await synthBuf.insert(idx, item)
+                        await synthBuf.insert(idx, item)
                     case .failure(let error):
                         DebugLogger.log(flow: "custom_synthesize", step: "remaining_segment_error", details: [
                             "segment_index": idx + 1, "error": error.localizedDescription,
@@ -1391,12 +1412,7 @@ struct TTSView: View {
                 }
             }
 
-            let finalBatch = await synthBuf.flushAll()
-            if !finalBatch.isEmpty {
-                await MainActor.run {
-                    store.audioController.appendToQueue(finalBatch)
-                }
-            }
+            await synthBuf.flushRemaining()
             let totalSuccess = await synthBuf.flushedCount + 1
 
             await MainActor.run {
