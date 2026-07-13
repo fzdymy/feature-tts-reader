@@ -696,6 +696,11 @@ struct TTSView: View {
 
     // MARK: - Actor 并发保序合成缓冲
 
+    private final class SendableStoreRef: @unchecked Sendable {
+        weak var controller: AdvancedAudioPlaybackController?
+        init(_ controller: AdvancedAudioPlaybackController?) { self.controller = controller }
+    }
+
     private actor StatusTracker {
         var isFirst = true
         var hasMarked = false
@@ -711,10 +716,10 @@ struct TTSView: View {
         var buffer: [Int: TTSQueueItem] = [:]
         var nextExpected = 0
         var flushedCount = 0
-        weak var controllerRef: AdvancedAudioPlaybackController?
+        let onReady: @Sendable ([TTSQueueItem]) async -> Void
 
-        func setController(_ controller: AdvancedAudioPlaybackController) {
-            controllerRef = controller
+        init(onReady: @Sendable @escaping ([TTSQueueItem]) async -> Void) {
+            self.onReady = onReady
         }
 
         func insert(_ idx: Int, _ item: TTSQueueItem) async {
@@ -726,7 +731,7 @@ struct TTSView: View {
             }
             flushedCount += ready.count
             if !ready.isEmpty {
-                await enqueueReadyItems(ready)
+                await onReady(ready)
             }
         }
 
@@ -735,14 +740,7 @@ struct TTSView: View {
             buffer.removeAll()
             flushedCount += sorted.count
             if !sorted.isEmpty {
-                await enqueueReadyItems(sorted.map { $0.value })
-            }
-        }
-
-        private func enqueueReadyItems(_ items: [TTSQueueItem]) async {
-            await MainActor.run {
-                guard let controller = controllerRef else { return }
-                controller.appendToQueue(items)
+                await onReady(sorted.map { $0.value })
             }
         }
     }
@@ -966,24 +964,7 @@ struct TTSView: View {
                 await MainActor.run {
                     workerProgress = 1
                     isProcessingWorker = false
-                }
-                var first = true
-                for (_, item) in synthBuf 
-                        .flushRemainingForPlayback(items)
-                        .prefix(20) {
-                    let item = await item
-                    await MainActor.run {
-                        store.audioController.appendToQueue([item])
-                        if first {
-                            first = false
-                            customSynthesisResult = "第 1 段合成完成，开始播放..."
-                        } else {
-                            customSynthesisResult = "已合成，持续流式..."
-                        }
-                    }
-                }
-                await MainActor.run {
-                    customSynthesisResult = "已完成：\(customWorkerSegments.count) 段，\(Set(customWorkerSegments.map { $0.speaker }).count) 个角色，可调整音色后播放"
+                    customSynthesisResult = "解析完成：\(customWorkerSegments.count) 段，\(Set(customWorkerSegments.map { $0.speaker }).count) 个角色，可调整音色后播放"
                 }
                 DebugLogger.log(flow: "custom_multi_role", step: "parseCustomWithWorker_complete", details: [
                     "total_segments": customWorkerSegments.count,
