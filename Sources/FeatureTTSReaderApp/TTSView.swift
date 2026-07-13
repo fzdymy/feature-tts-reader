@@ -497,13 +497,17 @@ struct TTSView: View {
                             return sorted
                         }()
                         ForEach(speakers.prefix(10), id: \.self) { speaker in
-                            let segmentCount = customWorkerSegments.filter { $0.speaker == speaker }.count
-                            let emotions = customWorkerSegments.filter { $0.speaker == speaker }.map { $0.emotion }
+                            let speakerSegments = customWorkerSegments.filter { $0.speaker == speaker }
+                            let segmentCount = speakerSegments.count
+                            let emotions = speakerSegments.map { $0.emotion }
                             let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
+                            let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
+                            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender)
                             CharacterRoleCard(
                                 speaker: speaker,
                                 segmentCount: segmentCount,
                                 emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
+                                gender: resolvedGender,
                                 voice: Binding(
                                     get: { customCharacterVoices[speaker] ?? "" },
                                     set: { customCharacterVoices[speaker] = $0 }
@@ -541,18 +545,24 @@ struct TTSView: View {
 
                 // 控制按钮
                 VStack(spacing: 8) {
+                    // ① 仅解析
                     Button {
-                        processCustomWithWorker()
+                        parseCustomWithWorker()
                     } label: {
-                        HStack(spacing: 6) {
-                            Label("AI 解析并流式播放", systemImage: "brain.head.profile")
+                        HStack {
+                            if isProcessingWorker {
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
+                            }
+                            Label("解析", systemImage: "brain.head.profile")
                                 .fixedSize()
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isProcessingWorker || isSynthesizingCustom || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil || selectedServerID == nil)
+                    .disabled(isProcessingWorker || isSynthesizingCustom || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil)
 
+                    // ② 流式播放（使用已解析片段 + 角色卡当前音色）
                     Button {
                         synthesizeAndPlayCustom()
                     } label: {
@@ -561,13 +571,13 @@ struct TTSView: View {
                                 ProgressView()
                                     .frame(width: 14, height: 14)
                             }
-                            Label("重播", systemImage: "play.circle.fill")
+                            Label("流式播放", systemImage: "play.circle.fill")
                                 .fixedSize()
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isSynthesizingCustom || customWorkerSegments.isEmpty || selectedServerID == nil)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isProcessingWorker || isSynthesizingCustom || customWorkerSegments.isEmpty || selectedServerID == nil)
 
                     if !customSynthesisResult.isEmpty {
                         let isSuccess = customSynthesisResult.hasPrefix("已入队") || customSynthesisResult.contains("播放")
@@ -606,6 +616,22 @@ struct TTSView: View {
                             .buttonStyle(.bordered)
                         }
                     }
+
+                    Divider()
+                        .padding(.vertical, 2)
+
+                    // ③ 一站式：AI 解析并流式播放（原合并按钮）
+                    Button {
+                        processCustomWithWorker()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Label("AI 解析并流式播放", systemImage: "wand.and.stars")
+                                .fixedSize()
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isProcessingWorker || isSynthesizingCustom || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil || selectedServerID == nil)
                 }
             }
         } header: {
@@ -782,6 +808,87 @@ struct TTSView: View {
         }
     }
 
+    /// 仅解析：调用 AI Worker 逐片解析，填充 customWorkerSegments 并分配音色，不合成不播放
+    private func parseCustomWithWorker() {
+        let text = customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard let workerConfig = getSelectedWorkerConfig() else {
+            customSynthesisResult = "请先在设置中配置 AI Worker"
+            return
+        }
+
+        isProcessingWorker = true
+        customWorkerSegments.removeAll()
+        customCharacterVoices.removeAll()
+        customSynthesisResult = ""
+        workerProgress = 0
+        workerProgressMessage = "准备解析..."
+
+        DebugLogger.log(flow: "custom_multi_role", step: "parseCustomWithWorker_start", details: [
+            "original_text_length": text.count,
+            "original_text_preview": String(text.prefix(200)),
+        ])
+
+        Task {
+            do {
+                let slices = AIWorkerService.shared.sliceText(text, maxChars: workerConfig.sliceCharLimit)
+                let totalSlices = slices.count
+                var hasVoiceAssignments = false
+
+                for (sliceIdx, slice) in slices.enumerated() {
+                    await MainActor.run {
+                        workerProgressMessage = "正在解析第 \(sliceIdx + 1)/\(totalSlices) 片..."
+                        workerProgress = Double(sliceIdx) / Double(totalSlices)
+                    }
+
+                    let request = AIWorkerRequest(
+                        text: slice,
+                        sliceIndex: sliceIdx,
+                        totalSlices: totalSlices,
+                        context: nil
+                    )
+                    let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
+                    let segments = response.segments
+
+                    DebugLogger.log(flow: "custom_multi_role", step: "parseCustomWithWorker_slice", details: [
+                        "slice_index": sliceIdx,
+                        "total_slices": totalSlices,
+                        "segments_in_slice": segments.count,
+                    ])
+
+                    await MainActor.run {
+                        customWorkerSegments.append(contentsOf: segments)
+                        if !hasVoiceAssignments {
+                            assignVoicesToSegments(segments)
+                            hasVoiceAssignments = true
+                        } else {
+                            assignVoicesToSegments(segments)
+                        }
+                        customSynthesisResult = "已解析 \(customWorkerSegments.count) 段，\(Set(customWorkerSegments.map { $0.speaker }).count) 个角色"
+                    }
+                }
+
+                await MainActor.run {
+                    workerProgress = 1
+                    isProcessingWorker = false
+                    customSynthesisResult = "解析完成：\(customWorkerSegments.count) 段，\(Set(customWorkerSegments.map { $0.speaker }).count) 个角色，可调整音色后播放"
+                }
+                DebugLogger.log(flow: "custom_multi_role", step: "parseCustomWithWorker_complete", details: [
+                    "total_segments": customWorkerSegments.count,
+                ])
+            } catch {
+                DebugLogger.log(flow: "custom_multi_role", step: "parseCustomWithWorker_error", details: [
+                    "error": error.localizedDescription,
+                ])
+                await MainActor.run {
+                    isProcessingWorker = false
+                    workerProgress = 0
+                    customSynthesisResult = "解析失败: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     private func assignVoicesToSegments(_ segments: [AISegment]) {
         let speakers = Array(Set(segments.map { $0.speaker })).sorted()
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
@@ -792,7 +899,15 @@ struct TTSView: View {
         var femaleIdx = 0, maleIdx = 0, neutralIdx = 0
         let neutralVoices = zhVoices
 
-        var voices: [String: String] = [:]
+        // 优先采用 AI 返回的 gender（取该说话人首个非 unknown 的性别）
+        var speakerGender: [String: Gender] = [:]
+        for seg in segments where seg.gender != .unknown {
+            if speakerGender[seg.speaker] == nil {
+                speakerGender[seg.speaker] = seg.gender
+            }
+        }
+
+        var voices = customCharacterVoices
 
         for speaker in speakers {
             // 保留手动分配
@@ -801,21 +916,31 @@ struct TTSView: View {
                 continue
             }
 
-            let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她")
-            let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他")
+            let gender = TTSView.resolveGender(speaker: speaker, aiGender: speakerGender[speaker])
 
-            if isFemale, !femaleVoices.isEmpty {
+            switch gender {
+            case .female where !femaleVoices.isEmpty:
                 voices[speaker] = femaleVoices[femaleIdx % femaleVoices.count].id
                 femaleIdx += 1
-            } else if isMale, !maleVoices.isEmpty {
+            case .male where !maleVoices.isEmpty:
                 voices[speaker] = maleVoices[maleIdx % maleVoices.count].id
                 maleIdx += 1
-            } else {
+            default:
                 voices[speaker] = neutralVoices[neutralIdx % neutralVoices.count].id
                 neutralIdx += 1
             }
         }
         customCharacterVoices = voices
+    }
+
+    /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
+    static func resolveGender(speaker: String, aiGender: Gender?) -> Gender {
+        if let g = aiGender, g != .unknown { return g }
+        let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") || speaker.contains("姐") || speaker.contains("娘") || speaker.contains("妈") || speaker.contains("婆")
+        let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他") || speaker.contains("叔") || speaker.contains("爸") || speaker.contains("父")
+        if isFemale { return .female }
+        if isMale { return .male }
+        return .unknown
     }
 
     /// 根据情绪和角色名计算语速偏移
@@ -830,8 +955,14 @@ struct TTSView: View {
 
     /// 根据情绪和角色名计算音调偏移
     private static func pitchOffset(for segment: AISegment, speakerName: String) -> Int {
-        let isFemale = speakerName.contains("女") || speakerName.contains("小姐") || speakerName.contains("姑娘") || speakerName.contains("她")
-        let genderOffset = isFemale ? 4 : (speakerName == "旁白" ? 0 : -2)
+        let gender = resolveGender(speaker: speakerName, aiGender: segment.gender)
+        let genderOffset: Int = {
+            switch gender {
+            case .female: return 4
+            case .male: return -2
+            case .unknown: return speakerName == "旁白" ? 0 : -2
+            }
+        }()
         let emotionOffset: Int = {
             switch segment.emotion {
             case .excited, .happy, .cheerful: return 3
@@ -1747,10 +1878,19 @@ struct CharacterRoleCard: View {
     let speaker: String
     let segmentCount: Int
     let emotionSummary: String?
+    let gender: Gender
     @Binding var voice: String
     let isResynthesizing: Bool
     let availableVoices: [EdgeVoiceInfo]
     let onResynthesize: () -> Void
+
+    private var genderLabel: (String, String, Color)? {
+        switch gender {
+        case .male: return ("♂", "男", .blue)
+        case .female: return ("♀", "女", .pink)
+        case .unknown: return nil
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1761,6 +1901,15 @@ struct CharacterRoleCard: View {
                 Text(speaker)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
+                if let (symbol, label, color) = genderLabel {
+                    Text("\(symbol)\(label)")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(color)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(color.opacity(0.15))
+                        .cornerRadius(4)
+                }
                 Spacer()
                 Text("\(segmentCount) 段")
                     .font(.caption2)

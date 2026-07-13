@@ -38,6 +38,42 @@ struct AISegment: Codable, Hashable {
     let emotion: Emotion
     let tone: String
     let text: String
+    let gender: Gender
+
+    enum CodingKeys: String, CodingKey {
+        case speaker, emotion, tone, text, gender
+    }
+
+    init(speaker: String, emotion: Emotion, tone: String, text: String, gender: Gender = .unknown) {
+        self.speaker = speaker
+        self.emotion = emotion
+        self.tone = tone
+        self.text = text
+        self.gender = gender
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        speaker = try c.decode(String.self, forKey: .speaker)
+        emotion = try c.decode(Emotion.self, forKey: .emotion)
+        tone = (try? c.decode(String.self, forKey: .tone)) ?? ""
+        text = try c.decode(String.self, forKey: .text)
+        gender = (try? c.decode(Gender.self, forKey: .gender)) ?? .unknown
+    }
+}
+
+/// 性别（AI Worker 检测，客户端名字关键词兜底）
+enum Gender: String, Codable, Hashable {
+    case male, female, unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self))?.lowercased() ?? "unknown"
+        switch raw {
+        case "male", "m", "男": self = .male
+        case "female", "f", "女": self = .female
+        default: self = .unknown
+        }
+    }
 }
 
 /// 情绪枚举（与 Worker schema 和 Edge TTS styles 对齐）
