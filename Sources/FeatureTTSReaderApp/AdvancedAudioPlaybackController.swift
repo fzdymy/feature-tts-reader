@@ -219,12 +219,15 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
-    /// 无缝调度：用 play(atTime:) 让下一句在当前句结束瞬间开始，消除停顿
+    /// 无缝调度：用 play(atTime:) 让下一句在当前句结束前一瞬间启动，消除停顿
     private func scheduleNextIfNeeded() {
         guard let next = nextPlayer, let current = player,
               current.isPlaying, current.duration > 0 else { return }
-        let startTime = current.deviceCurrentTime + current.duration
-        next.play(atTime: startTime)
+        // 30ms 重叠补偿音频时钟粒度；仅在当前句足够长时应用，避免极短片段出现负时间
+        let overlap: TimeInterval = 0.03
+        let safeOverlap = min(overlap, current.duration / 2)
+        let startTime = current.deviceCurrentTime + current.duration - safeOverlap
+        next.play(atTime: max(startTime, current.deviceCurrentTime))
     }
 
     /// 在非隔离上下文创建 AVAudioPlayer（避免 Sendable 问题）
