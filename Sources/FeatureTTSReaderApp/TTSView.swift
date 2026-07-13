@@ -605,9 +605,9 @@ Picker("发音人", selection: $testVoice) {
                         Spacer()
                         Text("\(Int(globalOverlapMs))")
                             .font(.caption.monospaced())
-                            .frame(width: 32)
+                            .frame(width: 48)
                     }
-                    Slider(value: $globalOverlapMs, in: 0...200, step: 10)
+                    Slider(value: $globalOverlapMs, in: 0...500, step: 10)
                 }
                 .padding(.vertical, 4)
 
