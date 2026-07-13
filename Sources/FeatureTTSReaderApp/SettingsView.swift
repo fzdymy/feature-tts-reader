@@ -188,8 +188,28 @@ struct SettingsView: View {
                         ), in: -10...10, step: 1)
                     }
                     .padding(.vertical, 4)
-                }
 
+                    VStack(spacing: 6) {
+                        HStack {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                            Text("全局音量 (叠加语气音量之上)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(Int(UserDefaults.standard.double(forKey: "globalVolume")))")
+                                .font(.caption.monospaced())
+                                .frame(width: 24)
+                        }
+                        Slider(value: Binding(
+                            get: { UserDefaults.standard.double(forKey: "globalVolume") },
+                            set: { UserDefaults.standard.set($0, forKey: "globalVolume") }
+                        ), in: -10...10, step: 1)
+                    }
+                    .padding(.vertical, 4)
+                }
+                
                 // MARK: - 书架设置
                 Section(header: Text("书架设置")) {
                     Picker("默认视图", selection: $selectedBookshelfLayout) {

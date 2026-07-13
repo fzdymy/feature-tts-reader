@@ -32,6 +32,7 @@ struct TTSView: View {
 
     // MARK: - Multi-Role Test State
     @AppStorage("globalRate") private var multiRoleGlobalRate: Double = 0
+    @AppStorage("globalVolume") private var globalVolumeOffset: Double = 0
 
     // MARK: - Custom Multi-Role Test State
     @State private var customMultiRoleText = ""
@@ -525,13 +526,13 @@ struct TTSView: View {
                     customSpeakerAnalysisSection
                 }
 
-                // 全局语速滑块
+                // 全局语速、音量滑块
                 VStack(spacing: 6) {
                     HStack {
                         Image(systemName: "speedometer")
                             .foregroundColor(.secondary)
                             .font(.caption)
-                        Text("全局语速")
+                        Text("语速")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -540,6 +541,23 @@ struct TTSView: View {
                             .frame(width: 24)
                     }
                     Slider(value: $multiRoleGlobalRate, in: -10...10, step: 1)
+                }
+                .padding(.vertical, 4)
+
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("音量")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(globalVolumeOffset))")
+                            .font(.caption.monospaced())
+                            .frame(width: 24)
+                    }
+                    Slider(value: $globalVolumeOffset, in: -10...10, step: 1)
                 }
                 .padding(.vertical, 4)
 
@@ -667,6 +685,7 @@ struct TTSView: View {
         ])
 
         let globalRate = multiRoleGlobalRate
+        let globalVolume = globalVolumeOffset
         let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
 
         Task {
@@ -720,7 +739,7 @@ struct TTSView: View {
                         let rate = Int(globalRate) + TTSView.rateOffset(for: segment)
                         let pitch = TTSView.pitchOffset(for: segment, speakerName: segment.speaker)
                         let style = segment.emotion.ssmlStyle
-                        let volume = TTSView.volumeFromTone(segment.tone)
+                        let volume = TTSView.resolvedVolume(tone: segment.tone, globalOffset: globalVolume)
 
                         let audioData = try await EdgeTTSService.shared.synthesize(
                             text: segment.text,
@@ -955,22 +974,24 @@ struct TTSView: View {
         }
     }
 
-    /// 从 tone 语气关键词推导音量（Edge TTS SSML volume）
-    private static func volumeFromTone(_ tone: String) -> String {
+    /// 从 tone 语气关键词推导基准音量(dB)，叠加全局滑块偏移，输出 SSML 兼容 dB 值
+    private static func resolvedVolume(tone: String, globalOffset: Double) -> String {
         let t = tone
-        if t.contains("大喊") || t.contains("怒吼") || t.contains("咆哮") || t.contains("吼叫") || t.contains("大喝") || t.contains("厉喝") || t.contains("怒喝") {
-            return "x-loud"
+        let baseDb: Double
+        if t.contains("大喊") || t.contains("怒吼") || t.contains("咆哮") || t.contains("吼叫") || t.contains("大喝") || t.contains("厉喝") || t.contains("怒喝") || t.contains("厉声") || t.contains("怒声") || t.contains("高喝") {
+            baseDb = 8
+        } else if t.contains("喊") || t.contains("叫") || t.contains("嚷") || t.contains("喝令") {
+            baseDb = 4
+        } else if t.contains("低语") || t.contains("轻声") || t.contains("悄悄") || t.contains("小声") || t.contains("窃窃") || t.contains("低喃") || t.contains("低声道") || t.contains("低声") || t.contains("沉吟") {
+            baseDb = -4
+        } else if t.contains("耳语") || t.contains("气声") || t.contains("呢喃") || t.contains("默念") || t.contains("无声") {
+            baseDb = -8
+        } else {
+            baseDb = 0
         }
-        if t.contains("喊") || t.contains("叫") || t.contains("嚷") || t.contains("喝令") || t.contains("厉声") || t.contains("怒声") || t.contains("高喝") {
-            return "loud"
-        }
-        if t.contains("低语") || t.contains("轻声") || t.contains("悄悄") || t.contains("小声") || t.contains("窃窃") || t.contains("低喃") || t.contains("低声道") || t.contains("低声") {
-            return "soft"
-        }
-        if t.contains("耳语") || t.contains("气声") || t.contains("呢喃") || t.contains("默念") || t.contains("无声") || t.contains("沉吟") {
-            return "x-soft"
-        }
-        return "default"
+        // 全局滑块每步 0.5dB，叠加到基准音量上
+        let total = baseDb + globalOffset * 0.5
+        return String(format: "%+.1fdB", total)
     }
 
     /// 根据情绪和角色名计算音调偏移
@@ -1013,6 +1034,7 @@ struct TTSView: View {
         Task {
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
             let globalRate = multiRoleGlobalRate
+            let globalVolume = globalVolumeOffset
 
             // 首段合成并立即播放
             do {
@@ -1021,7 +1043,7 @@ struct TTSView: View {
                 let rate = Int(globalRate) + Self.rateOffset(for: firstSegment)
                 let pitch = Self.pitchOffset(for: firstSegment, speakerName: firstSegment.speaker)
                 let style = firstSegment.emotion.ssmlStyle
-                let volume = TTSView.volumeFromTone(firstSegment.tone)
+                let volume = TTSView.resolvedVolume(tone: firstSegment.tone, globalOffset: globalVolume)
 
                 let audioData = try await EdgeTTSService.shared.synthesize(
                     text: firstSegment.text,
@@ -1087,7 +1109,7 @@ struct TTSView: View {
                 let rate = Int(globalRate) + Self.rateOffset(for: segment)
                 let pitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
                 let style = segment.emotion.ssmlStyle
-                let volume = TTSView.volumeFromTone(segment.tone)
+                let volume = TTSView.resolvedVolume(tone: segment.tone, globalOffset: globalVolume)
 
                 do {
                     let audioData = try await EdgeTTSService.shared.synthesize(
@@ -1166,6 +1188,7 @@ struct TTSView: View {
         characterResynthesisStates[speaker] = true
         let voiceID = customCharacterVoices[speaker] ?? ""
         let globalRate = multiRoleGlobalRate
+        let globalVolume = globalVolumeOffset
 
         DebugLogger.log(flow: "custom_synthesize", step: "character_resynthesis_start", details: [
                         "speaker": speaker,
@@ -1181,7 +1204,7 @@ struct TTSView: View {
                 let rate = Int(globalRate) + Self.rateOffset(for: segment)
                 let pitch = Self.pitchOffset(for: segment, speakerName: speaker)
                 let style = segment.emotion.ssmlStyle
-                let volume = TTSView.volumeFromTone(segment.tone)
+                let volume = TTSView.resolvedVolume(tone: segment.tone, globalOffset: globalVolume)
 
                 do {
                     let audioData = try await EdgeTTSService.shared.synthesize(
