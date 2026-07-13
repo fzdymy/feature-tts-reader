@@ -144,7 +144,19 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             return
         }
         
-        // 2. 首次或跳转后：从队列取第一条，创建播放器并预加载下一条
+        // 2. 没有预加载好 → 等待预加载完成（最多 200ms），避免无重叠 fallback
+        if isPreloading {
+            Task { @MainActor in
+                let start = Date()
+                while self.isPreloading && self.nextPlayer == nil && Date().timeIntervalSince(start) < 0.2 {
+                    try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+                }
+                self.playNextSeamlessly() // 重试
+            }
+            return
+        }
+        
+        // 3. 彻底没有预加载 → 首次或跳转后：创建播放器并预加载下一条
         if let currentItem {
             playbackHistory.append(currentItem)
             if playbackHistory.count > 200 {
