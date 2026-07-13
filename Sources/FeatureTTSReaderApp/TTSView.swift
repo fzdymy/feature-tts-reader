@@ -258,8 +258,13 @@ struct TTSView: View {
 
 Picker("发音人", selection: $testVoice) {
                         ForEach(availableVoices) { v in
-                            Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
-                                .tag(v.id)
+                            HStack {
+                                Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
+                                Text(v.gender == "Male" ? "♂" : "♀")
+                                    .font(.caption2)
+                                    .foregroundColor(v.gender == "Male" ? .blue : .pink)
+                            }
+                            .tag(v.id)
                         }
                     }
                     .pickerStyle(.menu)
