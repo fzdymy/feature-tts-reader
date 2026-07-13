@@ -1247,6 +1247,33 @@ Picker("发音人", selection: $testVoice) {
         }
     }
 
+    /// 合并同一角色连续段落（相同 speaker、emotion、tone 视为可合并）
+    private func mergeConsecutiveSegments(_ segments: [AISegment]) -> [AISegment] {
+        guard !segments.isEmpty else { return segments }
+        var merged: [AISegment] = []
+        var current = segments[0]
+        for seg in segments.dropFirst() {
+            if seg.speaker == current.speaker &&
+               seg.emotion == current.emotion &&
+               seg.tone == current.tone {
+                // 合并文本（用句号连接，避免粘连）
+                let sep = current.text.hasSuffix("。") || current.text.hasSuffix("。") || current.text.hasSuffix("？") || current.text.hasSuffix("！") ? "" : "。"
+                current = AISegment(
+                    speaker: current.speaker,
+                    emotion: current.emotion,
+                    tone: current.tone,
+                    text: current.text + sep + seg.text,
+                    gender: current.gender
+                )
+            } else {
+                merged.append(current)
+                current = seg
+            }
+        }
+        merged.append(current)
+        return merged
+    }
+
     /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
     static func resolveGender(speaker: String, aiGender: Gender?) -> Gender {
         if let g = aiGender, g != .unknown { return g }
@@ -1319,10 +1346,15 @@ Picker("发音人", selection: $testVoice) {
         isSynthesizingCustom = true
         customSynthesisResult = "正在并发合成..."
 
+        // 合并同一角色连续段落（相同 speaker、emotion、tone 视为可合并）
+        let mergedSegments = mergeConsecutiveSegments(customWorkerSegments)
+
         DebugLogger.log(flow: "custom_synthesize", step: "start", details: [
-            "total_segments": customWorkerSegments.count,
-            "segments": customWorkerSegments.map { s in
-                ["speaker": s.speaker, "emotion": s.emotion.rawValue, "text_preview": String(s.text.prefix(80))]
+            "original_segments": customWorkerSegments.count,
+            "merged_segments": mergedSegments.count,
+            "reduction": customWorkerSegments.count - mergedSegments.count,
+            "segments": mergedSegments.map { s in
+                ["speaker": s.speaker, "emotion": s.emotion.rawValue, "tone": s.tone, "text_preview": String(s.text.prefix(80))]
             },
             "character_voices": customCharacterVoices.mapValues { $0 },
         ])
@@ -1332,7 +1364,7 @@ Picker("发音人", selection: $testVoice) {
             let globalRate = multiRoleGlobalRate
             let globalVolume = globalVolumeOffset
 
-            let allSegments = customWorkerSegments
+            let allSegments = mergedSegments
             let voices = availableVoices
             let sID = serverID
             let sDir = cachesDir
