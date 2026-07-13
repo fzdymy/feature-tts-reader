@@ -206,6 +206,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
                     self.nextPlayer = p
                     self.nextPlayer?.prepareToPlay()
                     self.isPreloading = false
+                    // 预加载完成后立即调度无缝切换
+                    self.scheduleNextIfNeeded()
                 }
             } catch {
                 await MainActor.run {
@@ -215,6 +217,14 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    /// 无缝调度：用 play(atTime:) 让下一句在当前句结束瞬间开始，消除停顿
+    private func scheduleNextIfNeeded() {
+        guard let next = nextPlayer, let current = player,
+              current.isPlaying, current.duration > 0 else { return }
+        let startTime = current.deviceCurrentTime + current.duration
+        next.play(atTime: startTime)
     }
 
     /// 在非隔离上下文创建 AVAudioPlayer（避免 Sendable 问题）
@@ -495,7 +505,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 extension AdvancedAudioPlaybackController: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
-            // 无缝切换：直接使用预加载好的 nextPlayer
             if let next = self.nextPlayer {
                 if !self.queue.isEmpty { self.queue.removeFirst() }
                 self.player?.delegate = nil
@@ -509,18 +518,22 @@ extension AdvancedAudioPlaybackController: AVAudioPlayerDelegate {
                 self.nextPlayer = nil
                 self.nextItem = nil
                 self.queueCount = self.queue.count
-                
-                if self.player?.play() == true {
+
+                // nextPlayer 可能已被 scheduleNextIfNeeded 提前启动（play(atTime:)）
+                if next.isPlaying {
                     self.isPlaying = true
                     self.startRMS()
                     self.updateNowPlaying()
-                    // 启动下一条的预加载
+                    self.preloadNextIfNeeded()
+                } else if self.player?.play() == true {
+                    self.isPlaying = true
+                    self.startRMS()
+                    self.updateNowPlaying()
                     self.preloadNextIfNeeded()
                 } else {
-                    self.playNextSeamlessly() // 兜底
+                    self.playNextSeamlessly()
                 }
             } else {
-                // 没有预加载成功，走原逻辑
                 self.playNextSeamlessly()
             }
         }

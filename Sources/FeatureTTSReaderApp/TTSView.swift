@@ -1058,14 +1058,28 @@ struct TTSView: View {
         return id
     }
 
-    /// 音色短标签：小晓 :DragonHD（中文名 + 服务器模型后缀）
-    static func shortVoiceLabel(_ id: String) -> String {
-        let name = chineseVoiceName(for: id)
-        if let colon = id.firstIndex(of: ":") {
-            let suffix = String(id[id.index(after: colon)...])
-            return "\(name) :\(suffix)"
+    /// 提取服务器模型后缀（如 :DragonHDFlashLatestNeural → :DragonHD）
+    static func shortModelSuffix(_ id: String) -> String {
+        guard let colon = id.firstIndex(of: ":") else { return "" }
+        var suffix = String(id[id.index(after: colon)...])
+        for strip in ["FlashLatestNeural", "LatestNeural", "FlashLatest", "Latest", "Neural"] {
+            guard suffix.hasSuffix(strip) else { continue }
+            suffix = String(suffix.dropLast(strip.count))
+            break
         }
-        return name
+        return ":\(suffix)"
+    }
+
+    /// 音色显示标签：中文名/英文短名:模型后缀（如 晓晓/Xiaoxiao:DragonHD）
+    static func shortVoiceLabel(_ id: String, name: String) -> String {
+        let base = baseVoiceID(id)
+        let engName = base
+            .replacingOccurrences(of: "zh-CN-", with: "")
+            .replacingOccurrences(of: "zh-HK-", with: "")
+            .replacingOccurrences(of: "zh-TW-", with: "")
+            .replacingOccurrences(of: "Neural", with: "")
+        let suffix = shortModelSuffix(id)
+        return "\(name)/\(engName)\(suffix)"
     }
 
     /// 音色 ID → 中文名称（自动剥离服务器后缀）
@@ -2149,6 +2163,14 @@ struct CharacterRoleCard: View {
     @State private var showMergePicker = false
     @State private var showDeleteConfirm = false
 
+    private var selectedLabel: String {
+        guard !voice.isEmpty else { return "自动" }
+        if let match = availableVoices.first(where: { $0.id == voice }) {
+            return TTSView.shortVoiceLabel(voice, name: match.name)
+        }
+        return TTSView.chineseVoiceName(for: voice)
+    }
+
     private var genderLabel: (String, String, Color)? {
         switch gender {
         case .male: return ("♂", "男", .blue)
@@ -2217,7 +2239,7 @@ struct CharacterRoleCard: View {
                     ForEach(availableVoices) { v in
                         Button { voice = v.id } label: {
                             HStack {
-                                Text(TTSView.shortVoiceLabel(v.id))
+                                Text(TTSView.shortVoiceLabel(v.id, name: v.name))
                                     .font(.subheadline)
                                 if voice == v.id { Spacer(); Image(systemName: "checkmark") }
                             }
@@ -2225,7 +2247,7 @@ struct CharacterRoleCard: View {
                     }
                 } label: {
                     HStack {
-                        Text(voice.isEmpty ? "自动" : TTSView.shortVoiceLabel(voice))
+                        Text(selectedLabel)
                             .font(.subheadline)
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption2)
@@ -2262,13 +2284,13 @@ struct CharacterRoleCard: View {
                     Text("推荐: ")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    + Text(TTSView.chineseVoiceName(for: autoMatchedVoiceID))
+                    + Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: availableVoices.first(where: { $0.id == autoMatchedVoiceID })?.name ?? TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
                         .font(.caption2.weight(.medium))
                         .foregroundColor(.accentColor)
                 }
                 HStack(spacing: 4) {
                     Text("")
-                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID))
+                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: availableVoices.first(where: { $0.id == autoMatchedVoiceID })?.name ?? TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
                         .font(.caption2)
                         .foregroundColor(.secondary.opacity(0.6))
                 }
