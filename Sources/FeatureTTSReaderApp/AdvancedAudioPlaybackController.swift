@@ -261,7 +261,8 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func resume() {
-        player?.play()
+        guard let player else { return }
+        player.play()
         isPlaying = true
         updateNowPlaying()
     }
@@ -288,13 +289,11 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     func skipPreviousSentence() {
         guard let anchor = currentAnchor else { return }
-        let targetParagraph = anchor.paragraphIndex ?? 0
-        let targetSentence = anchor.sentenceIndex ?? 0
+        let targetParagraph = anchor.paragraphIndex
+        let targetSentence = anchor.sentenceIndex
         guard let previousIndex = playbackHistory.lastIndex(where: { item in
             guard let a = item.anchor else { return false }
-            let paragraph = a.paragraphIndex ?? 0
-            let sentence = a.sentenceIndex ?? 0
-            return paragraph < targetParagraph || (paragraph == targetParagraph && sentence < targetSentence)
+            return a.paragraphIndex < targetParagraph || (a.paragraphIndex == targetParagraph && a.sentenceIndex < targetSentence)
         }) else { return }
         let target = playbackHistory.remove(at: previousIndex)
         queue.insert(target, at: 0)
@@ -313,16 +312,16 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     func skipPreviousParagraph() {
         guard let anchor = currentAnchor else { return }
-        let target = (anchor.paragraphIndex ?? 0) - 1
+        let target = anchor.paragraphIndex - 1
         var previousIndex: Int?
         if let idx = playbackHistory.firstIndex(where: { item in
             guard let a = item.anchor else { return false }
-            return (a.paragraphIndex ?? 0) == target
+            return a.paragraphIndex == target
         }) {
             previousIndex = idx
         } else if let idx = playbackHistory.lastIndex(where: { item in
             guard let a = item.anchor else { return false }
-            return (a.paragraphIndex ?? 0) < target
+            return a.paragraphIndex < target
         }) {
             previousIndex = idx
         }
@@ -369,20 +368,18 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
 
     func skipCurrentSentence() {
         guard let anchor = currentAnchor else { return }
-        let targetParagraph = anchor.paragraphIndex ?? 0
-        let targetSentence = (anchor.sentenceIndex ?? 0) + 1
+        let targetParagraph = anchor.paragraphIndex
+        let targetSentence = anchor.sentenceIndex + 1
         advanceQueueToNextMatch { a in
-            let paragraph = a.paragraphIndex ?? 0
-            let sentence = a.sentenceIndex ?? 0
-            return paragraph > targetParagraph || (paragraph == targetParagraph && sentence >= targetSentence)
+            a.paragraphIndex > targetParagraph || (a.paragraphIndex == targetParagraph && a.sentenceIndex > targetSentence)
         }
     }
 
     func skipCurrentParagraph() {
         guard let anchor = currentAnchor else { return }
-        let target = (anchor.paragraphIndex ?? 0) + 1
+        let target = anchor.paragraphIndex + 1
         advanceQueueToNextMatch { a in
-            (a.paragraphIndex ?? 0) >= target
+            a.paragraphIndex >= target
         }
     }
     func seek(to time: TimeInterval) {

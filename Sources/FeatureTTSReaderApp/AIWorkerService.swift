@@ -228,6 +228,12 @@ final class AIWorkerService {
                 let prefix = raw[raw.startIndex..<i]
                 // 检查是否在 text 字段值内
                 if prefix.hasSuffix("\"text\": \"") || prefix.hasSuffix("\"text\":\"") {
+                    // 空文本字段 "text": "" — 直接透传，避免误吞后续字符
+                    if raw.index(after: i) < raw.endIndex, raw[raw.index(after: i)] == "\"" {
+                        result.append("\"\"")
+                        i = raw.index(i, offsetBy: 2)
+                        continue
+                    }
                     result.append("\"")
                     i = raw.index(after: i)
                     // 采集到下一个闭合 " 之前，把中间所有未经转义的 " 转义

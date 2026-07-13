@@ -865,9 +865,9 @@ final class CharacterAnalyzer: @unchecked Sendable {
     private func inferBaseTone(from context: String) -> String {
         var scores = [String: Int]()
         if context.contains("！") { scores["激昂", default: 0] += 2 }
-        for w in ["怒", "愤", "恨", "吼", "骂", "怒道", "喝道", "暴躁", "冷声道"] { scores["激昂", default: 0] += 2 }
-        for w in ["叹", "悲", "哀", "泣", "叹道", "哭道", "轻声", "低声", "温柔", "轻声说", "柔和"] { scores["温柔", default: 0] += 2 }
-        for w in ["笑", "喜", "欢", "乐", "开心", "笑道", "莞尔", "轻松", "玩笑"] { scores["轻松", default: 0] += 2 }
+        for w in ["怒", "愤", "恨", "吼", "骂", "怒道", "喝道", "暴躁", "冷声道"] where context.contains(w) { scores["激昂", default: 0] += 2 }
+        for w in ["叹", "悲", "哀", "泣", "叹道", "哭道", "轻声", "低声", "温柔", "轻声说", "柔和"] where context.contains(w) { scores["温柔", default: 0] += 2 }
+        for w in ["笑", "喜", "欢", "乐", "开心", "笑道", "莞尔", "轻松", "玩笑"] where context.contains(w) { scores["轻松", default: 0] += 2 }
         if context.contains("？") || context.contains("?") { scores["疑问", default: 0] += 1 }
         if let max = scores.max(by: { $0.value < $1.value }), max.value > 0 { return max.key }
         return "平稳"

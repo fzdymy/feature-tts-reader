@@ -1040,8 +1040,6 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func scanCharacters(chapterText: String? = nil) async {
         ensureVoiceOptionsLoaded()
-        let currentVoices = voices
-        let currentSensitivity = defaultSensitivity
         let targetText = chapterText ?? bookText
 
         // Use AI Worker instead of local scanner

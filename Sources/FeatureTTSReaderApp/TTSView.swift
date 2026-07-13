@@ -928,12 +928,12 @@ struct TTSView: View {
     private func assignVoicesToSegments(_ segments: [AISegment]) {
         let mainSpeakers = Array(Set(segments.map { resolveAlias($0.speaker) })).sorted()
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
-        guard !zhVoices.isEmpty else { return }
+        let voicesPool = zhVoices.isEmpty ? Self.defaultChineseVoices : zhVoices
 
-        let femaleVoices = zhVoices.filter { $0.gender == "Female" }
-        let maleVoices = zhVoices.filter { $0.gender == "Male" }
+        let femaleVoices = voicesPool.filter { $0.gender == "Female" }
+        let maleVoices = voicesPool.filter { $0.gender == "Male" }
         var femaleIdx = 0, maleIdx = 0, neutralIdx = 0
-        let neutralVoices = zhVoices
+        let neutralVoices = voicesPool
 
         // 优先采用 AI 返回的 gender（取该主角色首个非 unknown 的性别）
         var speakerGender: [String: Gender] = [:]
@@ -945,11 +945,10 @@ struct TTSView: View {
         }
 
         // 清除别名的音色映射（别名继承主角色的音色）
-        for alias in characterAliases.keys {
-            customCharacterVoices.removeValue(forKey: alias)
-        }
-
         var voices = customCharacterVoices
+        for alias in characterAliases.keys {
+            voices.removeValue(forKey: alias)
+        }
 
         for speaker in mainSpeakers {
             if let existing = customCharacterVoices[speaker], !existing.isEmpty {
@@ -1039,9 +1038,14 @@ struct TTSView: View {
 
     /// 角色操作：合并（将 source 标记为 target 的别名）
     private func mergeCharacter(_ source: String, into target: String) {
-        guard source != target else { return }
+        guard source != target, !source.isEmpty, !target.isEmpty else { return }
         // 如果 source 本身是某个角色的别名，先解除
         characterAliases.removeValue(forKey: source)
+        // source 已有的别名也转向 target
+        let sourceAliases = characterAliases.filter { $0.value == source }.map(\.key)
+        for alias in sourceAliases {
+            characterAliases[alias] = target
+        }
         // 设置别名映射
         characterAliases[source] = target
         // 音色：如果 source 有自定义音色而 target 没有，继承
@@ -1060,10 +1064,15 @@ struct TTSView: View {
 
     /// 角色操作：删除角色及其所有片段
     private func deleteCharacter(_ speaker: String) {
+        // 如果 speaker 本身是别名，先移除别名映射
+        if characterAliases[speaker] != nil {
+            characterAliases.removeValue(forKey: speaker)
+        }
         customWorkerSegments.removeAll { resolveAlias($0.speaker) == speaker }
         customCharacterVoices.removeValue(forKey: speaker)
-        // 同时删除以此为别名的映射
-        for (alias, main) in characterAliases where main == speaker {
+        // 收集映射到 speaker 的别名键，避免枚举时突变
+        let aliasesToRemove = characterAliases.filter { $0.value == speaker }.map(\.key)
+        for alias in aliasesToRemove {
             characterAliases.removeValue(forKey: alias)
         }
     }
@@ -1071,13 +1080,14 @@ struct TTSView: View {
     /// 角色操作：重命名角色
     private func renameCharacter(_ oldName: String, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != oldName else { return }
+        guard !trimmed.isEmpty, trimmed != oldName, characterAliases[trimmed] == nil else { return }
         // 重命名别名映射中的键
         if characterAliases[oldName] != nil {
             characterAliases[trimmed] = characterAliases.removeValue(forKey: oldName)
         }
-        // 重命名别名映射中的值（主角色名）
-        for (alias, main) in characterAliases where main == oldName {
+        // 重命名别名映射中的值（主角色名）—— 先收集再赋值
+        let aliasesToUpdate = characterAliases.filter { $0.value == oldName }.map(\.key)
+        for alias in aliasesToUpdate {
             characterAliases[alias] = trimmed
         }
         // 重命名片段中的说话人
@@ -1155,7 +1165,10 @@ struct TTSView: View {
 
     private func synthesizeAndPlayCustom() {
         guard let serverID = selectedServerID,
-              !customWorkerSegments.isEmpty else { return }
+              !customWorkerSegments.isEmpty else {
+            isSynthesizingCustom = false
+            return
+        }
 
         isSynthesizingCustom = true
         customSynthesisResult = "正在合成首段..."
@@ -1176,7 +1189,12 @@ struct TTSView: View {
             // 首段合成并立即播放
             do {
                 let firstSegment = customWorkerSegments[0]
-                let voiceID = voiceForSpeaker(firstSegment.speaker)
+                let voiceID = await MainActor.run {
+                    let raw = voiceForSpeaker(firstSegment.speaker)
+                    return raw.isEmpty
+                        ? TTSView.autoMatchVoice(for: firstSegment.speaker, gender: firstSegment.gender, availableVoices: availableVoices)
+                        : raw
+                }
                 let rate = Int(globalRate) + Self.rateOffset(for: firstSegment)
                 let pitch = Self.pitchOffset(for: firstSegment, speakerName: firstSegment.speaker)
                 let style = firstSegment.emotion.ssmlStyle
@@ -1242,7 +1260,12 @@ struct TTSView: View {
             var totalSuccess = 1
 
             for (idx, segment) in customWorkerSegments.dropFirst().enumerated() {
-                let voiceID = voiceForSpeaker(segment.speaker)
+                let voiceID = await MainActor.run {
+                    let raw = voiceForSpeaker(segment.speaker)
+                    return raw.isEmpty
+                        ? TTSView.autoMatchVoice(for: segment.speaker, gender: segment.gender, availableVoices: availableVoices)
+                        : raw
+                }
                 let rate = Int(globalRate) + Self.rateOffset(for: segment)
                 let pitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
                 let style = segment.emotion.ssmlStyle
