@@ -116,6 +116,8 @@ TTS 引擎 (Edge TTS)
 - ✅ **AI Worker 模型固定** — qwen-2.5-7b-instruct，不在客户端配置
 - ✅ **DebugLogger .jsonl 格式** — 每启动一个文件，行追加，方便整体发送
 - ✅ **Worker 状态检测** — context menu「测试连接」+ 状态圆点
+- ✅ **别名系统** — `characterAliases: [String: String]` (别名→主名)，合并时设别名不分段改名；`voiceForSpeaker` 别名自动继承主角色音色；ContextMenu 分离别名
+- ✅ **推荐音色名** — 中文名(小晓)作为主显，英文ID小字在下行
 
 ## 构建方式
 
@@ -165,7 +167,7 @@ TTS 引擎 (Edge TTS)
 | `26d0bb7` | **feat: tone→volume 映射, SSML volume 支持 (vol 查询参数 / buildSSML prosody volume)** |
 | `e8dc97f` | **feat: 全局音量滑块 + Settings 页同步 (resolvedVolume dB叠加)** |
 | `cfd86f8` | **fix: 流式逐段入队 / 角色卡不消失 / 刷新自动匹配音色 / 稳定播放控制** |
-| `(current)` | **feat: 角色卡上下文菜单(合并/删除/重命名) + 自动推荐音色名 + 默认音色兜底** |
+| `(pending)` | **feat: 别名系统(characterAliases 合并/分离) + voiceForSpeaker 别名继承 + ContextMenu 分离选项 + 推荐显示中文名+英文小字** |
 
 ## 当前已知问题
 

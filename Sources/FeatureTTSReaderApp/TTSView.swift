@@ -38,6 +38,7 @@ struct TTSView: View {
     @State private var customMultiRoleText = ""
     @State private var customWorkerSegments: [AISegment] = []
     @State private var customCharacterVoices: [String: String] = [:] // characterName -> voiceID
+    @State private var characterAliases: [String: String] = [:] // alias -> mainName (老舅->舅舅)
     @State private var customSynthesisResult = ""
     @State private var isProcessingWorker = false
     @State private var workerProgress: Double = 0
@@ -492,7 +493,10 @@ struct TTSView: View {
 
                         let speakers: [String] = {
                             var freq: [String: Int] = [:]
-                            for s in customWorkerSegments { freq[s.speaker, default: 0] += 1 }
+                            for s in customWorkerSegments {
+                                let main = resolveAlias(s.speaker)
+                                freq[main, default: 0] += 1
+                            }
                             var sorted = freq.keys.sorted { freq[$0, default: 0] > freq[$1, default: 0] }
                             if let idx = sorted.firstIndex(of: "旁白") {
                                 sorted.remove(at: idx)
@@ -502,7 +506,8 @@ struct TTSView: View {
                         }()
                         let allSpeakers = speakers  // 完整的角色列表（用于合并菜单）
                         ForEach(speakers.prefix(10), id: \.self) { speaker in
-                            let speakerSegments = customWorkerSegments.filter { $0.speaker == speaker }
+                            let aliases = aliasesOf(speaker)
+                            let speakerSegments = customWorkerSegments.filter { aliases.contains($0.speaker) || $0.speaker == speaker }
                             let segmentCount = speakerSegments.count
                             let emotions = speakerSegments.map { $0.emotion }
                             let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
@@ -513,19 +518,21 @@ struct TTSView: View {
                                 ?? TTSView.defaultChineseVoices.first(where: { $0.id == autoVoiceID })?.displayName
                             CharacterRoleCard(
                                 speaker: speaker,
+                                aliases: aliases,
                                 segmentCount: segmentCount,
                                 emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
                                 gender: resolvedGender,
                                 autoMatchedVoiceID: autoVoiceID,
                                 autoMatchedVoiceName: autoVoiceName,
                                 voice: Binding(
-                                    get: { customCharacterVoices[speaker] ?? "" },
+                                    get: { voiceForSpeaker(speaker) },
                                     set: { customCharacterVoices[speaker] = $0 }
                                 ),
                                 isResynthesizing: characterResynthesisStates[speaker] ?? false,
                                 availableVoices: availableVoices.filter { $0.locale.hasPrefix("zh-CN") },
                                 onResynthesize: { resynthesizeCharacter(speaker) },
                                 onMerge: { target in mergeCharacter(speaker, into: target) },
+                                onSplit: { alias in splitCharacter(alias) },
                                 onDelete: { deleteCharacter(speaker) },
                                 onRename: { newName in renameCharacter(speaker, to: newName) },
                                 otherSpeakers: allSpeakers.filter { $0 != speaker }
@@ -757,7 +764,7 @@ struct TTSView: View {
                     // 逐段合成 → 逐段入队（真正的流式）
                     for (segIdx, segment) in segments.enumerated() {
                         let voiceID = await MainActor.run {
-                            customCharacterVoices[segment.speaker] ?? ""
+                            voiceForSpeaker(segment.speaker)
                         }
                         let rate = Int(globalRate) + TTSView.rateOffset(for: segment)
                         let pitch = TTSView.pitchOffset(for: segment, speakerName: segment.speaker)
@@ -922,7 +929,7 @@ struct TTSView: View {
     }
 
     private func assignVoicesToSegments(_ segments: [AISegment]) {
-        let speakers = Array(Set(segments.map { $0.speaker })).sorted()
+        let mainSpeakers = Array(Set(segments.map { resolveAlias($0.speaker) })).sorted()
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         guard !zhVoices.isEmpty else { return }
 
@@ -931,18 +938,23 @@ struct TTSView: View {
         var femaleIdx = 0, maleIdx = 0, neutralIdx = 0
         let neutralVoices = zhVoices
 
-        // 优先采用 AI 返回的 gender（取该说话人首个非 unknown 的性别）
+        // 优先采用 AI 返回的 gender（取该主角色首个非 unknown 的性别）
         var speakerGender: [String: Gender] = [:]
         for seg in segments where seg.gender != .unknown {
-            if speakerGender[seg.speaker] == nil {
-                speakerGender[seg.speaker] = seg.gender
+            let mainName = resolveAlias(seg.speaker)
+            if speakerGender[mainName] == nil {
+                speakerGender[mainName] = seg.gender
             }
+        }
+
+        // 清除别名的音色映射（别名继承主角色的音色）
+        for alias in characterAliases.keys {
+            customCharacterVoices.removeValue(forKey: alias)
         }
 
         var voices = customCharacterVoices
 
-        for speaker in speakers {
-            // 保留手动分配
+        for speaker in mainSpeakers {
             if let existing = customCharacterVoices[speaker], !existing.isEmpty {
                 voices[speaker] = existing
                 continue
@@ -1011,50 +1023,70 @@ struct TTSView: View {
         }
     }
 
-    /// 角色操作：合并到另一个角色
+    /// 解析别名 → 主名
+    private func resolveAlias(_ name: String) -> String {
+        characterAliases[name] ?? name
+    }
+
+    /// 获取说话人的音色（别名自动继承主角色的音色）
+    private func voiceForSpeaker(_ speaker: String) -> String {
+        if let v = customCharacterVoices[speaker], !v.isEmpty { return v }
+        if let main = characterAliases[speaker], let v = customCharacterVoices[main], !v.isEmpty { return v }
+        return ""
+    }
+
+    /// 获取某主角色下的所有别名
+    private func aliasesOf(_ mainName: String) -> [String] {
+        characterAliases.filter { $0.value == mainName }.map(\.key).sorted()
+    }
+
+    /// 角色操作：合并（将 source 标记为 target 的别名）
     private func mergeCharacter(_ source: String, into target: String) {
         guard source != target else { return }
-        for i in customWorkerSegments.indices {
-            if customWorkerSegments[i].speaker == source {
-                let seg = customWorkerSegments[i]
-                customWorkerSegments[i] = AISegment(
-                    speaker: target,
-                    emotion: seg.emotion,
-                    tone: seg.tone,
-                    text: seg.text,
-                    gender: seg.gender
-                )
-            }
-        }
-        if let sourceVoice = customCharacterVoices[source] {
+        // 如果 source 本身是某个角色的别名，先解除
+        characterAliases.removeValue(forKey: source)
+        // 设置别名映射
+        characterAliases[source] = target
+        // 音色：如果 source 有自定义音色而 target 没有，继承
+        if let sv = customCharacterVoices[source], !sv.isEmpty {
             if customCharacterVoices[target] == nil || customCharacterVoices[target]?.isEmpty == true {
-                customCharacterVoices[target] = sourceVoice
+                customCharacterVoices[target] = sv
             }
             customCharacterVoices.removeValue(forKey: source)
         }
     }
 
+    /// 角色操作：分离别名（恢复为独立角色）
+    private func splitCharacter(_ alias: String) {
+        characterAliases.removeValue(forKey: alias)
+    }
+
     /// 角色操作：删除角色及其所有片段
     private func deleteCharacter(_ speaker: String) {
-        customWorkerSegments.removeAll { $0.speaker == speaker }
+        customWorkerSegments.removeAll { resolveAlias($0.speaker) == speaker }
         customCharacterVoices.removeValue(forKey: speaker)
+        // 同时删除以此为别名的映射
+        for (alias, main) in characterAliases where main == speaker {
+            characterAliases.removeValue(forKey: alias)
+        }
     }
 
     /// 角色操作：重命名角色
     private func renameCharacter(_ oldName: String, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != oldName else { return }
-        for i in customWorkerSegments.indices {
-            if customWorkerSegments[i].speaker == oldName {
-                let seg = customWorkerSegments[i]
-                customWorkerSegments[i] = AISegment(
-                    speaker: trimmed,
-                    emotion: seg.emotion,
-                    tone: seg.tone,
-                    text: seg.text,
-                    gender: seg.gender
-                )
-            }
+        // 重命名别名映射中的键
+        if characterAliases[oldName] != nil {
+            characterAliases[trimmed] = characterAliases.removeValue(forKey: oldName)
+        }
+        // 重命名别名映射中的值（主角色名）
+        for (alias, main) in characterAliases where main == oldName {
+            characterAliases[alias] = trimmed
+        }
+        // 重命名片段中的说话人
+        for i in customWorkerSegments.indices where customWorkerSegments[i].speaker == oldName {
+            let seg = customWorkerSegments[i]
+            customWorkerSegments[i] = AISegment(speaker: trimmed, emotion: seg.emotion, tone: seg.tone, text: seg.text, gender: seg.gender)
         }
         if let voice = customCharacterVoices[oldName] {
             customCharacterVoices[trimmed] = voice
@@ -1147,7 +1179,7 @@ struct TTSView: View {
             // 首段合成并立即播放
             do {
                 let firstSegment = customWorkerSegments[0]
-                let voiceID = customCharacterVoices[firstSegment.speaker] ?? ""
+                let voiceID = voiceForSpeaker(firstSegment.speaker)
                 let rate = Int(globalRate) + Self.rateOffset(for: firstSegment)
                 let pitch = Self.pitchOffset(for: firstSegment, speakerName: firstSegment.speaker)
                 let style = firstSegment.emotion.ssmlStyle
@@ -1213,7 +1245,7 @@ struct TTSView: View {
             var totalSuccess = 1
 
             for (idx, segment) in customWorkerSegments.dropFirst().enumerated() {
-                let voiceID = customCharacterVoices[segment.speaker] ?? ""
+                let voiceID = voiceForSpeaker(segment.speaker)
                 let rate = Int(globalRate) + Self.rateOffset(for: segment)
                 let pitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
                 let style = segment.emotion.ssmlStyle
@@ -1291,12 +1323,12 @@ struct TTSView: View {
 
     private func resynthesizeCharacter(_ speaker: String) {
         guard let serverID = selectedServerID else { return }
-        let segments = customWorkerSegments.filter { $0.speaker == speaker }
+        let segments = customWorkerSegments.filter { resolveAlias($0.speaker) == speaker }
         guard !segments.isEmpty else { return }
 
         characterResynthesisStates[speaker] = true
         // 先自动匹配音色（如果当前为空或为"自动"），再合成
-        let currentVoice = customCharacterVoices[speaker] ?? ""
+        let currentVoice = voiceForSpeaker(speaker)
         let autoVoice = TTSView.autoMatchVoice(for: speaker, gender: segments.first?.gender ?? .unknown, availableVoices: availableVoices)
         let resolvedVoice = currentVoice.isEmpty ? autoVoice : currentVoice
         if resolvedVoice != currentVoice {
@@ -1594,28 +1626,31 @@ struct TTSView: View {
         var map: [String: TTSConfigInfo] = [:]
         let availableVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let defaultVoice = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") })?.id ?? ""
-        
-        // Collect unique speakers
-        let speakers = Set(segments.map { $0.speaker })
-        
-        // Build character voice map (same logic as synthesizeAndPlayCustom)
+
+        // 通过 resolveAlias 合并别名到主角色
+        let speakers = Set(segments.map { resolveAlias($0.speaker) })
+
+        // Build character voice map
         var charVoiceMap: [String: String] = [:]
         for speaker in speakers where speaker != "旁白" {
-            if let voiceID = customCharacterVoices[speaker], !voiceID.isEmpty {
+            if let voiceID = voiceForSpeaker(speaker), !voiceID.isEmpty {
                 charVoiceMap[speaker] = voiceID
-            } else if let matched = availableVoices.first(where: { 
-                $0.locale.hasPrefix("zh-CN") 
+            } else if let matched = availableVoices.first(where: {
+                $0.locale.hasPrefix("zh-CN")
             }) {
                 charVoiceMap[speaker] = matched.id
             }
         }
-        let narratorVoice = customCharacterVoices["旁白"] ?? charVoiceMap["旁白"] ?? availableVoices.first(where: { $0.gender == "Female" })?.id ?? defaultVoice
+        let narratorVoice = voiceForSpeaker("旁白").isEmpty
+            ? (charVoiceMap["旁白"] ?? availableVoices.first(where: { $0.gender == "Female" })?.id ?? defaultVoice)
+            : voiceForSpeaker("旁白")
 
         for speaker in speakers {
-            let voice = customCharacterVoices[speaker] ?? charVoiceMap[speaker] ?? {
-                if let matched = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") }) {
-                    return matched.id
-                }
+            let voice: String = {
+                let v = voiceForSpeaker(speaker)
+                if !v.isEmpty { return v }
+                if let cm = charVoiceMap[speaker], !cm.isEmpty { return cm }
+                if let matched = availableVoices.first(where: { $0.locale.hasPrefix("zh-CN") }) { return matched.id }
                 return defaultVoice
             }()
             let isNarrator = speaker == "旁白"
@@ -2042,6 +2077,7 @@ struct WorkerEditView: View {
 
 struct CharacterRoleCard: View {
     let speaker: String
+    let aliases: [String]
     let segmentCount: Int
     let emotionSummary: String?
     let gender: Gender
@@ -2052,6 +2088,7 @@ struct CharacterRoleCard: View {
     let availableVoices: [EdgeVoiceInfo]
     let onResynthesize: () -> Void
     let onMerge: (String) -> Void
+    let onSplit: ((String) -> Void)?
     let onDelete: () -> Void
     let onRename: (String) -> Void
     let otherSpeakers: [String]
@@ -2097,6 +2134,21 @@ struct CharacterRoleCard: View {
                     .cornerRadius(4)
             }
 
+            // 别名子标签
+            if !aliases.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    Text("别名: ")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    + Text(aliases.joined(separator: "、"))
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.secondary)
+                }
+            }
+
             if let emotionSummary {
                 Text(emotionSummary)
                     .font(.caption2)
@@ -2129,7 +2181,7 @@ struct CharacterRoleCard: View {
             }
 
             // 自动推荐音色名
-            if voice.isEmpty, let name = autoMatchedVoiceName {
+            if voice.isEmpty, !autoMatchedVoiceID.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkle.magnifyingglass")
                         .font(.system(size: 9))
@@ -2137,12 +2189,15 @@ struct CharacterRoleCard: View {
                     Text("推荐: ")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    + Text(name)
+                    + Text(TTSView.chineseVoiceName(for: autoMatchedVoiceID))
                         .font(.caption2.weight(.medium))
                         .foregroundColor(.accentColor)
-                    Text("(\(TTSView.chineseVoiceName(for: autoMatchedVoiceID)))")
+                }
+                HStack(spacing: 4) {
+                    Text("")
+                    Text(autoMatchedVoiceID)
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.secondary.opacity(0.6))
                 }
             }
         }
@@ -2153,6 +2208,15 @@ struct CharacterRoleCard: View {
             Button("重命名", systemImage: "pencil") {
                 renameText = speaker
                 showRenameAlert = true
+            }
+            if !aliases.isEmpty, let onSplit {
+                Menu("分离别名...", systemImage: "arrow.triangle.branch") {
+                    ForEach(aliases, id: \.self) { alias in
+                        Button("\(alias)") {
+                            onSplit(alias)
+                        }
+                    }
+                }
             }
             if !otherSpeakers.isEmpty {
                 Menu("合并到...", systemImage: "arrow.triangle.merge") {
