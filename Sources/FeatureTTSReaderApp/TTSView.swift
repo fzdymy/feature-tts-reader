@@ -229,7 +229,16 @@ struct TTSView: View {
                 await loadWorkerConfigs()
             }
             .task(id: selectedServerID) {
-                loadVoicesFromCache()
+                loadVoicesFromCache() // 先显示缓存/兜底
+                if let id = selectedServerID {
+                    let voices = await EdgeTTSService.shared.fetchVoices(serverID: id)
+                    if !voices.isEmpty {
+                        await MainActor.run {
+                            saveVoicesToCache(voices)
+                            loadVoicesFromCache()
+                        }
+                    }
+                }
             }
         }
     }
@@ -973,14 +982,26 @@ struct TTSView: View {
         customCharacterVoices = voices
     }
 
-    /// 默认中文音色（服务器 voices 为空时的兜底）
+    /// 默认中文音色（服务器 voices 为空时的兜底，覆盖全部 Azure zh-CN 音色）
     private static let defaultChineseVoices: [EdgeVoiceInfo] = [
-        EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "zh-CN-XiaoxiaoNeural", gender: "Female", locale: "zh-CN"),
-        EdgeVoiceInfo(id: "zh-CN-YunxiNeural", name: "zh-CN-YunxiNeural", gender: "Male", locale: "zh-CN"),
-        EdgeVoiceInfo(id: "zh-CN-YunyangNeural", name: "zh-CN-YunyangNeural", gender: "Male", locale: "zh-CN"),
-        EdgeVoiceInfo(id: "zh-CN-XiaochenNeural", name: "zh-CN-XiaochenNeural", gender: "Female", locale: "zh-CN"),
-        EdgeVoiceInfo(id: "zh-CN-XiaohanNeural", name: "zh-CN-XiaohanNeural", gender: "Female", locale: "zh-CN"),
-        EdgeVoiceInfo(id: "zh-CN-YunyeNeural", name: "zh-CN-YunyeNeural", gender: "Male", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaochenNeural", name: "晓辰", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaohanNeural", name: "晓涵", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaomengNeural", name: "晓萌", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaomoNeural", name: "晓墨", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaoruiNeural", name: "晓睿", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaoshuangNeural", name: "晓双", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaoxuanNeural", name: "晓萱", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaoyanNeural", name: "晓颜", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaoyiNeural", name: "晓伊", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-XiaozhenNeural", name: "晓臻", gender: "Female", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-YunxiNeural", name: "云希", gender: "Male", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-YunyangNeural", name: "云扬", gender: "Male", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-YunyeNeural", name: "云野", gender: "Male", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-YunfengNeural", name: "云峰", gender: "Male", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-YunjianNeural", name: "云健", gender: "Male", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-YunxiaNeural", name: "云夏", gender: "Male", locale: "zh-CN"),
+        EdgeVoiceInfo(id: "zh-CN-YunzeNeural", name: "云泽", gender: "Male", locale: "zh-CN"),
     ]
 
     /// 音色 ID → 中文名称
@@ -988,11 +1009,14 @@ struct TTSView: View {
         let map: [String: String] = [
             "zh-CN-XiaoxiaoNeural": "小晓", "zh-CN-XiaochenNeural": "晓辰",
             "zh-CN-XiaohanNeural": "晓涵", "zh-CN-XiaomoNeural": "晓墨",
-            "zh-CN-XiaoxuanNeural": "晓萱", "zh-CN-XiaoyanNeural": "晓颜",
-            "zh-CN-XiaoyiNeural": "晓伊", "zh-CN-XiaomengNeural": "晓萌",
+            "zh-CN-XiaomengNeural": "晓萌", "zh-CN-XiaoruiNeural": "晓睿",
+            "zh-CN-XiaoshuangNeural": "晓双", "zh-CN-XiaoxuanNeural": "晓萱",
+            "zh-CN-XiaoyanNeural": "晓颜", "zh-CN-XiaoyiNeural": "晓伊",
+            "zh-CN-XiaozhenNeural": "晓臻",
             "zh-CN-YunxiNeural": "云希", "zh-CN-YunyangNeural": "云扬",
             "zh-CN-YunyeNeural": "云野", "zh-CN-YunjianNeural": "云健",
-            "zh-CN-YunfengNeural": "云峰",
+            "zh-CN-YunfengNeural": "云峰", "zh-CN-YunxiaNeural": "云夏",
+            "zh-CN-YunzeNeural": "云泽",
             "zh-HK-HiuMaanNeural": "晓曼", "zh-HK-WanLungNeural": "云龙",
             "zh-TW-HsiaoChenNeural": "晓臻", "zh-TW-YunJheNeural": "云哲",
         ]
@@ -2185,14 +2209,41 @@ struct CharacterRoleCard: View {
             }
 
             HStack(spacing: 8) {
-                Picker("", selection: $voice) {
-                    Text("自动").tag("")
-                    ForEach(availableVoices) { v in
-                        Text(v.displayName).tag(v.id)
+                Menu {
+                    Button { voice = "" } label: {
+                        HStack {
+                            Text("自动")
+                            if voice.isEmpty { Image(systemName: "checkmark") }
+                        }
                     }
+                    ForEach(availableVoices) { v in
+                        Button { voice = v.id } label: {
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack {
+                                    Text(TTSView.chineseVoiceName(for: v.id))
+                                        .font(.body)
+                                    if voice == v.id { Spacer(); Image(systemName: "checkmark") }
+                                }
+                                Text(v.id)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(voice.isEmpty ? "自动" : TTSView.chineseVoiceName(for: voice))
+                            .font(.subheadline)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(6)
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity)
 
                 Button {
                     onResynthesize()

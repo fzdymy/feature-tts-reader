@@ -87,10 +87,9 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func appendToQueue(_ items: [TTSQueueItem]) {
-        let wasEmpty = queue.isEmpty
         queue.append(contentsOf: items)
         queueCount = queue.count
-        if wasEmpty { playNextSeamlessly() }
+        if !isPlaying { playNextSeamlessly() }
     }
 
     private func playNextSeamlessly() {
