@@ -190,6 +190,18 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         throw NSError(domain: "TTS", code: -1, userInfo: [NSLocalizedDescriptionKey: "No audio source"])
     }
 
+    /// 无缝调度：用 play(atTime:) 让下一句在当前句结束前一瞬间启动，消除停顿
+    private func scheduleNextIfNeeded() {
+        guard let next = nextPlayer, let current = player,
+              current.isPlaying, current.duration > 0 else { return }
+        // 全局可调重叠(ms)，默认 80ms
+        let overlapMs = UserDefaults.standard.double(forKey: "globalOverlap")
+        let overlap = overlapMs > 0 ? overlapMs / 1000.0 : 0.08
+        let safeOverlap = min(overlap, current.duration / 2)
+        let startTime = current.deviceCurrentTime + current.duration - safeOverlap
+        next.play(atTime: max(startTime, current.deviceCurrentTime))
+    }
+
     /// 异步预加载下一句到 nextPlayer
     private func preloadNextIfNeeded() {
         guard !isPreloading, nextPlayer == nil, !queue.isEmpty else { return }
@@ -206,8 +218,10 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
                     self.nextPlayer = p
                     self.nextPlayer?.prepareToPlay()
                     self.isPreloading = false
-                    // 预加载完成后立即调度无缝切换
-                    self.scheduleNextIfNeeded()
+                    // 仅当前正在播放时才尝试调度；否则在 playNextSeamlessly 中调度
+                    if self.player?.isPlaying == true {
+                        self.scheduleNextIfNeeded()
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -218,24 +232,6 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             }
         }
     }
-
-    /// 无缝调度：用 play(atTime:) 让下一句在当前句结束前一瞬间启动，消除停顿
-    private func scheduleNextIfNeeded() {
-        guard let next = nextPlayer, let current = player,
-              current.isPlaying, current.duration > 0 else { return }
-        // 全局可调重叠(ms)，默认 80ms
-        let overlapMs = UserDefaults.standard.double(forKey: "globalOverlap")
-        let overlap = overlapMs > 0 ? overlapMs / 1000.0 : 0.08
-        let safeOverlap = min(overlap, current.duration / 2)
-        let startTime = current.deviceCurrentTime + current.duration - safeOverlap
-        next.play(atTime: max(startTime, current.deviceCurrentTime))
-        // 兜底：若 play(atTime:) 未在预期时间触发，定时器强制播放
-        Timer.scheduledTimer(withTimeInterval: safeOverlap * 2, repeats: false) { [weak self, weak next] _ in
-            guard let self, let n = next, !n.isPlaying else { return }
-            n.play()
-        }
-    }
-
     /// 在非隔离上下文创建 AVAudioPlayer（避免 Sendable 问题）
     nonisolated private static func makePlayerAsync(audioData: Data?, audioURL: URL?) async throws -> AVAudioPlayer {
         if let data = audioData, let p = try? AVAudioPlayer(data: data) { return p }

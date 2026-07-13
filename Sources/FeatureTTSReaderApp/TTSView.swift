@@ -256,12 +256,13 @@ struct TTSView: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(8)
 
-                Picker("发音人", selection: $testVoice) {
-                    ForEach(availableVoices) { v in
-                        Text(v.displayName).tag(v.id)
+Picker("发音人", selection: $testVoice) {
+                        ForEach(availableVoices) { v in
+                            Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
+                                .tag(v.id)
+                        }
                     }
-                }
-                .pickerStyle(.menu)
+                    .pickerStyle(.menu)
 
                 if !currentVoiceStyles.isEmpty {
                     Picker("风格", selection: $testStyle) {
@@ -2198,7 +2199,10 @@ struct CharacterRoleCard: View {
 
     private var selectedLabel: String {
         guard !voice.isEmpty else { return "自动" }
-        return TTSView.shortVoiceLabel(voice, name: TTSView.chineseVoiceName(for: voice))
+        let base = TTSView.shortVoiceLabel(voice, name: TTSView.chineseVoiceName(for: voice))
+        let g = availableVoices.first(where: { $0.id == voice })?.gender ?? ""
+        let icon = g == "Male" ? " ♂" : (g == "Female" ? " ♀" : "")
+        return base + icon
     }
 
     private var genderLabel: (String, String, Color)? {
@@ -2271,6 +2275,10 @@ struct CharacterRoleCard: View {
                             HStack {
                                 Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
                                     .font(.subheadline)
+                                // 性别标签
+                                Text(v.gender == "Male" ? "♂" : "♀")
+                                    .font(.caption2)
+                                    .foregroundColor(v.gender == "Male" ? .blue : .pink)
                                 if voice == v.id { Spacer(); Image(systemName: "checkmark") }
                             }
                         }
@@ -2307,6 +2315,8 @@ struct CharacterRoleCard: View {
 
             // 自动推荐音色名
             if voice.isEmpty, !autoMatchedVoiceID.isEmpty {
+                let recGender = availableVoices.first(where: { $0.id == autoMatchedVoiceID })?.gender ?? ""
+                let recIcon = recGender == "Male" ? " ♂" : (recGender == "Female" ? " ♀" : "")
                 HStack(spacing: 4) {
                     Image(systemName: "sparkle.magnifyingglass")
                         .font(.system(size: 9))
@@ -2314,13 +2324,13 @@ struct CharacterRoleCard: View {
                     Text("推荐: ")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    + Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
+                    + Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)) + recIcon)
                         .font(.caption2.weight(.medium))
                         .foregroundColor(.accentColor)
                 }
                 HStack(spacing: 4) {
                     Text("")
-                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)))
+                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)) + recIcon)
                         .font(.caption2)
                         .foregroundColor(.secondary.opacity(0.6))
                 }

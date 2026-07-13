@@ -7,8 +7,63 @@ struct EdgeVoiceInfo: Codable, Sendable, Identifiable {
     var locale: String
     var styles: [String]?
 
+    /// 本地化显示名：中文名 + 性别图标
     var displayName: String {
-        "\(name)（\(gender == "Male" ? "男" : "女")）"
+        let base = baseVoiceID(id)
+        let chineseName: String = {
+            switch base {
+            // zh-CN 女声
+            case "zh-CN-Xiaoxiao": return "小晓"
+            case "zh-CN-Xiaochen": return "晓辰"
+            case "zh-CN-Xiaohan": return "晓涵"
+            case "zh-CN-Xiaomo": return "晓墨"
+            case "zh-CN-Xiaomeng": return "晓萌"
+            case "zh-CN-Xiaorui": return "晓睿"
+            case "zh-CN-Xiaoshuang": return "晓双"
+            case "zh-CN-Xiaoxuan": return "晓萱"
+            case "zh-CN-Xiaoyan": return "晓颜"
+            case "zh-CN-Xiaoyi": return "晓伊"
+            case "zh-CN-Xiaozhen": return "晓臻"
+            case "zh-CN-Xiaoyu": return "晓雨"
+            // zh-CN 男声
+            case "zh-CN-Yunxi": return "云希"
+            case "zh-CN-Yunyang": return "云扬"
+            case "zh-CN-Yunye": return "云野"
+            case "zh-CN-Yunjian": return "云健"
+            case "zh-CN-Yunfeng": return "云峰"
+            case "zh-CN-Yunxia": return "云夏"
+            case "zh-CN-Yunze": return "云泽"
+            case "zh-CN-Yunhao": return "云皓"
+            case "zh-CN-Yunqi": return "云奇"
+            case "zh-CN-Yunyi": return "云逸"
+            case "zh-CN-Yunxiao": return "云霄"
+            case "zh-CN-Yunjia": return "云嘉"
+            // 方言
+            case "zh-CN-henan-Yundeng": return "云登"
+            case "zh-CN-shaanxi-Xiaoni": return "晓妮"
+            case "zh-CN-sichuan-Xiaomo": return "晓墨"
+            case "zh-CN-sichuan-Yunxi": return "云希"
+            // 粤语
+            case "zh-HK-HiuGaai": return "晓佳"
+            case "zh-HK-HiuMaan": return "晓曼"
+            case "zh-HK-WanLung": return "云龙"
+            // 台语
+            case "zh-TW-HsiaoChen": return "晓臻"
+            case "zh-TW-HsiaoYu": return "晓雨"
+            case "zh-TW-YunJhe": return "云哲"
+            default: return base
+            }
+        }()
+        let genderIcon = gender == "Male" ? "♂" : "♀"
+        return "\(chineseName) \(genderIcon)"
+    }
+
+    /// 剥离服务器后缀 & Neural 尾缀
+    static func baseVoiceID(_ id: String) -> String {
+        var base = id
+        if let colon = id.firstIndex(of: ":") { base = String(id[..<colon]) }
+        if base.hasSuffix("Neural") { base = String(base.dropLast(6)) }
+        return base
     }
 }
 
