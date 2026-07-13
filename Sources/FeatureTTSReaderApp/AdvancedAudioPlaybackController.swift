@@ -140,6 +140,12 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             player?.volume = 1.0
             // 准备工作已在预加载时完成，直接播放
             if player?.play() == true {
+                let startTime = CACurrentMediaTime()
+                DebugLogger.log(flow: "playback", step: "segment_start", details: [
+                    "segment_index": self.currentItem?.segmentIndex ?? -1,
+                    "start_time": startTime,
+                    "method": "preloaded_play"
+                ])
                 isPlaying = true
                 startRMS()
                 updateNowPlaying()
@@ -192,6 +198,12 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
             preloadNextIfNeeded()
             
             if player?.play() == true {
+                let startTime = CACurrentMediaTime()
+                DebugLogger.log(flow: "playback", step: "segment_start", details: [
+                    "segment_index": self.currentItem?.segmentIndex ?? -1,
+                    "start_time": startTime,
+                    "method": "new_player_play"
+                ])
                 isPlaying = true
                 startRMS()
                 updateNowPlaying()
@@ -221,7 +233,16 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         let overlap = overlapMs > 0 ? overlapMs / 1000.0 : 0.08
         let safeOverlap = min(overlap, current.duration / 2)
         let startTime = current.deviceCurrentTime + current.duration - safeOverlap
-        next.play(atTime: max(startTime, current.deviceCurrentTime))
+        let scheduledTime = max(startTime, current.deviceCurrentTime)
+        next.play(atTime: scheduledTime)
+        let now = CACurrentMediaTime()
+        DebugLogger.log(flow: "playback", step: "segment_schedule", details: [
+            "next_segment_index": self.nextItem?.segmentIndex ?? -1,
+            "scheduled_at": scheduledTime,
+            "now": now,
+            "delay_ms": Int((scheduledTime - now) * 1000),
+            "overlap_ms": Int(safeOverlap * 1000)
+        ])
     }
 
     /// 异步预加载下一句到 nextPlayer
