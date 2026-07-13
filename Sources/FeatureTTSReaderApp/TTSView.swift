@@ -1058,6 +1058,16 @@ struct TTSView: View {
         return id
     }
 
+    /// 音色短标签：小晓 :DragonHD（中文名 + 服务器模型后缀）
+    static func shortVoiceLabel(_ id: String) -> String {
+        let name = chineseVoiceName(for: id)
+        if let colon = id.firstIndex(of: ":") {
+            let suffix = String(id[id.index(after: colon)...])
+            return "\(name) :\(suffix)"
+        }
+        return name
+    }
+
     /// 音色 ID → 中文名称（自动剥离服务器后缀）
     static func chineseVoiceName(for voiceID: String) -> String {
         let base = baseVoiceID(voiceID)
@@ -1259,7 +1269,7 @@ struct TTSView: View {
         }
 
         isSynthesizingCustom = true
-        customSynthesisResult = "正在合成首段..."
+        customSynthesisResult = "正在并发合成..."
 
         DebugLogger.log(flow: "custom_synthesize", step: "start", details: [
             "total_segments": customWorkerSegments.count,
@@ -1274,86 +1284,12 @@ struct TTSView: View {
             let globalRate = multiRoleGlobalRate
             let globalVolume = globalVolumeOffset
 
-            // 首段合成并立即播放
-            do {
-                let firstSegment = customWorkerSegments[0]
-                let voiceID = await MainActor.run {
-                    let raw = voiceForSpeaker(firstSegment.speaker)
-                    return raw.isEmpty
-                        ? TTSView.autoMatchVoice(for: firstSegment.speaker, gender: firstSegment.gender, availableVoices: availableVoices)
-                        : raw
-                }
-                let rate = Int(globalRate) + Self.rateOffset(for: firstSegment)
-                let pitch = Self.pitchOffset(for: firstSegment, speakerName: firstSegment.speaker)
-                let style = firstSegment.emotion.ssmlStyle
-                let volume = TTSView.resolvedVolume(tone: firstSegment.tone, globalOffset: globalVolume)
-
-                let audioData = try await EdgeTTSService.shared.synthesize(
-                    text: firstSegment.text,
-                    voice: voiceID,
-                    rate: Double(rate),
-                    pitch: Double(pitch),
-                    style: style,
-                    volume: volume,
-                    serverID: serverID
-                )
-
-                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
-                let url = cachesDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
-                try audioData.write(to: url, options: .atomic)
-
-                let segment = ScriptSegment(
-                    id: UUID(),
-                    characterName: firstSegment.speaker,
-                    voice: voiceID,
-                    rate: rate,
-                    pitch: pitch,
-                    style: style,
-                    text: firstSegment.text,
-                    emotionTag: firstSegment.emotion.rawValue,
-                    paragraphIndex: 0
-                )
-                let item = TTSQueueItem(
-                    segment: segment,
-                    audioURL: url,
-                    audioData: audioData,
-                    chapterTitle: "自定义多角色",
-                    bookTitle: "测试",
-                    bookID: "custom",
-                    chapterIndex: 0,
-                    segmentIndex: 0,
-                    totalSegments: customWorkerSegments.count,
-                    paragraphIndex: 0,
-                    sentenceIndex: nil,
-                    anchor: nil
-                )
-
-                await MainActor.run {
-                    store.audioController.appendToQueue([item])
-                    customSynthesisResult = "第 1/\(customWorkerSegments.count) 段合成完成，开始播放..."
-                }
-            } catch {
-                DebugLogger.log(flow: "custom_synthesize", step: "first_segment_error", details: [
-                    "error": error.localizedDescription,
-                ])
-                await MainActor.run {
-                    customSynthesisResult = "首段合成失败: \(error.localizedDescription)"
-                    isSynthesizingCustom = false
-                }
-                return
-            }
-
-            // 并发合成 → 流式保序入队（完成一段立刻入队，消除等待停顿）
-            await MainActor.run { customSynthesisResult = "第 1/\(customWorkerSegments.count) 段播放中，继续合成后续..." }
-
-            let remainingSegments = Array(customWorkerSegments.dropFirst())
+            let allSegments = customWorkerSegments
             let voices = availableVoices
-            let sRate = globalRate
-            let sVol = globalVolume
             let sID = serverID
             let sDir = cachesDir
-            let totalCount = customWorkerSegments.count
-            let voiceIDs: [String] = remainingSegments.map { seg in
+            let totalCount = allSegments.count
+            let voiceIDs: [String] = allSegments.map { seg in
                 let raw = voiceForSpeaker(seg.speaker)
                 return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: voices) : raw
             }
@@ -1365,64 +1301,74 @@ struct TTSView: View {
                 }
             }
 
-            try await withThrowingTaskGroup(of: (Int, Result<TTSQueueItem, Error>).self) { group in
-                for (idx, segment) in remainingSegments.enumerated() {
-                    let vID = voiceIDs[idx]
-                    let segRate = Int(sRate) + Self.rateOffset(for: segment)
-                    let segPitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
-                    let segStyle = segment.emotion.ssmlStyle
-                    let segVol = TTSView.resolvedVolume(tone: segment.tone, globalOffset: sVol)
-                    group.addTask { [idx, segment, vID, segRate, segPitch, segStyle, segVol] in
-                        do {
-                            let audioData = try await EdgeTTSService.shared.synthesize(
-                                text: segment.text, voice: vID,
-                                rate: Double(segRate), pitch: Double(segPitch),
-                                style: segStyle, volume: segVol, serverID: sID
-                            )
-                            let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
-                            let url = sDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
-                            try audioData.write(to: url, options: .atomic)
-                            let seg = ScriptSegment(
-                                id: UUID(), characterName: segment.speaker,
-                                voice: vID, rate: segRate, pitch: segPitch,
-                                style: segStyle, text: segment.text,
-                                emotionTag: segment.emotion.rawValue, paragraphIndex: idx + 1
-                            )
-                            return (idx, .success(TTSQueueItem(
-                                segment: seg, audioURL: url, audioData: audioData,
-                                chapterTitle: "自定义多角色", bookTitle: "测试", bookID: "custom",
-                                chapterIndex: 0, segmentIndex: idx + 1,
-                                totalSegments: totalCount,
-                                paragraphIndex: idx + 1, sentenceIndex: nil, anchor: nil
-                            )))
-                        } catch {
-                            return (idx, .failure(error))
+            do {
+                try await withThrowingTaskGroup(of: (Int, Result<TTSQueueItem, Error>).self) { group in
+                    for (idx, segment) in allSegments.enumerated() {
+                        let vID = voiceIDs[idx]
+                        let segRate = Int(globalRate) + Self.rateOffset(for: segment)
+                        let segPitch = Self.pitchOffset(for: segment, speakerName: segment.speaker)
+                        let segStyle = segment.emotion.ssmlStyle
+                        let segVol = TTSView.resolvedVolume(tone: segment.tone, globalOffset: globalVolume)
+                        group.addTask { [idx, segment, vID, segRate, segPitch, segStyle, segVol] in
+                            do {
+                                let audioData = try await EdgeTTSService.shared.synthesize(
+                                    text: segment.text, voice: vID,
+                                    rate: Double(segRate), pitch: Double(segPitch),
+                                    style: segStyle, volume: segVol, serverID: sID
+                                )
+                                let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
+                                let url = sDir.appendingPathComponent("custom-\(UUID().uuidString).\(ext)")
+                                try audioData.write(to: url, options: .atomic)
+                                let seg = ScriptSegment(
+                                    id: UUID(), characterName: segment.speaker,
+                                    voice: vID, rate: segRate, pitch: segPitch,
+                                    style: segStyle, text: segment.text,
+                                    emotionTag: segment.emotion.rawValue, paragraphIndex: idx
+                                )
+                                return (idx, .success(TTSQueueItem(
+                                    segment: seg, audioURL: url, audioData: audioData,
+                                    chapterTitle: "自定义多角色", bookTitle: "测试", bookID: "custom",
+                                    chapterIndex: 0, segmentIndex: idx,
+                                    totalSegments: totalCount,
+                                    paragraphIndex: idx, sentenceIndex: nil, anchor: nil
+                                )))
+                            } catch {
+                                return (idx, .failure(error))
+                            }
+                        }
+                    }
+                    for try await (idx, result) in group {
+                        switch result {
+                        case .success(let item):
+                            await synthBuf.insert(idx, item)
+                        case .failure(let error):
+                            DebugLogger.log(flow: "custom_synthesize", step: "segment_error", details: [
+                                "segment_index": idx, "error": error.localizedDescription,
+                            ])
                         }
                     }
                 }
-                for try await (idx, result) in group {
-                    switch result {
-                    case .success(let item):
-                        await synthBuf.insert(idx, item)
-                    case .failure(let error):
-                        DebugLogger.log(flow: "custom_synthesize", step: "remaining_segment_error", details: [
-                            "segment_index": idx + 1, "error": error.localizedDescription,
-                        ])
-                    }
+
+                await synthBuf.flushRemaining()
+                let totalSuccess = await synthBuf.flushedCount
+
+                await MainActor.run {
+                    isSynthesizingCustom = false
+                    customSynthesisResult = "\(totalSuccess)/\(totalCount) 段全部入队，正在流式播放"
+                }
+                DebugLogger.log(flow: "custom_synthesize", step: "complete", details: [
+                    "total_segments": totalCount,
+                    "successful_items": totalSuccess,
+                ])
+            } catch {
+                DebugLogger.log(flow: "custom_synthesize", step: "error", details: [
+                    "error": error.localizedDescription,
+                ])
+                await MainActor.run {
+                    isSynthesizingCustom = false
+                    customSynthesisResult = "合成失败: \(error.localizedDescription)"
                 }
             }
-
-            await synthBuf.flushRemaining()
-            let totalSuccess = await synthBuf.flushedCount + 1
-
-            await MainActor.run {
-                isSynthesizingCustom = false
-                customSynthesisResult = "\(totalSuccess)/\(customWorkerSegments.count) 段全部入队，正在流式播放"
-            }
-            DebugLogger.log(flow: "custom_synthesize", step: "complete", details: [
-                "total_segments": customWorkerSegments.count,
-                "successful_items": totalSuccess,
-            ])
         }
     }
 
@@ -2271,7 +2217,7 @@ struct CharacterRoleCard: View {
                     ForEach(availableVoices) { v in
                         Button { voice = v.id } label: {
                             HStack {
-                                Text("\(TTSView.chineseVoiceName(for: v.id))  \(v.id)")
+                                Text(TTSView.shortVoiceLabel(v.id))
                                     .font(.subheadline)
                                 if voice == v.id { Spacer(); Image(systemName: "checkmark") }
                             }
@@ -2279,7 +2225,7 @@ struct CharacterRoleCard: View {
                     }
                 } label: {
                     HStack {
-                        Text(voice.isEmpty ? "自动" : TTSView.chineseVoiceName(for: voice))
+                        Text(voice.isEmpty ? "自动" : TTSView.shortVoiceLabel(voice))
                             .font(.subheadline)
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption2)
@@ -2322,7 +2268,7 @@ struct CharacterRoleCard: View {
                 }
                 HStack(spacing: 4) {
                     Text("")
-                    Text(autoMatchedVoiceID)
+                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID))
                         .font(.caption2)
                         .foregroundColor(.secondary.opacity(0.6))
                 }
