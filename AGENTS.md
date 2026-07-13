@@ -164,10 +164,11 @@ TTS 引擎 (Edge TTS)
 | `afd0f95` | **feat: 拆分解析/播放按钮 + AI 性别检测 (AISegment.gender / worker.js gender)** |
 | `26d0bb7` | **feat: tone→volume 映射, SSML volume 支持 (vol 查询参数 / buildSSML prosody volume)** |
 | `e8dc97f` | **feat: 全局音量滑块 + Settings 页同步 (resolvedVolume dB叠加)** |
-| `(current)` | **fix: 流式逐段入队 / 角色卡不消失 / 刷新自动匹配音色 / 稳定播放控制** |
+| `cfd86f8` | **fix: 流式逐段入队 / 角色卡不消失 / 刷新自动匹配音色 / 稳定播放控制** |
+| `(current)` | **feat: 角色卡上下文菜单(合并/删除/重命名) + 自动推荐音色名 + 默认音色兜底** |
 
 ## 当前已知问题
 
 1. **worker.js 偶尔空响应** — LLM 复杂场景下返回空, 已添加基础 prompt 降级重试 (需重新部署 `temp/worker.js`)
-2. **config voices 为空** — 服务器 `/api/v1/config` 返回 empty voices 列表, 音色列表依赖刷新缓存
+2. **config voices 为空** — 服务器 `/api/v1/config` 返回 empty voices 列表, 但已添加 `defaultChineseVoices` 兜底, 不影响音色匹配
 3. **性别检测准确率** — 取决于 LLM 对角色的理解, `unknown` 时回退名字关键词
