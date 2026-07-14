@@ -527,9 +527,15 @@ Picker("发音人", selection: $testVoice) {
                             let segmentCount = speakerSegments.count
                             let emotions = speakerSegments.map { $0.emotion }
                             let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
-                            let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
-                            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender)
-                            let autoVoiceID = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
+let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
+            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender.map { g in
+                switch g {
+                case .male: return CharacterGender.male
+                case .female: return CharacterGender.female
+                case .unknown: return CharacterGender.unknown
+                }
+            })
+            let autoVoiceID = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
                             CharacterRoleCard(
                                 speaker: speaker,
                                 aliases: aliases,
@@ -1338,7 +1344,13 @@ private actor StatusTracker {
 
     /// 根据情绪和角色名计算音调偏移
     static nonisolated func pitchOffset(for segment: AISegment, speakerName: String, preferredPitch: Double? = nil) -> Int {
-        let gender = resolveGender(speaker: speakerName, aiGender: segment.gender)
+        let gender = resolveGender(speaker: speakerName, aiGender: segment.gender.map { g in
+            switch g {
+            case .male: return CharacterGender.male
+            case .female: return CharacterGender.female
+            case .unknown: return CharacterGender.unknown
+            }
+        })
         let genderOffset: Int = {
             switch gender {
             case .female: return 4
