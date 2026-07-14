@@ -2338,27 +2338,11 @@ struct CharacterRoleCard: View {
                     .foregroundColor(.secondary)
             }
 
+            @State private var showVoicePicker = false
+            
             HStack(spacing: 8) {
-                Menu {
-                    Button { voice = "" } label: {
-                        HStack {
-                            Text("自动")
-                            if voice.isEmpty { Image(systemName: "checkmark") }
-                        }
-                    }
-                    ForEach(availableVoices) { v in
-                        Button { voice = v.id } label: {
-                            HStack {
-                                Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
-                                    .font(.subheadline)
-                                // 性别标签
-                                Text(v.gender == "Male" ? "♂" : "♀")
-                                    .font(.caption2)
-                                    .foregroundColor(v.gender == "Male" ? .blue : .pink)
-                                if voice == v.id { Spacer(); Image(systemName: "checkmark") }
-                            }
-                        }
-                    }
+                Button {
+                    showVoicePicker.toggle()
                 } label: {
                     HStack {
                         Text(selectedLabel)
@@ -2372,6 +2356,14 @@ struct CharacterRoleCard: View {
                     .padding(.vertical, 6)
                     .background(Color(.systemGray5))
                     .cornerRadius(6)
+                }
+                .popover(isPresented: $showVoicePicker, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                    VoicePickerPopover(
+                        availableVoices: availableVoices,
+                        selection: $voice,
+                        onSelect: nil
+                    )
+                    .presentationCompactAdaptation(.popover)
                 }
 
                 Button {
@@ -2463,6 +2455,62 @@ struct CharacterRoleCard: View {
         } message: {
             Text("将删除 \(segmentCount) 个相关片段，不可撤销。")
         }
+    }
+}
+
+}
+}
+
+private extension CharacterSet {
+    static let urlQueryParameterAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove("&")
+        allowed.remove("+")
+        return allowed
+    }()
+}
+
+/// 通用的音色选择弹出菜单（列表中直接显示性别标签）
+struct VoicePickerPopover: View {
+    let availableVoices: [EdgeVoiceInfo]
+    @Binding var selection: String
+    let onSelect: ((String) -> Void)?
+    
+    var body: some View {
+        List {
+            Button {
+                selection = ""
+            } label: {
+                HStack {
+                    Text("自动")
+                    if selection.isEmpty { Image(systemName: "checkmark") }
+                }
+            }
+            ForEach(availableVoices) { v in
+                Button {
+                    selection = v.id
+                    onSelect?(v.id)
+                } label: {
+                    HStack {
+                        Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
+                            .font(.subheadline)
+                        Text(v.gender == "Male" ? "♂" : "♀")
+                            .font(.caption2)
+                            .foregroundColor(v.gender == "Male" ? .blue : .pink)
+                        if selection == v.id { Spacer(); Image(systemName: "checkmark") }
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 300, maxWidth: 400)
+    }
+    
+    private var selectedLabel: String {
+        guard !selection.isEmpty else { return "自动" }
+        let base = TTSView.shortVoiceLabel(selection, name: TTSView.chineseVoiceName(for: selection))
+        let g = availableVoices.first(where: { $0.id == selection })?.gender ?? ""
+        let icon = g == "Male" ? " ♂" : (g == "Female" ? " ♀" : "")
+        return base + icon
     }
 }
 
