@@ -1258,7 +1258,7 @@ private actor StatusTracker {
 
     @ViewBuilder
     private func roleCardsView(speakers: [String], allSpeakers: [String]) -> some View {
-        ForEach(speakers.prefix(10), id: \.self) { speaker in
+        ForEach(Array(speakers.prefix(10)), id: \.self) { speaker in
             let aliases = aliasesOf(speaker)
             let speakerSegments = customWorkerSegments.filter { aliases.contains($0.speaker) || $0.speaker == speaker }
             let segmentCount = speakerSegments.count
