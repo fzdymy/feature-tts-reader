@@ -175,8 +175,8 @@ struct CharacterAssignmentPanel: View {
             if let alias = profile.aliases.first {
                 Text("(\(alias))").font(.system(size: 9)).foregroundColor(.orange)
             }
-            if !profile.voice.isEmpty {
-                let voiceName = store.voices.first(where: { $0.id == profile.voice })?.name ?? profile.voice
+            if !profile.voiceID.isEmpty {
+                let voiceName = store.voices.first(where: { $0.id == profile.voiceID })?.name ?? profile.voiceID
                 Text(voiceName).font(.system(size: 10)).lineLimit(1)
             } else {
                 Text("未分配音色").font(.system(size: 9)).foregroundColor(.secondary)
@@ -391,7 +391,7 @@ struct CharacterAssignmentPanel: View {
             store.statusMessage = "正在生成试听..."
             let sampleText = "你好，我是\(profile.name)。"
             do {
-                let audioData = try await EdgeTTSService.shared.synthesize(text: sampleText, voice: profile.voice.isEmpty ? nil : profile.voice)
+                let audioData = try await EdgeTTSService.shared.synthesize(text: sampleText, voice: profile.voiceID.isEmpty ? nil : profile.voiceID)
                 let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("sample-\(UUID().uuidString).\(ext)")
                 try audioData.write(to: url, options: .atomic)

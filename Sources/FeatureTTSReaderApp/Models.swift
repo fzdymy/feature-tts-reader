@@ -89,47 +89,47 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
     let id: UUID
     var name: String
     var aliases: [String]
-    var gender: String
+    var gender: CharacterGender
     var age: String
     var tone: String
-    var voice: String
+    var voiceID: String
     var rate: Int
     var pitch: Int
     var style: String
     var sensitivity: Int
     var isNarrator: Bool = false
     var role: CharacterRole = .character
-    var frequency: Int = 0
+    var appearanceCount: Int = 0
     var bookID: UUID?
-    var preferredRate: Int = 0
-    var preferredPitch: Int = 0
+    var preferredRate: Double?
+    var preferredPitch: Double?
 
     var info: String {
-        [gender, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
+        [gender.rawValue, age, tone].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    init(id: UUID, name: String, aliases: [String] = [], gender: String, age: String, tone: String, voice: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, frequency: Int = 0, bookID: UUID? = nil, preferredRate: Int = 0, preferredPitch: Int = 0) {
+    init(id: UUID, name: String, aliases: [String] = [], gender: CharacterGender, age: String, tone: String, voiceID: String, rate: Int, pitch: Int, style: String, sensitivity: Int, isNarrator: Bool = false, role: CharacterRole = .character, appearanceCount: Int = 0, bookID: UUID? = nil, preferredRate: Double? = nil, preferredPitch: Double? = nil) {
         self.id = id
         self.name = name
         self.aliases = aliases
         self.gender = gender
         self.age = age
         self.tone = tone
-        self.voice = voice
+        self.voiceID = voiceID
         self.rate = rate
         self.pitch = pitch
         self.style = style
         self.sensitivity = sensitivity
         self.isNarrator = isNarrator
         self.role = role
-        self.frequency = frequency
+        self.appearanceCount = appearanceCount
         self.bookID = bookID
         self.preferredRate = preferredRate
         self.preferredPitch = preferredPitch
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, aliases, gender, age, tone, voice, rate, pitch, style, sensitivity, isNarrator, role, frequency, bookID, preferredRate, preferredPitch
+        case id, name, aliases, gender, age, tone, voiceID, rate, pitch, style, sensitivity, isNarrator, role, appearanceCount, bookID, preferredRate, preferredPitch
     }
 
     init(from decoder: Decoder) throws {
@@ -137,20 +137,20 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
-        gender = try c.decode(String.self, forKey: .gender)
+        gender = try c.decodeIfPresent(CharacterGender.self, forKey: .gender) ?? .unknown
         age = try c.decode(String.self, forKey: .age)
         tone = try c.decode(String.self, forKey: .tone)
-        voice = try c.decode(String.self, forKey: .voice)
+        voiceID = try c.decode(String.self, forKey: .voiceID)
         rate = try c.decode(Int.self, forKey: .rate)
         pitch = try c.decode(Int.self, forKey: .pitch)
         style = try c.decode(String.self, forKey: .style)
         sensitivity = try c.decode(Int.self, forKey: .sensitivity)
         isNarrator = try c.decodeIfPresent(Bool.self, forKey: .isNarrator) ?? false
         role = try c.decodeIfPresent(CharacterRole.self, forKey: .role) ?? .character
-        frequency = try c.decodeIfPresent(Int.self, forKey: .frequency) ?? 0
+        appearanceCount = try c.decodeIfPresent(Int.self, forKey: .appearanceCount) ?? 0
         bookID = try c.decodeIfPresent(UUID.self, forKey: .bookID)
-        preferredRate = try c.decodeIfPresent(Int.self, forKey: .preferredRate) ?? 0
-        preferredPitch = try c.decodeIfPresent(Int.self, forKey: .preferredPitch) ?? 0
+        preferredRate = try c.decodeIfPresent(Double.self, forKey: .preferredRate)
+        preferredPitch = try c.decodeIfPresent(Double.self, forKey: .preferredPitch)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -161,18 +161,24 @@ struct CharacterProfile: Identifiable, Hashable, Codable {
         try c.encode(gender, forKey: .gender)
         try c.encode(age, forKey: .age)
         try c.encode(tone, forKey: .tone)
-        try c.encode(voice, forKey: .voice)
+        try c.encode(voiceID, forKey: .voiceID)
         try c.encode(rate, forKey: .rate)
         try c.encode(pitch, forKey: .pitch)
         try c.encode(style, forKey: .style)
         try c.encode(sensitivity, forKey: .sensitivity)
         try c.encode(isNarrator, forKey: .isNarrator)
         try c.encode(role, forKey: .role)
-        try c.encode(frequency, forKey: .frequency)
+        try c.encode(appearanceCount, forKey: .appearanceCount)
         try c.encodeIfPresent(bookID, forKey: .bookID)
-        try c.encode(preferredRate, forKey: .preferredRate)
-        try c.encode(preferredPitch, forKey: .preferredPitch)
+        try c.encodeIfPresent(preferredRate, forKey: .preferredRate)
+        try c.encodeIfPresent(preferredPitch, forKey: .preferredPitch)
     }
+}
+
+enum CharacterGender: String, Codable, CaseIterable {
+    case male = "Male"
+    case female = "Female"
+    case unknown = "Unknown"
 }
 
 enum CharacterRole: String, Codable, CaseIterable {

@@ -90,7 +90,7 @@ struct CharacterEditorView: View {
                 let text = "我是\(profile.name)，TTS多角色小说阅读器听《\(store.books.first?.title ?? "未知书籍")》真爽。"
                 // Skip voice if it looks like an Azure ID (e.g., "XiaoxiaoNeural" without zh prefix)
                 let voice: String? = {
-                    let v = profile.voice
+                    let v = profile.voiceID
                     guard !v.isEmpty else { return nil }
                     if v.contains("zh-") || v.hasSuffix("Neural") { return v }
                     return nil

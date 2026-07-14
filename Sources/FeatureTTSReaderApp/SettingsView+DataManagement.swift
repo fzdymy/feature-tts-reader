@@ -21,7 +21,7 @@ extension SettingsView {
                 readerFontSize: store.readerFontSize,
                 readerLineSpacing: store.readerLineSpacing,
                 readerTheme: store.readerTheme,
-                defaultVoice: store.characters.first?.voice ?? "",
+                defaultVoice: store.characters.first?.voiceID ?? "",
                 defaultRate: store.defaultRate,
                 defaultPitch: store.defaultPitch,
                 defaultStyle: store.defaultStyle,

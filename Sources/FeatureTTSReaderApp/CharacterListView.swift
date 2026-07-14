@@ -163,7 +163,7 @@ private struct CharacterRow: View {
                             .foregroundColor(character.gender == "Male" ? .blue : .pink)
                     }
                 }
-                Text(character.voice.isEmpty ? "未分配" : character.voice)
+                Text(character.voiceID.isEmpty ? "未分配" : character.voiceID)
                     .font(.caption2).foregroundColor(.secondary)
                     .lineLimit(1)
             }
@@ -180,9 +180,9 @@ private struct CharacterRow: View {
                 if !availableVoices.isEmpty {
                     VoicePickerPopover(availableVoices: availableVoices,
                         selection: Binding(
-                            get: { character.voice },
+                            get: { character.voiceID },
                             set: { newVoice in
-                                guard newVoice != character.voice else { return }
+                                guard newVoice != character.voiceID else { return }
                                 pendingVoiceChange = (speaker: character.name, newVoice: newVoice)
                                 showVoiceChangeActionSheet = true
                             }
@@ -215,14 +215,14 @@ private struct CharacterRow: View {
             Button("仅对后续段落生效") {
                 if let change = pendingVoiceChange {
                     var c = character
-                    c.voice = change.newVoice
+                    c.voiceID = change.newVoice
                     onUpdate(c)
                 }
             }
             Button("重新合成待播段", role: .destructive) {
                 if let change = pendingVoiceChange {
                     var c = character
-                    c.voice = change.newVoice
+                    c.voiceID = change.newVoice
                     onUpdate(c)
                     resynthesizingSpeaker = change.speaker
                 }

@@ -511,7 +511,7 @@ struct ReaderView: View {
                                     .cornerRadius(4)
                             }
                         }
-                        Text(character.voice)
+                        Text(character.voiceID)
                             .font(.caption2).foregroundColor(.secondary)
                             .lineLimit(1)
                     }

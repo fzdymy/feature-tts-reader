@@ -559,7 +559,7 @@ final class ReaderStore: NSObject, ObservableObject {
             readerFontSize: readerFontSize,
             readerLineSpacing: readerLineSpacing,
             readerTheme: readerTheme,
-            defaultVoice: characters.first?.voice ?? "",
+            defaultVoice: characters.first?.voiceID ?? "",
             defaultRate: characters.first?.rate ?? 0,
             defaultPitch: characters.first?.pitch ?? 0,
             defaultStyle: characters.first?.style ?? "neutral",
@@ -1127,8 +1127,8 @@ final class ReaderStore: NSObject, ObservableObject {
                 // Assign voices
                 var final = profiles.map { profile in
                     var p = profile
-                    if p.voice.isEmpty {
-                        p.voice = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
+                    if p.voiceID.isEmpty {
+                        p.voiceID = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
                     }
                     return p
                 }
@@ -1216,7 +1216,7 @@ final class ReaderStore: NSObject, ObservableObject {
         isBusy = true
         let text = "你好，我是 \(profile.name)，这是我的声音示例。"
         do {
-            let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: profile.voice.isEmpty ? nil : profile.voice)
+            let audioData = try await EdgeTTSService.shared.synthesize(text: text, voice: profile.voiceID.isEmpty ? nil : profile.voiceID)
             let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
             let ext = EdgeTTSService.isMP3Data(audioData) ? "mp3" : "wav"
             let audioURL = cachesDir.appendingPathComponent("preview-\(UUID().uuidString).\(ext)")
@@ -1232,8 +1232,8 @@ final class ReaderStore: NSObject, ObservableObject {
     func applyRecommendationsToUnmapped() {
         for rec in recommendations {
             if let idx = characters.firstIndex(where: { $0.id == rec.profile.id }) {
-                if characters[idx].voice.isEmpty {
-                    characters[idx].voice = ""
+                if characters[idx].voiceID.isEmpty {
+                    characters[idx].voiceID = ""
                 }
             }
         }
@@ -1601,7 +1601,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
             pendingUnits.append(PendingUnit(
                 sentence: sentence, characterName: canonical, speakerID: speakerID,
-                voice: (profile?.voice.isEmpty == false) ? profile?.voice : nil,
+                voice: (profile?.voiceID.isEmpty == false) ? profile?.voiceID : nil,
                 rate: Double(profile?.rate ?? 0), pitch: Double(profile?.pitch ?? 0),
                 emotionTag: refined.emotionTag,
                 paragraphIndex: pIdx, sentenceIndex: sIdx
@@ -1620,7 +1620,7 @@ final class ReaderStore: NSObject, ObservableObject {
         // 立即预取前 N 句（HTTP 并行发出，不等响应）
         for i in 0..<min(prefetchWindowSize, pendingUnits.count) {
             let u = pendingUnits[i]
-            await prefetcher.prefetch(index: i, text: u.sentence, voice: u.voice,
+            await prefetcher.prefetch(index: i, text: u.sentence, voice: u.voiceID,
                                 rate: u.rate, pitch: u.pitch, style: u.emotionTag)
         }
 
@@ -1634,7 +1634,7 @@ final class ReaderStore: NSObject, ObservableObject {
             let nextIndex = index + prefetchWindowSize
             if nextIndex < pendingUnits.count {
                 let nu = pendingUnits[nextIndex]
-                await prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voice,
+                await prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voiceID,
                                     rate: nu.rate, pitch: nu.pitch, style: nu.emotionTag)
             }
             guard let audioData = audioData else { continue }
@@ -1645,7 +1645,7 @@ final class ReaderStore: NSObject, ObservableObject {
             )
             let seg = ScriptSegment(
                 id: UUID(), characterName: u.characterName,
-                voice: u.voice ?? "", rate: Int(u.rate), pitch: Int(u.pitch), style: u.emotionTag,
+                voice: u.voiceID ?? "", rate: Int(u.rate), pitch: Int(u.pitch), style: u.emotionTag,
                 text: u.sentence, paragraphIndex: u.paragraphIndex
             )
             // S16: 内存 Data 播放，不再写临时文件
@@ -2394,19 +2394,19 @@ final class ReaderStore: NSObject, ObservableObject {
                     let toneResult = sharedAnalyzer.analyzeSentenceTone(chunk)
                     var profile = speakerProfile ?? CharacterProfile(id: UUID(), name: part.speaker, gender: "未知", age: "未知", tone: toneResult.style, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
 
-                    if profile.voice.isEmpty && speakerProfile == nil {
+                    if profile.voiceID.isEmpty && speakerProfile == nil {
                         let isMale = guessGender(from: part.speaker)
                         if isMale, !defaultMaleVoiceID.isEmpty {
-                            profile.voice = defaultMaleVoiceID
+                            profile.voiceID = defaultMaleVoiceID
                         } else if !isMale, !defaultFemaleVoiceID.isEmpty {
-                            profile.voice = defaultFemaleVoiceID
+                            profile.voiceID = defaultFemaleVoiceID
                         }
                         profile.rate = defaultFallbackRateOffset
                         profile.pitch = defaultFallbackPitchOffset
                         profile.style = defaultFallbackStyle
                     }
-                    if profile.voice.isEmpty {
-                        profile.voice = defaultVoice(for: profile.gender, tone: toneResult.style, name: profile.name, voices: voices)
+                    if profile.voiceID.isEmpty {
+                        profile.voiceID = defaultVoice(for: profile.gender, tone: toneResult.style, name: profile.name, voices: voices)
                     }
 
                     let sensitivityValue = (profile.sensitivity > 0) ? profile.sensitivity : defaultSensitivity
@@ -2426,7 +2426,7 @@ final class ReaderStore: NSObject, ObservableObject {
                     segments.append(ScriptSegment(
                         id: UUID(),
                         characterName: profile.name,
-                        voice: profile.voice,
+                        voice: profile.voiceID,
                         rate: finalRate,
                         pitch: finalPitch,
                         style: finalStyle,
