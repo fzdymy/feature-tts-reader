@@ -478,25 +478,244 @@ Picker("发音人", selection: $testVoice) {
     // MARK: - Custom Multi-Role Section
 
     private var customMultiRoleSection: some View {
-        CustomMultiRoleSection(
-            customMultiRoleText: $customMultiRoleText,
-            customWorkerSegments: $customWorkerSegments,
-            customCharacterVoices: $customCharacterVoices,
-            characterAliases: $characterAliases,
-            characterResynthesisStates: $characterResynthesisStates,
-            customSynthesisResult: $customSynthesisResult,
-            isProcessingWorker: $isProcessingWorker,
-            isSynthesizingCustom: $isSynthesizingCustom,
-            workerProgress: $workerProgress,
-            workerProgressMessage: $workerProgressMessage,
-            availableVoices: availableVoices,
-            selectedServerID: selectedServerID,
-            selectedWorkerID: selectedWorkerID,
-            aiWorkerConfigs: aiWorkerConfigs,
-            onProcessWithWorker: processCustomWithWorker,
-            onSynthesizeAndPlay: synthesizeAndPlayCustom,
-            onParseOnly: parseCustomWithWorker
-        )
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("粘贴或输入小说文本（AI Worker 解析角色、情绪、语气、流水合成播放）", text: $customMultiRoleText, axis: .vertical)
+                    .font(.subheadline)
+                    .lineLimit(4...8)
+                    .padding(8)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
+
+                // 处理状态（不遮盖角色卡）
+                if isProcessingWorker || isSynthesizingCustom {
+                    VStack(spacing: 8) {
+                        ProgressView(value: workerProgress) {
+                            Text(workerProgressMessage)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                }
+
+                // 角色卡 — 只要 segments 存在就永远显示，不因合成/播放状态消失
+                if !customWorkerSegments.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("解析到 \(customWorkerSegments.count) 个片段，\(Set(customWorkerSegments.map { $0.speaker }).count) 个角色")
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.secondary)
+
+                        let speakers: [String] = {
+                            var freq: [String: Int] = [:]
+                            for s in customWorkerSegments {
+                                let main = resolveAlias(s.speaker)
+                                freq[main, default: 0] += 1
+                            }
+                            var sorted = freq.keys.sorted { freq[$0, default: 0] > freq[$1, default: 0] }
+                            if let idx = sorted.firstIndex(of: "旁白") {
+                                sorted.remove(at: idx)
+                                sorted.insert("旁白", at: 0)
+                            }
+                            return sorted
+                        }()
+                        let allSpeakers = speakers  // 完整的角色列表（用于合并菜单）
+                        ForEach(speakers.prefix(10), id: \.self) { speaker in
+                            let aliases = aliasesOf(speaker)
+                            let speakerSegments = customWorkerSegments.filter { aliases.contains($0.speaker) || $0.speaker == speaker }
+                            let segmentCount = speakerSegments.count
+                            let emotions = speakerSegments.map { $0.emotion }
+                            let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
+                            let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
+                            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender)
+                            let autoVoiceID = TTSView.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
+                            CharacterRoleCard(
+                                speaker: speaker,
+                                aliases: aliases,
+                                segmentCount: segmentCount,
+                                emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
+                                gender: resolvedGender,
+                                autoMatchedVoiceID: autoVoiceID,
+                                voice: Binding(
+                                    get: { voiceForSpeaker(speaker) },
+                                    set: { customCharacterVoices[speaker] = $0 }
+                                ),
+                                isResynthesizing: characterResynthesisStates[speaker] ?? false,
+                                availableVoices: availableVoices.filter { $0.locale.hasPrefix("zh-CN") },
+                                onResynthesize: { resynthesizeCharacter(speaker) },
+                                onMerge: { target in mergeCharacter(speaker, into: target) },
+                                onSplit: { alias in splitCharacter(alias) },
+                                onDelete: { deleteCharacter(speaker) },
+                                onRename: { newName in renameCharacter(speaker, to: newName) },
+                                otherSpeakers: allSpeakers.filter { $0 != speaker }
+                            )
+                        }
+                    }
+                }
+
+                // 说话人分析与发送配置预览
+                if !customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    customSpeakerAnalysisSection
+                }
+
+                // 全局语速、音量滑块
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "speedometer")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("语速")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(multiRoleGlobalRate))")
+                            .font(.caption.monospaced())
+                            .frame(width: 24)
+                    }
+                    Slider(value: $multiRoleGlobalRate, in: -10...10, step: 1)
+                }
+                .padding(.vertical, 4)
+
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("音量")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(globalVolumeOffset))")
+                            .font(.caption.monospaced())
+                            .frame(width: 24)
+                    }
+                    Slider(value: $globalVolumeOffset, in: -10...10, step: 1)
+                }
+                .padding(.vertical, 4)
+
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "waveform.path.ecg")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text("重叠(ms)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(globalOverlapMs))")
+                            .font(.caption.monospaced())
+                            .frame(width: 48)
+                    }
+                    Slider(value: $globalOverlapMs, in: 0...500, step: 10)
+                }
+                .padding(.vertical, 4)
+
+                // 控制按钮
+                VStack(spacing: 8) {
+                    // ① 仅解析
+                    Button {
+                        parseCustomWithWorker()
+                    } label: {
+                        HStack {
+                            if isProcessingWorker {
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
+                            }
+                            Label("解析", systemImage: "brain.head.profile")
+                                .fixedSize()
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isProcessingWorker || isSynthesizingCustom || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil)
+
+                    // ② 流式播放（使用已解析片段 + 角色卡当前音色）
+                    Button {
+                        synthesizeAndPlayCustom()
+                    } label: {
+                        HStack {
+                            if isSynthesizingCustom {
+                                ProgressView()
+                                    .frame(width: 14, height: 14)
+                            }
+                            Label("流式播放", systemImage: "play.circle.fill")
+                                .fixedSize()
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isProcessingWorker || isSynthesizingCustom || customWorkerSegments.isEmpty || selectedServerID == nil)
+
+                    if !customSynthesisResult.isEmpty {
+                        let isSuccess = customSynthesisResult.hasPrefix("已入队") || customSynthesisResult.contains("播放")
+                        HStack {
+                            Image(systemName: isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(isSuccess ? .green : .red)
+                            Text(customSynthesisResult)
+                                .font(.caption)
+                            Spacer()
+                        }
+                    }
+
+                    // 播放控制（队列有内容时稳定显示，不闪烁）
+                    if store.audioController.queueCount > 0 || store.audioController.isPlaying {
+                        HStack {
+                            Button {
+                                store.audioController.pause()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Label("暂停", systemImage: "pause.circle.fill")
+                                        .fixedSize()
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                store.audioController.resume()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Label("继续", systemImage: "play.circle.fill")
+                                        .fixedSize()
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                store.audioController.stop()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Label("停止", systemImage: "stop.circle.fill")
+                                        .fixedSize()
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+
+                    Divider()
+                        .padding(.vertical, 2)
+
+                    // ③ 一站式：AI 解析并流式播放（原合并按钮）
+                    Button {
+                        processCustomWithWorker()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Label("AI 解析并流式播放", systemImage: "wand.and.stars")
+                                .fixedSize()
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isProcessingWorker || isSynthesizingCustom || customMultiRoleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || getSelectedWorkerConfig() == nil || selectedServerID == nil)
+                }
+            }
+        } header: {
+            Label("自定义多角色测试", systemImage: "text.bubble.fill")
+        }
     }
 
     // MARK: - Actor 并发保序合成缓冲
@@ -506,7 +725,7 @@ Picker("发音人", selection: $testVoice) {
         init(_ controller: AdvancedAudioPlaybackController?) { self.controller = controller }
     }
 
-    private actor StatusTracker {
+private actor StatusTracker {
         var isFirst = true
         var hasMarked = false
         func markFirst() -> Bool {
@@ -1998,6 +2217,256 @@ struct WorkerEditView: View {
         }
     }
 }
+
+struct CharacterRoleCard: View {
+    let speaker: String
+    let aliases: [String]
+    let segmentCount: Int
+    let emotionSummary: String?
+    let gender: Gender
+    let autoMatchedVoiceID: String
+    @Binding var voice: String
+    let isResynthesizing: Bool
+    let availableVoices: [EdgeVoiceInfo]
+    let onResynthesize: () -> Void
+    let onMerge: (String) -> Void
+    let onSplit: ((String) -> Void)?
+    let onDelete: () -> Void
+    let onRename: (String) -> Void
+    let otherSpeakers: [String]
+
+    @State private var showRenameAlert = false
+    @State private var renameText = ""
+    @State private var showMergePicker = false
+    @State private var showDeleteConfirm = false
+    @State private var showVoicePicker = false
+
+    private var selectedLabel: String {
+        guard !voice.isEmpty else { return "自动" }
+        let base = TTSView.shortVoiceLabel(voice, name: TTSView.chineseVoiceName(for: voice))
+        let g = availableVoices.first(where: { $0.id == voice })?.gender ?? ""
+        let icon = g == "Male" ? " ♂" : (g == "Female" ? " ♀" : "")
+        return base + icon
+    }
+
+    private var genderLabel: (String, String, Color)? {
+        switch gender {
+        case .male: return ("♂", "男", .blue)
+        case .female: return ("♀", "女", .pink)
+        case .unknown: return nil
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: speaker == "旁白" ? "person.fill" : "person.2.fill")
+                    .font(.caption)
+                    .foregroundColor(speaker == "旁白" ? .blue : .orange)
+                Text(speaker)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if let (symbol, label, color) = genderLabel {
+                    Text("\(symbol)\(label)")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(color)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(color.opacity(0.15))
+                        .cornerRadius(4)
+                }
+                Spacer()
+                Text("\(segmentCount) 段")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(4)
+            }
+
+            // 别名子标签
+            if !aliases.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    Text("别名: ")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    + Text(aliases.joined(separator: "、"))
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+if let emotionSummary {
+                Text(emotionSummary)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            
+            HStack(spacing: 8) {
+                Button {
+                    showVoicePicker.toggle()
+                } label: {
+                    HStack {
+                        Text(selectedLabel)
+                            .font(.subheadline)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(6)
+                }
+                .popover(isPresented: $showVoicePicker, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                    VoicePickerPopover(
+                        availableVoices: availableVoices,
+                        selection: $voice,
+                        onSelect: nil
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
+
+                Button {
+                    onResynthesize()
+                } label: {
+                    if isResynthesizing {
+                        ProgressView()
+                            .frame(width: 14, height: 14)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.caption)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            // 自动推荐音色名
+            if voice.isEmpty, !autoMatchedVoiceID.isEmpty {
+                let recGender = availableVoices.first(where: { $0.id == autoMatchedVoiceID })?.gender ?? ""
+                let recIcon = recGender == "Male" ? " ♂" : (recGender == "Female" ? " ♀" : "")
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkle.magnifyingglass")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    Text("推荐: ")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    + Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)) + recIcon)
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.accentColor)
+                }
+                HStack(spacing: 4) {
+                    Text("")
+                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)) + recIcon)
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
+            }
+        }
+        .padding(8)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+        .contentShape(Rectangle())
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                Button("重命名", systemImage: "pencil") {
+                    renameText = speaker
+                    showRenameAlert = true
+                }
+                if !aliases.isEmpty, let onSplit {
+                    ForEach(aliases, id: \.self) { alias in
+                        Button { onSplit(alias) } label: {
+                            Label("分离「\(alias)」", systemImage: "arrow.triangle.branch")
+                        }
+                    }
+                }
+                if !otherSpeakers.isEmpty {
+                    Menu("合并到...") {
+                        ForEach(otherSpeakers, id: \.self) { target in
+                            Button("\(target)") { onMerge(target) }
+                        }
+                    }
+                }
+                Divider()
+                Button("删除角色", systemImage: "trash", role: .destructive) {
+                    showDeleteConfirm = true
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+        }
+        .alert("重命名角色", isPresented: $showRenameAlert) {
+            TextField("新名称", text: $renameText)
+            Button("取消", role: .cancel) {}
+            Button("确定") {
+                onRename(renameText)
+            }
+        } message: {
+            Text("将「\(speaker)」重命名为：")
+        }
+        .confirmationDialog("确定删除「\(speaker)」？", isPresented: $showDeleteConfirm) {
+            Button("删除", role: .destructive) { onDelete() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将删除 \(segmentCount) 个相关片段，不可撤销。")
+        }
+    }
+}
+/// 通用的音色选择弹出菜单（列表中直接显示性别标签）
+struct VoicePickerPopover: View {
+    let availableVoices: [EdgeVoiceInfo]
+    @Binding var selection: String
+    let onSelect: ((String) -> Void)?
+    
+    var body: some View {
+        List {
+            Button {
+                selection = ""
+            } label: {
+                HStack {
+                    Text("自动")
+                    if selection.isEmpty { Image(systemName: "checkmark") }
+                }
+            }
+            ForEach(availableVoices) { v in
+                Button {
+                    selection = v.id
+                    onSelect?(v.id)
+                } label: {
+                    HStack {
+                        Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
+                            .font(.subheadline)
+                        Text(v.gender == "Male" ? "♂" : "♀")
+                            .font(.caption2)
+                            .foregroundColor(v.gender == "Male" ? .blue : .pink)
+                        if selection == v.id { Spacer(); Image(systemName: "checkmark") }
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 300, maxWidth: 400)
+    }
+    
+    private var selectedLabel: String {
+        guard !selection.isEmpty else { return "自动" }
+        let base = TTSView.shortVoiceLabel(selection, name: TTSView.chineseVoiceName(for: selection))
+        let g = availableVoices.first(where: { $0.id == selection })?.gender ?? ""
+        let icon = g == "Male" ? " ♂" : (g == "Female" ? " ♀" : "")
+        return base + icon
+    }
+}
+
 private extension CharacterSet {
     static let urlQueryParameterAllowed: CharacterSet = {
         var allowed = CharacterSet.urlQueryAllowed
