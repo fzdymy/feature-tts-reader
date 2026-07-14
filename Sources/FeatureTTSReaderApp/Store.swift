@@ -1796,9 +1796,9 @@ final class ReaderStore: NSObject, ObservableObject {
             guard let self else { return }
             let shouldPlayFirst = await buffer.markFirstPlayed()
             if shouldPlayFirst {
-                audioController.playQueue(readyItems)
+                await audioController.playQueue(readyItems)
             } else {
-                audioController.appendToQueue(readyItems)
+                await audioController.appendToQueue(readyItems)
             }
         }
 
