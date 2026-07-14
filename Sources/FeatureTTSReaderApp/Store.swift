@@ -2026,6 +2026,21 @@ final class ReaderStore: NSObject, ObservableObject {
 
         guard !Task.isCancelled else { return }
 
+        // Start cross-chapter prefetch monitor: trigger next chapter when queue at ~20%
+        let prefetchTask = Task.detached { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                let queueCount = await MainActor.run { self.audioController.queueCount }
+                let isPlaying = await MainActor.run { self.audioController.isPlaying }
+                if isPlaying && queueCount <= 3 {
+                    await self.prefetchNextChapter()
+                    break
+                }
+                if !isPlaying { break }
+            }
+        }
+
         // Wait for playback completion
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             if !audioController.isPlaying { cont.resume(); return }
@@ -2182,6 +2197,30 @@ final class ReaderStore: NSObject, ObservableObject {
         
         // Clear the trigger
         await MainActor.run { self.resynthesizingSpeaker = nil }
+    }
+
+    /// 跨章节预取：当当前章节队列剩余 ≤3 段时，后台预解析下一章
+    private func prefetchNextChapter() async {
+        guard let currentID = selectedChapterID,
+              let currentIndex = chapters.firstIndex(where: { $0.id == currentID }),
+              currentIndex + 1 < chapters.count else { return }
+        
+        let nextChapter = chapters[currentIndex + 1]
+        
+        // Check if already cached
+        let hasCache = await aiParseCache.getSegments(chapter: nextChapter) != nil
+        if hasCache { return }
+        
+        // Prefetch: trigger AI parse in background (fire-and-forget)
+        Task.detached { [weak self] in
+            guard let self else { return }
+            let workerConfig = await self.workerRotator.next(chapterIndex: currentIndex + 1)
+            guard let config = workerConfig else { return }
+            _ = try? await AIWorkerService.shared.processChapter(
+                text: nextChapter.text, config: config,
+                progress: { _, _ in }
+            )
+        }
     }
 
     /// 合并说话人/情绪/语气相同的连续段落
