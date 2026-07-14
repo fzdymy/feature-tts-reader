@@ -1061,7 +1061,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 默认中文音色（服务器 voices 为空时的兜底，覆盖全部 Azure zh-CN 音色）
-    private static let defaultChineseVoices: [EdgeVoiceInfo] = [
+    private nonisolated(unsafe) static let defaultChineseVoices: [EdgeVoiceInfo] = [
         EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
         EdgeVoiceInfo(id: "zh-CN-XiaochenNeural", name: "晓辰", gender: "Female", locale: "zh-CN"),
         EdgeVoiceInfo(id: "zh-CN-XiaohanNeural", name: "晓涵", gender: "Female", locale: "zh-CN"),
