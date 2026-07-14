@@ -2241,7 +2241,7 @@ group.addTask {
         let newVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: genderForVoice, availableVoices: availableVoices)
 
         // 4. 重新合成每个项
-        let serverID = await EdgeTTSService.shared.fastestServer()?.id ?? ""
+        let serverID = await EdgeTTSService.shared.fastestServer()?.id.uuidString ?? ""
         var newItems: [TTSQueueItem] = []
 
         for item in removedItems {
