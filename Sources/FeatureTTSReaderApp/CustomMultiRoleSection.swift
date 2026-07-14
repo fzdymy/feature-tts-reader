@@ -304,26 +304,27 @@ struct CustomMultiRoleSection: View {
                     }
                     
                     let segments = buildSegmentsPreview(from: customWorkerSegments)
-                    if !segments.isEmpty {
-                        Divider().padding(.vertical, 4)
-                        Text("原文分段预览")
-                            .font(.caption2.weight(.medium))
-                            .foregroundColor(.secondary)
-                        ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
-                            HStack(alignment: .top, spacing: 4) {
-                                Text("\(idx + 1).")
-                                    .font(.caption2.monospaced())
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 20, alignment: .trailing)
-                                Text("【\(seg.speaker)】\(seg.text)")
-                                    .font(.caption2)
-                                    .lineLimit(2)
-                                    .foregroundColor(seg.speaker == "旁白" ? .secondary : .primary)
+                    if !customWorkerSegments.isEmpty {
+                        if !segments.isEmpty {
+                            Divider().padding(.vertical, 4)
+                            Text("原文分段预览")
+                                .font(.caption2.weight(.medium))
+                                .foregroundColor(.secondary)
+                            ForEach(Array(segments.enumerated()), id: \.offset) { idx, seg in
+                                HStack(alignment: .top, spacing: 4) {
+                                    Text("\(idx + 1).")
+                                        .font(.caption2.monospaced())
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 20, alignment: .trailing)
+                                    Text("【\(seg.speaker)】\(seg.text)")
+                                        .font(.caption2)
+                                        .lineLimit(2)
+                                        .foregroundColor(seg.speaker == "旁白" ? .secondary : .primary)
+                                }
+                                .textSelection(.enabled)
                             }
-                            .textSelection(.enabled)
                         }
-                    }
-                } else {
+                    } else {
                     let analyzer = CharacterAnalyzer()
                     let dialogues = analyzer.detectDialogues(in: customMultiRoleText)
                     let simpleMap = buildSimpleSpeakerMap(from: dialogues)
