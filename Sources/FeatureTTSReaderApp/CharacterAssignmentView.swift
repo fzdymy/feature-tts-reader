@@ -319,15 +319,15 @@ struct CharacterAssignmentPanel: View {
             }
 
             if inferred.isEmpty {
-                inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: "未知",
-                    age: "未知", tone: "平稳", voice: "", rate: 0, pitch: 0, style: "neutral",
-                    sensitivity: defaultSensitivity, frequency: 1, bookID: book.id)]
+                inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: .unknown,
+                    age: "未知", tone: "平稳", voiceID: "", rate: 0, pitch: 0, style: "neutral",
+                    sensitivity: defaultSensitivity, appearanceCount: 1, bookID: book.id)]
             } else if !inferred.contains(where: { $0.isNarrator }) {
                 inferred.insert(CharacterProfile(
-                    id: UUID(), name: "旁白", aliases: [], gender: "未知", age: "未知", tone: "平稳",
-                    voice: "", rate: 0, pitch: 0, style: "neutral",
+                    id: UUID(), name: "旁白", aliases: [], gender: .unknown, age: "未知", tone: "平稳",
+                    voiceID: "", rate: 0, pitch: 0, style: "neutral",
                     sensitivity: defaultSensitivity, isNarrator: true, role: .narrator,
-                    frequency: 1, bookID: book.id
+                    appearanceCount: 1, bookID: book.id
                 ), at: 0)
             }
 

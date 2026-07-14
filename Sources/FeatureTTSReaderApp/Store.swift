@@ -1507,7 +1507,7 @@ final class ReaderStore: NSObject, ObservableObject {
             let sentence: String
             let characterName: String
             let speakerID: UUID?
-            let voice: String?
+            let voiceID: String?
             let rate: Double
             let pitch: Double
             let emotionTag: String
