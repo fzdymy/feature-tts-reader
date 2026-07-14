@@ -528,7 +528,7 @@ Picker("发音人", selection: $testVoice) {
                             let emotions = speakerSegments.map { $0.emotion }
                             let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
 let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
-            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender.map { g in
+            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender.map { (g: AIWorkerConfig.Gender) -> CharacterGender in
                 switch g {
                 case .male: return CharacterGender.male
                 case .female: return CharacterGender.female
@@ -1162,10 +1162,10 @@ private actor StatusTracker {
 
     /// 根据说话人自动匹配音色（基于性别，优先从 zh-CN 女声/男声中选择）
     /// - Note: Deprecated — use `VoiceMatchUtility.autoMatchVoice` instead.
-    static nonisolated func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
+    static nonisolated func autoMatchVoice(for speaker: String, gender: CharacterGender, availableVoices: [EdgeVoiceInfo]) -> String {
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let voices = zhVoices.isEmpty ? defaultChineseVoices : zhVoices
-        let resolved: Gender = {
+        let resolved: CharacterGender = {
             if gender != .unknown { return gender }
             return TTSView.resolveGender(speaker: speaker, aiGender: nil)
         }()
@@ -1344,7 +1344,7 @@ private actor StatusTracker {
 
     /// 根据情绪和角色名计算音调偏移
     static nonisolated func pitchOffset(for segment: AISegment, speakerName: String, preferredPitch: Double? = nil) -> Int {
-        let gender = resolveGender(speaker: speakerName, aiGender: segment.gender.map { g in
+        let gender = resolveGender(speaker: speakerName, aiGender: Optional(segment.gender).map { g in
             switch g {
             case .male: return CharacterGender.male
             case .female: return CharacterGender.female

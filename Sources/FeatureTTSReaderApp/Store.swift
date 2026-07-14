@@ -2252,8 +2252,8 @@ group.addTask {
                     rate: Double(item.segment.rate),
                     pitch: Double(item.segment.pitch),
                     style: item.segment.style,
-                    volume: item.segment.emotionTag, // 这里存的是 volume string
-                    serverID: serverID
+                    volume: "default",
+                    serverID: UUID(uuidString: serverID)
                 )
                 let newSeg = ScriptSegment(
                     id: UUID(),
