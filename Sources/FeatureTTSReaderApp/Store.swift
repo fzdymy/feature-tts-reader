@@ -1886,7 +1886,14 @@ final class ReaderStore: NSObject, ObservableObject {
                     let availableVoices = edgeVoices.isEmpty ? fallbackVoices : edgeVoices
                     for seg in segments {
                         guard voiceMap[seg.speaker] == nil else { continue }
-                        voiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
+                        let cg: CharacterGender = {
+                            switch seg.gender {
+                            case AIWorkerConfig.Gender.male: return .male
+                            case AIWorkerConfig.Gender.female: return .female
+                            case AIWorkerConfig.Gender.unknown: return .unknown
+                            }
+                        }()
+                        voiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
                     }
                 }
 
@@ -2100,7 +2107,14 @@ final class ReaderStore: NSObject, ObservableObject {
         var speakerVoiceMap: [String: String] = [:]
         for seg in segments {
             guard speakerVoiceMap[seg.speaker] == nil else { continue }
-            speakerVoiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
+            let cg: CharacterGender = {
+                switch seg.gender {
+                case AIWorkerConfig.Gender.male: return .male
+                case AIWorkerConfig.Gender.female: return .female
+                case AIWorkerConfig.Gender.unknown: return .unknown
+                }
+            }()
+            speakerVoiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
         }
 
         let mergedSegments = mergeConsecutiveAISegments(segments)

@@ -528,7 +528,7 @@ Picker("发音人", selection: $testVoice) {
                             let emotions = speakerSegments.map { $0.emotion }
                             let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
 let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
-            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender.map { (g: AIWorkerConfig.Gender) -> CharacterGender in
+            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender.map { (g: Gender) -> CharacterGender in
                 switch g {
                 case .male: return CharacterGender.male
                 case .female: return CharacterGender.female
@@ -1050,7 +1050,7 @@ private actor StatusTracker {
                 continue
             }
 
-            let gender = TTSView.resolveGender(speaker: speaker, aiGender: speakerGender[speaker].map { g in
+            let gender = TTSView.resolveGender(speaker: speaker, aiGender: speakerGender[speaker].map { (g: Gender) -> CharacterGender in
                 switch g {
                 case .male: return CharacterGender.male
                 case .female: return CharacterGender.female
@@ -1407,7 +1407,14 @@ private actor StatusTracker {
             let totalCount = allSegments.count
             let voiceIDs: [String] = allSegments.map { seg in
                 let raw = voiceForSpeaker(seg.speaker)
-                return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: voices) : raw
+                let cg: CharacterGender = {
+                    switch seg.gender {
+                    case AIWorkerConfig.Gender.male: return CharacterGender.male
+                    case AIWorkerConfig.Gender.female: return CharacterGender.female
+                    case AIWorkerConfig.Gender.unknown: return CharacterGender.unknown
+                    }
+                }()
+                return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
             }
             let audioRef = SendableStoreRef(store.audioController)
 
