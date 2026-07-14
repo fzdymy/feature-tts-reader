@@ -62,7 +62,8 @@ final class AIWorkerService {
 
     // MARK: - Private
 
-    func sliceText(_ text: String, maxChars: Int) -> [String] {
+    /// 切分文本为段落级切片
+    nonisolated func sliceText(_ text: String, maxChars: Int) -> [String] {
         let paragraphs = text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var slices: [String] = []
         var currentSlice = ""
@@ -105,7 +106,8 @@ final class AIWorkerService {
         }
     }
 
-    func sendRequest(_ request: AIWorkerRequest, config: AIWorkerConfig) async throws -> AIWorkerResult {
+    /// 发送单次 AI Worker 请求
+    nonisolated func sendRequest(_ request: AIWorkerRequest, config: AIWorkerConfig) async throws -> AIWorkerResult {
         guard let url = URL(string: config.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else {
             DebugLogger.log(flow: "ai_worker", step: "sendRequest_invalidURL", details: ["url": config.baseURL])
             throw AIWorkerError.invalidURL

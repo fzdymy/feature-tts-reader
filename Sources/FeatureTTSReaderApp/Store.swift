@@ -1748,7 +1748,6 @@ final class ReaderStore: NSObject, ObservableObject {
             var workerConfig = await workerRotator.next(chapterIndex: chapterIndex)
             if workerConfig == nil { workerConfig = defaultWorkerConfig }
             guard let workerConfig else {
-                // All workers unavailable — fallback to local parsing
                 await MainActor.run { statusMessage = "无可用 AI Worker，回退本地解析..." }
                 try? await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
                 return
@@ -1762,28 +1761,146 @@ final class ReaderStore: NSObject, ObservableObject {
             ])
 
             do {
-                aiSegments = try await AIWorkerService.shared.processChapter(
-                    text: chapter.text,
-                    config: workerConfig,
-                    progress: { @Sendable [weak self] progress, message in
-                        await MainActor.run { self?.statusMessage = message }
+                // Slice-by-slice: each slice triggers AI → segments → synthesis → appendToQueue
+                // Lazy loading: AI requests are sequential (per-slice), TTS is concurrent within slice
+                let effectiveText: String
+                if let fromParagraphIndex {
+                    let paragraphs = chapter.text.components(separatedBy: "\n")
+                        .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    let startIdx = min(fromParagraphIndex, paragraphs.count)
+                    effectiveText = paragraphs[startIdx...].joined(separator: "\n")
+                } else {
+                    effectiveText = chapter.text
+                }
+
+                let slices = AIWorkerService.shared.sliceText(effectiveText, maxChars: workerConfig.sliceCharLimit)
+                let totalSlices = slices.count
+                var allSegments: [AISegment] = []
+                var context: String? = nil
+                var voiceMap: [String: String] = [:]
+                var totalSynthesizedCount = 0
+
+                for (sliceIdx, slice) in slices.enumerated() {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run {
+                        statusMessage = "正在解析第 \(sliceIdx + 1)/\(totalSlices) 片..."
                     }
-                )
+
+                    let request = AIWorkerRequest(text: slice, sliceIndex: sliceIdx, totalSlices: totalSlices, context: context)
+                    let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
+                    let segments = response.segments
+                    context = response.nextContext
+
+                    DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_slice", details: [
+                        "slice_index": sliceIdx,
+                        "total_slices": totalSlices,
+                        "segments_in_slice": segments.count,
+                    ])
+
+                    allSegments.append(contentsOf: segments)
+
+                    guard !segments.isEmpty else { continue }
+
+                    // First slice: fetch voices and build speaker→voice map
+                    if voiceMap.isEmpty {
+                        let edgeVoices = await EdgeTTSService.shared.fetchVoices()
+                        let fallbackVoices: [EdgeVoiceInfo] = [
+                            EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
+                            EdgeVoiceInfo(id: "zh-CN-YunxiNeural", name: "云希", gender: "Male", locale: "zh-CN"),
+                        ]
+                        let availableVoices = edgeVoices.isEmpty ? fallbackVoices : edgeVoices
+                        for seg in segments {
+                            guard voiceMap[seg.speaker] == nil else { continue }
+                            voiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
+                        }
+                    }
+
+                    // Merge consecutive segments for same speaker/emotion/tone
+                    let merged = mergeConsecutiveAISegments(segments)
+                    guard !merged.isEmpty else { continue }
+
+                    // Concurrent TTS synthesis → SynthesisBuffer (保序)
+                    let audioRef = AudioControllerRef(audioController)
+                    let firstFlag = FirstPlayFlag()
+                    let buffer = SynthesisBuffer { @Sendable readyItems in
+                        if firstFlag.value {
+                            firstFlag.value = false
+                            await audioRef.controller?.playQueue(readyItems)
+                        } else {
+                            await audioRef.controller?.appendToQueue(readyItems)
+                        }
+                    }
+
+                    try await withThrowingTaskGroup(of: (Int, TTSQueueItem).self) { group in
+                        for (segIdx, seg) in merged.enumerated() {
+                            guard !Task.isCancelled else { break }
+                            let speaker = seg.speaker
+                            let voice = voiceMap[speaker] ?? ""
+                            let rate = TTSView.rateOffset(for: seg)
+                            let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
+                            let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
+                            let style = seg.emotion.ssmlStyle
+                            group.addTask {
+                                let audioData = try await EdgeTTSService.shared.synthesize(
+                                    text: seg.text, voice: voice.isEmpty ? nil : voice,
+                                    rate: Double(rate), pitch: Double(pitch),
+                                    style: style, volume: volume
+                                )
+                                let scriptSeg = ScriptSegment(
+                                    id: UUID(), characterName: speaker, voice: voice,
+                                    rate: rate, pitch: pitch, style: style,
+                                    text: seg.text, emotionTag: seg.emotion.rawValue,
+                                    paragraphIndex: totalSynthesizedCount + segIdx
+                                )
+                                let anchor = PlaybackAnchor(
+                                    bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                                    paragraphIndex: totalSynthesizedCount + segIdx,
+                                    sentenceIndex: 0, speakerID: nil
+                                )
+                                let item = TTSQueueItem(
+                                    segment: scriptSeg, audioURL: nil, audioData: audioData,
+                                    chapterTitle: chapter.title, bookTitle: bookTitle,
+                                    bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                                    segmentIndex: totalSynthesizedCount + segIdx,
+                                    totalSegments: totalSynthesizedCount + merged.count,
+                                    paragraphIndex: totalSynthesizedCount + segIdx,
+                                    sentenceIndex: nil, anchor: anchor
+                                )
+                                return (segIdx, item)
+                            }
+                        }
+                        for try await (idx, item) in group {
+                            guard !Task.isCancelled else { break }
+                            await buffer.insert(idx, item)
+                        }
+                    }
+                    await buffer.flushRemaining()
+                    totalSynthesizedCount += merged.count
+
+                    DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_slice_synthesized", details: [
+                        "slice_index": sliceIdx,
+                        "merged_segments": merged.count,
+                        "total_synthesized": totalSynthesizedCount,
+                    ])
+                }
+
                 await workerRotator.markSuccess(workerConfig.id)
+                await aiParseCache.save(chapter: chapter, segments: allSegments)
+
+                DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_end", details: [
+                    "total_segments": allSegments.count,
+                    "total_synthesized": totalSynthesizedCount,
+                ])
             } catch {
                 DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_error", details: [
                     "error": error.localizedDescription,
                     "worker": workerConfig.name,
                 ])
                 await workerRotator.markFailure(workerConfig.id)
-                // Fallback: try local parsing
                 await MainActor.run { statusMessage = "AI 解析失败，回退本地解析..." }
                 try? await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
                 return
             }
-
-            // 3. Cache results
-            await aiParseCache.save(chapter: chapter, segments: aiSegments)
         }
 
         guard !aiSegments.isEmpty, !Task.isCancelled else {
@@ -1791,118 +1908,7 @@ final class ReaderStore: NSObject, ObservableObject {
             return
         }
 
-        // 4. Build speaker→voice mapping using autoMatchVoice
-        await MainActor.run { statusMessage = "正在分配音色 (\(aiSegments.count) 段)..." }
-
-        let edgeVoices = await EdgeTTSService.shared.fetchVoices()
-        let fallbackVoices: [EdgeVoiceInfo] = [
-            EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
-            EdgeVoiceInfo(id: "zh-CN-YunxiNeural", name: "云希", gender: "Male", locale: "zh-CN"),
-        ]
-        let availableVoices = edgeVoices.isEmpty ? fallbackVoices : edgeVoices
-
-        var speakerVoiceMap: [String: String] = [:]
-        for seg in aiSegments {
-            guard speakerVoiceMap[seg.speaker] == nil else { continue }
-            let voice = TTSView.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
-            speakerVoiceMap[seg.speaker] = voice
-        }
-
-        // 5. Merge consecutive segments for same speaker/emotion/tone
-        let mergedSegments = mergeConsecutiveAISegments(aiSegments)
-        DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_merged", details: [
-            "before_merge": aiSegments.count,
-            "after_merge": mergedSegments.count,
-        ])
-
-        guard !mergedSegments.isEmpty, !Task.isCancelled else {
-            await MainActor.run { statusMessage = "合并后无有效片段。" }
-            return
-        }
-
-        // 6. Concurrently synthesize with SynthesisBuffer
-        let totalCount = mergedSegments.count
-        await MainActor.run { statusMessage = "正在合成音频 (\(totalCount) 段)..." }
-
-        let audioRef = AudioControllerRef(audioController)
-        let firstFlag = FirstPlayFlag()
-        let buffer = SynthesisBuffer { @Sendable readyItems in
-            if firstFlag.value {
-                firstFlag.value = false
-                await audioRef.controller?.playQueue(readyItems)
-            } else {
-                await audioRef.controller?.appendToQueue(readyItems)
-            }
-        }
-
-        try? await withThrowingTaskGroup(of: (Int, TTSQueueItem).self) { group in
-            for (idx, seg) in mergedSegments.enumerated() {
-                guard !Task.isCancelled else { break }
-                let speaker = seg.speaker
-                let voice = speakerVoiceMap[speaker] ?? ""
-                let rate = TTSView.rateOffset(for: seg)
-                let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
-                let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
-                let style = seg.emotion.ssmlStyle
-                group.addTask {
-                    let audioData = try await EdgeTTSService.shared.synthesize(
-                        text: seg.text,
-                        voice: voice.isEmpty ? nil : voice,
-                        rate: Double(rate),
-                        pitch: Double(pitch),
-                        style: style,
-                        volume: volume
-                    )
-
-                    let scriptSeg = ScriptSegment(
-                        id: UUID(),
-                        characterName: speaker,
-                        voice: voice,
-                        rate: rate,
-                        pitch: pitch,
-                        style: style,
-                        text: seg.text,
-                        emotionTag: seg.emotion.rawValue,
-                        paragraphIndex: idx
-                    )
-
-                    let anchor = PlaybackAnchor(
-                        bookID: bookUUID.uuidString,
-                        chapterIndex: chapterIndex,
-                        paragraphIndex: idx,
-                        sentenceIndex: 0,
-                        speakerID: nil
-                    )
-
-                    let item = TTSQueueItem(
-                        segment: scriptSeg,
-                        audioURL: nil,
-                        audioData: audioData,
-                        chapterTitle: chapter.title,
-                        bookTitle: bookTitle,
-                        bookID: bookUUID.uuidString,
-                        chapterIndex: chapterIndex,
-                        segmentIndex: idx,
-                        totalSegments: totalCount,
-                        paragraphIndex: idx,
-                        sentenceIndex: nil,
-                        anchor: anchor
-                    )
-
-                    return (idx, item)
-                }
-            }
-
-            for try await (idx, item) in group {
-                guard !Task.isCancelled else { break }
-                await buffer.insert(idx, item)
-            }
-        }
-
-        guard !Task.isCancelled else { return }
-        await buffer.flushRemaining()
-
-        // 7. Wait for playback completion
+        // 3. Wait for playback completion
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             if !audioController.isPlaying { cont.resume(); return }
             let c = audioController.$isPlaying
