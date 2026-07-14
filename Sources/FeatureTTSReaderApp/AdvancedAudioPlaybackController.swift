@@ -96,6 +96,43 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
+    /// 查找队列中匹配 speaker 的待播项索引
+    func findQueueIndices(speaker: String) -> [Int] {
+        queue.enumerated().compactMap { idx, item in
+            item.segment.characterName == speaker ? idx : nil
+        }
+    }
+
+    /// 从队列中移除指定索引的项（返回被移除的项）
+    @discardableResult
+    func removeFromQueue(at indices: [Int]) -> [TTSQueueItem] {
+        let sorted = indices.sorted(by: >)
+        var removed: [TTSQueueItem] = []
+        for idx in sorted {
+            if idx < queue.count {
+                removed.append(queue.remove(at: idx))
+            }
+        }
+        queueCount = queue.count
+        return removed
+    }
+
+    /// 在指定位置插入项
+    func insertIntoQueue(_ items: [TTSQueueItem], at index: Int) {
+        let clamped = min(max(index, 0), queue.count)
+        queue.insert(contentsOf: items, at: clamped)
+        queueCount = queue.count
+    }
+
+    /// 替换队列中指定索引的项
+    @discardableResult
+    func replaceInQueue(at index: Int, with item: TTSQueueItem) -> TTSQueueItem? {
+        guard index < queue.count else { return nil }
+        let old = queue[index]
+        queue[index] = item
+        return old
+    }
+
     private func playNextSeamlessly() {
         guard !queue.isEmpty else {
             isPlaying = false

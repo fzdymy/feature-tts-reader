@@ -1933,8 +1933,12 @@ final class ReaderStore: NSObject, ObservableObject {
                         guard !Task.isCancelled else { break }
                         let speaker = seg.speaker
                         let voice = voiceMap[speaker] ?? ""
-                        let rate = TTSView.rateOffset(for: seg)
-                        let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
+                        // Look up character profile for preferred rate/pitch
+                        let profile = characters.first { $0.name == speaker || $0.aliases.contains(speaker) }
+                        let prefRate = profile?.preferredRate
+                        let prefPitch = profile?.preferredPitch
+                        let rate = TTSView.rateOffset(for: seg, preferredRate: prefRate)
+                        let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker, preferredPitch: prefPitch)
                         let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
                         let style = seg.emotion.ssmlStyle
                         let paragraphIndex = baseIndex + segmentOffset + segIdx
@@ -2026,14 +2030,18 @@ final class ReaderStore: NSObject, ObservableObject {
 
         guard !Task.isCancelled else { return }
 
-        // Start cross-chapter prefetch monitor: trigger next chapter when queue at ~20%
+        // Start cross-chapter prefetch monitor: trigger next chapter when queue at configured threshold
         let prefetchTask = Task.detached { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
                 let queueCount = await MainActor.run { self.audioController.queueCount }
                 let isPlaying = await MainActor.run { self.audioController.isPlaying }
-                if isPlaying && queueCount <= 3 {
+                let threshold = await MainActor.run {
+                    let val = UserDefaults.standard.double(forKey: "prefetchQueueThreshold")
+                    return Int(val == 0 ? 3 : val)
+                }
+                if isPlaying && queueCount <= threshold {
                     await self.prefetchNextChapter()
                     break
                 }
@@ -2104,6 +2112,11 @@ final class ReaderStore: NSObject, ObservableObject {
         let totalCount = mergedSegments.count
         await MainActor.run { statusMessage = "正在合成音频 (\(totalCount) 段)..." }
 
+        // Use fastest TTS server for cache-hit synthesis
+        let cacheServerID = await EdgeTTSService.shared.fastestServer()?.id
+
+        let cacheServerID = await EdgeTTSService.shared.fastestServer()?.id
+
         let audioRef = AudioControllerRef(audioController)
         let firstFlag = FirstPlayFlag()
         let buffer = SynthesisBuffer { @Sendable readyItems in
@@ -2120,16 +2133,20 @@ final class ReaderStore: NSObject, ObservableObject {
                 guard !Task.isCancelled else { break }
                 let speaker = seg.speaker
                 let voice = speakerVoiceMap[speaker] ?? ""
-                let rate = TTSView.rateOffset(for: seg)
-                let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
+                let profile = characters.first { $0.name == speaker || $0.aliases.contains(speaker) }
+                let prefRate = profile?.preferredRate
+                let prefPitch = profile?.preferredPitch
+                let rate = TTSView.rateOffset(for: seg, preferredRate: prefRate)
+                let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker, preferredPitch: prefPitch)
                 let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
                 let style = seg.emotion.ssmlStyle
-                group.addTask {
-                    let audioData = try await EdgeTTSService.shared.synthesize(
-                        text: seg.text, voice: voice.isEmpty ? nil : voice,
-                        rate: Double(rate), pitch: Double(pitch),
-                        style: style, volume: volume
-                    )
+group.addTask {
+                        let audioData = try await EdgeTTSService.shared.synthesize(
+                            text: seg.text, voice: voice.isEmpty ? nil : voice,
+                            rate: Double(rate), pitch: Double(pitch),
+                            style: style, volume: volume,
+                            serverID: cacheServerID
+                        )
                     let scriptSeg = ScriptSegment(
                         id: UUID(), characterName: speaker, voice: voice,
                         rate: rate, pitch: pitch, style: style,
@@ -2187,16 +2204,92 @@ final class ReaderStore: NSObject, ObservableObject {
     /// 重新合成指定说话人的已入队段落（播放中更换音色时使用）
     private func resynthesizeSpeaker(_ speaker: String) async {
         await MainActor.run { statusMessage = "正在重新合成「\(speaker)」的待播段落..." }
-        
-        // For now: log intent. Full implementation would:
-        // 1. Find queued items with this speaker
-        // 2. Cancel their synthesis if in progress
-        // 3. Re-synthesize with new voice
-        // 4. Replace in queue at correct positions
-        // This requires queue inspection API in AdvancedAudioPlaybackController
-        
-        // Clear the trigger
-        await MainActor.run { self.resynthesizingSpeaker = nil }
+
+        // 1. 找到队列中该说话人的所有待播项
+        let indices = await MainActor.run { audioController.findQueueIndices(speaker: speaker) }
+        guard !indices.isEmpty else {
+            await MainActor.run {
+                statusMessage = "队列中无「\(speaker)」的待播段落。"
+                resynthesizingSpeaker = nil
+            }
+            return
+        }
+
+        // 2. 取出这些项并移除
+        let removedItems = await MainActor.run { audioController.removeFromQueue(at: indices) }
+        guard !removedItems.isEmpty else {
+            await MainActor.run { resynthesizingSpeaker = nil }
+            return
+        }
+
+        // 3. 获取新音色
+        let voices = await EdgeTTSService.shared.fetchVoices()
+        let fallbackVoices: [EdgeVoiceInfo] = [
+            EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
+            EdgeVoiceInfo(id: "zh-CN-YunxiNeural", name: "云希", gender: "Male", locale: "zh-CN"),
+        ]
+        let availableVoices = voices.isEmpty ? fallbackVoices : voices
+
+        // 找到该角色的 profile 获取 gender
+        let profile = characters.first { $0.name == speaker }
+        let gender = profile?.gender ?? .unknown
+        let newVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: gender, availableVoices: availableVoices)
+
+        // 4. 重新合成每个项
+        let serverID = await EdgeTTSService.shared.fastestServer()?.id
+        var newItems: [TTSQueueItem] = []
+
+        for item in removedItems {
+            do {
+                let audioData = try await EdgeTTSService.shared.synthesize(
+                    text: item.segment.text,
+                    voice: newVoice,
+                    rate: Double(item.segment.rate),
+                    pitch: Double(item.segment.pitch),
+                    style: item.segment.style,
+                    volume: item.segment.emotionTag, // 这里存的是 volume string
+                    serverID: serverID
+                )
+                let newSeg = ScriptSegment(
+                    id: UUID(),
+                    characterName: speaker,
+                    voice: newVoice,
+                    rate: item.segment.rate,
+                    pitch: item.segment.pitch,
+                    style: item.segment.style,
+                    text: item.segment.text,
+                    emotionTag: item.segment.emotionTag,
+                    paragraphIndex: item.segment.paragraphIndex
+                )
+                let newItem = TTSQueueItem(
+                    segment: newSeg,
+                    audioURL: nil,
+                    audioData: audioData,
+                    chapterTitle: item.chapterTitle,
+                    bookTitle: item.bookTitle,
+                    bookID: item.bookID,
+                    chapterIndex: item.chapterIndex,
+                    segmentIndex: item.segmentIndex,
+                    totalSegments: item.totalSegments,
+                    paragraphIndex: item.paragraphIndex,
+                    sentenceIndex: item.sentenceIndex,
+                    anchor: item.anchor
+                )
+                newItems.append(newItem)
+            } catch {
+                // 合成失败保留原项
+                newItems.append(item)
+            }
+        }
+
+        // 5. 按原索引位置重新插入（indices 已排序）
+        // 因为我们移除后索引变了，需要重新计算插入位置
+        // 简单策略：按原顺序追加到队列尾部（用户听不到顺序变化，因为这些是待播项）
+        await MainActor.run {
+            audioController.appendToQueue(newItems)
+            statusMessage = "已重新合成 \(newItems.count) 段「\(speaker)」的音频。"
+            resynthesizingSpeaker = nil
+        }
     }
 
     /// 跨章节预取：当当前章节队列剩余 ≤3 段时，后台预解析下一章

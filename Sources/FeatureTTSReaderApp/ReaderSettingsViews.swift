@@ -205,6 +205,16 @@ struct ReaderSettingsView: View {
                         }
                     }
 
+                    HStack {
+                        Text("预取队列阈值")
+                        Slider(value: Binding(
+                            get: { UserDefaults.standard.double(forKey: "prefetchQueueThreshold") == 0 ? 3 : UserDefaults.standard.double(forKey: "prefetchQueueThreshold") },
+                            set: { UserDefaults.standard.set($0, forKey: "prefetchQueueThreshold") }
+                        ), in: 1...10, step: 1)
+                        Text("\(Int(UserDefaults.standard.double(forKey: "prefetchQueueThreshold") == 0 ? 3 : UserDefaults.standard.double(forKey: "prefetchQueueThreshold")))")
+                            .font(.caption.monospaced()).frame(width: 24)
+                    }
+
                     NavigationLink("管理 AI Workers") {
                         WorkerManagementView().environmentObject(store)
                     }
