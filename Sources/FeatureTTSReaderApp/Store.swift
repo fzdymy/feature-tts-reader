@@ -2228,17 +2228,17 @@ group.addTask {
         ]
         let availableVoices = voices.isEmpty ? fallbackVoices : voices
 
-        // 找到该角色的 profile 获取 gender
+// 找到该角色的 profile 获取 gender
         let profile = characters.first { $0.name == speaker }
         let cg = profile?.gender ?? .unknown
-        let gender: AIWorkerConfig.Gender = {
+        let genderForVoice: Gender = {
             switch cg {
             case .male: return .male
             case .female: return .female
             case .unknown: return .unknown
             }
         }()
-        let newVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: gender, availableVoices: availableVoices)
+        let newVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: genderForVoice, availableVoices: availableVoices)
 
         // 4. 重新合成每个项
         let serverID = await EdgeTTSService.shared.fastestServer()?.id ?? ""
