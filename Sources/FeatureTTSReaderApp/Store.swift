@@ -1796,9 +1796,9 @@ final class ReaderStore: NSObject, ObservableObject {
             guard let self else { return }
             let shouldPlayFirst = await buffer.markFirstPlayed()
             if shouldPlayFirst {
-                audioController.playQueue(readyItems)
+                await audioController.playQueue(readyItems)
             } else {
-                audioController.appendToQueue(readyItems)
+                await audioController.appendToQueue(readyItems)
             }
         }
 
@@ -1809,9 +1809,9 @@ final class ReaderStore: NSObject, ObservableObject {
                     guard let self else { throw CancellationError() }
                     let speaker = seg.speaker
                     let voice = speakerVoiceMap[speaker] ?? ""
-                    let rate = TTSView.rateOffset(for: seg)
-                    let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
-                    let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
+                    let rate = await TTSView.rateOffset(for: seg)
+                    let pitch = await TTSView.pitchOffset(for: seg, speakerName: speaker)
+                    let volume = await TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
                     let style = seg.emotion.ssmlStyle
 
                     let audioData = try await EdgeTTSService.shared.synthesize(

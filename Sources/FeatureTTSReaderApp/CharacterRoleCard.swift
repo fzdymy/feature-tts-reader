@@ -197,13 +197,15 @@ struct CharacterRoleCard: View {
     }
 
     private var genderBadge: some View {
-        switch gender {
-        case .male:
-            Text("♂").font(.caption2).foregroundColor(.blue)
-        case .female:
-            Text("♀").font(.caption2).foregroundColor(.pink)
-        case .unknown:
-            EmptyView()
+        Group {
+            switch gender {
+            case .male:
+                Text("♂").font(.caption2).foregroundColor(.blue)
+            case .female:
+                Text("♀").font(.caption2).foregroundColor(.pink)
+            case .unknown:
+                EmptyView()
+            }
         }
     }
 

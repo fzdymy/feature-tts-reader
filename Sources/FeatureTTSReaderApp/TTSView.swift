@@ -1084,7 +1084,7 @@ Picker("发音人", selection: $testVoice) {
 
     /// 去除服务器追加的后缀（zh-CN-Yunfan:DragonHDLatestNeural → zh-CN-Yunfan）
     /// 标准化音色 ID 基名（剥离服务器后缀 :DragonHD... 及 Neural 尾缀）
-    static func baseVoiceID(_ id: String) -> String {
+    static nonisolated func baseVoiceID(_ id: String) -> String {
         var base = id
         if let colon = id.firstIndex(of: ":") { base = String(id[..<colon]) }
         if base.hasSuffix("Neural") { base = String(base.dropLast(6)) }
@@ -1092,7 +1092,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 提取服务器模型后缀（如 :DragonHDFlashLatestNeural → :DragonHD）
-    static func shortModelSuffix(_ id: String) -> String {
+    static nonisolated func shortModelSuffix(_ id: String) -> String {
         guard let colon = id.firstIndex(of: ":") else { return "" }
         var suffix = String(id[id.index(after: colon)...])
         for strip in ["FlashLatestNeural", "LatestNeural", "FlashLatest", "Latest", "Neural"] {
@@ -1104,7 +1104,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 音色显示标签：中文名/英文短名:模型后缀（如 晓晓/Xiaoxiao:DragonHD）
-    static func shortVoiceLabel(_ id: String, name: String) -> String {
+    static nonisolated func shortVoiceLabel(_ id: String, name: String) -> String {
         let base = baseVoiceID(id)
         let engName = base
             .replacingOccurrences(of: "zh-CN-", with: "")
@@ -1115,7 +1115,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 拼音 → 中文名映射（不含 Neural 尾缀，baseVoiceID 已自动剥离）
-    static func chineseVoiceName(for voiceID: String) -> String {
+    static nonisolated func chineseVoiceName(for voiceID: String) -> String {
         let base = baseVoiceID(voiceID)
         let map: [String: String] = [
             // zh-CN 女声
@@ -1148,7 +1148,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 根据说话人自动匹配音色（基于性别，优先从 zh-CN 女声/男声中选择）
-    static func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
+    static nonisolated func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let voices = zhVoices.isEmpty ? defaultChineseVoices : zhVoices
         let resolved: Gender = {
@@ -1286,7 +1286,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
-    static func resolveGender(speaker: String, aiGender: Gender?) -> Gender {
+    static nonisolated func resolveGender(speaker: String, aiGender: Gender?) -> Gender {
         if let g = aiGender, g != .unknown { return g }
         let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") || speaker.contains("姐") || speaker.contains("娘") || speaker.contains("妈") || speaker.contains("婆") || speaker.contains("奶") || speaker.contains("妹") || speaker.contains("嫂") || speaker.contains("婶") || speaker.contains("女士") || speaker.contains("太太") || speaker.contains("夫人")
         let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他") || speaker.contains("叔") || speaker.contains("爸") || speaker.contains("父") || speaker.contains("先生") || speaker.contains("少爷") || speaker.contains("公子") || speaker.contains("郎") || speaker.contains("伯") || speaker.contains("舅")
@@ -1296,7 +1296,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 根据情绪和角色名计算语速偏移
-    static func rateOffset(for segment: AISegment) -> Int {
+    static nonisolated func rateOffset(for segment: AISegment) -> Int {
         switch segment.emotion {
         case .angry, .shouting, .excited: return 4
         case .happy, .cheerful, .surprised: return 2
@@ -1306,7 +1306,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 从 tone 语气关键词推导基准音量(dB)，叠加全局滑块偏移，输出 SSML 兼容 dB 值
-    static func resolvedVolume(tone: String, globalOffset: Double) -> String {
+    static nonisolated func resolvedVolume(tone: String, globalOffset: Double) -> String {
         let t = tone
         let baseDb: Double
         if t.contains("大喊") || t.contains("怒吼") || t.contains("咆哮") || t.contains("吼叫") || t.contains("大喝") || t.contains("厉喝") || t.contains("怒喝") || t.contains("厉声") || t.contains("怒声") || t.contains("高喝") {
@@ -1326,7 +1326,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 根据情绪和角色名计算音调偏移
-    static func pitchOffset(for segment: AISegment, speakerName: String) -> Int {
+    static nonisolated func pitchOffset(for segment: AISegment, speakerName: String) -> Int {
         let gender = resolveGender(speaker: speakerName, aiGender: segment.gender)
         let genderOffset: Int = {
             switch gender {
@@ -2214,167 +2214,6 @@ struct WorkerEditView: View {
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || baseURL.isEmpty || authKey.isEmpty)
                 }
             }
-        }
-    }
-}
-                    .foregroundColor(speaker == "旁白" ? .blue : .orange)
-                Text(speaker)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                if let (symbol, label, color) = genderLabel {
-                    Text("\(symbol)\(label)")
-                        .font(.caption2.weight(.medium))
-                        .foregroundColor(color)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(color.opacity(0.15))
-                        .cornerRadius(4)
-                }
-                Spacer()
-                Text("\(segmentCount) 段")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color(.systemGray5))
-                    .cornerRadius(4)
-            }
-
-            // 别名子标签
-            if !aliases.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 8))
-                        .foregroundColor(.secondary)
-                    Text("别名: ")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    + Text(aliases.joined(separator: "、"))
-                        .font(.caption2.weight(.medium))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-if let emotionSummary {
-                Text(emotionSummary)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            
-            HStack(spacing: 8) {
-                Button {
-                    showVoicePicker.toggle()
-                } label: {
-                    HStack {
-                        Text(selectedLabel)
-                            .font(.subheadline)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color(.systemGray5))
-                    .cornerRadius(6)
-                }
-                .popover(isPresented: $showVoicePicker, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-                    VoicePickerPopover(
-                        availableVoices: availableVoices,
-                        selection: $voice,
-                        onSelect: nil
-                    )
-                    .presentationCompactAdaptation(.popover)
-                }
-
-                Button {
-                    onResynthesize()
-                } label: {
-                    if isResynthesizing {
-                        ProgressView()
-                            .frame(width: 14, height: 14)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.caption)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-
-            // 自动推荐音色名
-            if voice.isEmpty, !autoMatchedVoiceID.isEmpty {
-                let recGender = availableVoices.first(where: { $0.id == autoMatchedVoiceID })?.gender ?? ""
-                let recIcon = recGender == "Male" ? " ♂" : (recGender == "Female" ? " ♀" : "")
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkle.magnifyingglass")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    Text("推荐: ")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    + Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)) + recIcon)
-                        .font(.caption2.weight(.medium))
-                        .foregroundColor(.accentColor)
-                }
-                HStack(spacing: 4) {
-                    Text("")
-                    Text(TTSView.shortVoiceLabel(autoMatchedVoiceID, name: TTSView.chineseVoiceName(for: autoMatchedVoiceID)) + recIcon)
-                        .font(.caption2)
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-            }
-        }
-        .padding(8)
-        .background(Color(.systemGray6))
-        .cornerRadius(8)
-        .contentShape(Rectangle())
-        .overlay(alignment: .topTrailing) {
-            Menu {
-                Button("重命名", systemImage: "pencil") {
-                    renameText = speaker
-                    showRenameAlert = true
-                }
-                if !aliases.isEmpty, let onSplit {
-                    ForEach(aliases, id: \.self) { alias in
-                        Button { onSplit(alias) } label: {
-                            Label("分离「\(alias)」", systemImage: "arrow.triangle.branch")
-                        }
-                    }
-                }
-                if !otherSpeakers.isEmpty {
-                    Menu("合并到...") {
-                        ForEach(otherSpeakers, id: \.self) { target in
-                            Button("\(target)") { onMerge(target) }
-                        }
-                    }
-                }
-                Divider()
-                Button("删除角色", systemImage: "trash", role: .destructive) {
-                    showDeleteConfirm = true
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-        }
-        .alert("重命名角色", isPresented: $showRenameAlert) {
-            TextField("新名称", text: $renameText)
-            Button("取消", role: .cancel) {}
-            Button("确定") {
-                onRename(renameText)
-            }
-        } message: {
-            Text("将「\(speaker)」重命名为：")
-        }
-        .confirmationDialog("确定删除「\(speaker)」？", isPresented: $showDeleteConfirm) {
-            Button("删除", role: .destructive) { onDelete() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("将删除 \(segmentCount) 个相关片段，不可撤销。")
         }
     }
 }
