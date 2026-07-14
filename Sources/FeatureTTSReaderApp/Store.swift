@@ -60,7 +60,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var resynthesizingSpeaker: String? = nil {
         didSet {
             if let speaker = resynthesizingSpeaker {
-                Task { await resynthesizeSpeaker(speaker) }
+                Task.detached { await self.resynthesizeSpeaker(speaker) }
             }
         }
     }
@@ -2228,29 +2228,6 @@ final class ReaderStore: NSObject, ObservableObject {
             if !Task.isCancelled { statusMessage = "已播放完毕。" }
         }
     }
-
-    /// 重新合成指定说话人的已入队段落（播放中更换音色时使用）
-    private func resynthesizeSpeaker(_ speaker: String) async {
-        await MainActor.run { statusMessage = "正在重新合成「\(speaker)」的段落..." }
-
-        // Find queued items for this speaker
-        let itemsToResynthesize = audioController.queue.filter { item in
-            item.segment.characterName == speaker
-        }
-
-        guard !itemsToResynthesize.isEmpty else {
-            await MainActor.run { statusMessage = "无待合成段落。" }
-            resynthesizingSpeaker = nil
-            return
-        }
-
-        // Get new voice for speaker
-        let voices = await EdgeTTSService.shared.fetchVoices()
-        let fallbackVoices: [EdgeVoiceInfo] = [
-            EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
-            EdgeVoiceInfo(id: "zh-CN-YunxiNeural", name: "云希", gender: "Male", locale: "zh-CN"),
-        ]
-        let availableVoices = voices.isEmpty ? fallbackVoices : voices
 
         // Determine gender from first item
         let gender = itemsToResynthesize.first?.segment.emotionTag ?? ""

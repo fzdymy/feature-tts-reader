@@ -84,6 +84,8 @@ struct ReaderSheets: ViewModifier {
                             styles: v.styleList
                         )
                     },
+                    resynthesizingSpeaker: $store.resynthesizingSpeaker,
+                    aiCacheAvailable: .constant(false),
                     onDismiss: { showCharacterList = false }
                 ).environmentObject(store)
             }
