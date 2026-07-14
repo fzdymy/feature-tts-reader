@@ -1310,9 +1310,6 @@ private actor StatusTracker {
         return offset
     }
 
-    return offset
-    }
-
     /// 根据 tone 关键词推导基准音量(dB)，叠加全局滑块偏移，输出 SSML 兼容 dB 值
     static nonisolated func resolvedVolume(tone: String, globalOffset: Double) -> String {
         let t = tone
