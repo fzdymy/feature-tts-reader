@@ -166,6 +166,7 @@ final class ReaderStore: NSObject, ObservableObject {
     private var autoSaveTimer: Timer?
     private let aiParseCache = AIParseCache()
     private var workerRotator = WorkerRotator()
+    private let speculativePlayer = SpeculativePlayer()
 
     private var defaultWorkerConfig: AIWorkerConfig? {
         if let id = selectedWorkerID, let config = aiWorkerConfigs.first(where: { $0.id == id }) {
@@ -1764,17 +1765,62 @@ final class ReaderStore: NSObject, ObservableObject {
             "worker": workerConfig.name,
         ])
 
-        do {
-            let effectiveText: String
-            if let fromParagraphIndex {
-                let paragraphs = chapter.text.components(separatedBy: "\n")
-                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                let startIdx = min(fromParagraphIndex, paragraphs.count)
-                effectiveText = paragraphs[startIdx...].joined(separator: "\n")
-            } else {
-                effectiveText = chapter.text
+        let effectiveText: String
+        if let fromParagraphIndex {
+            let paragraphs = chapter.text.components(separatedBy: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let startIdx = min(fromParagraphIndex, paragraphs.count)
+            effectiveText = paragraphs[startIdx...].joined(separator: "\n")
+        } else {
+            effectiveText = chapter.text
+        }
+
+        // Speculative: synthesize first paragraph with narrator voice while AI processes
+        let speculativeTask = Task { () -> TTSQueueItem? in
+            let paras = effectiveText.components(separatedBy: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            guard let firstPara = paras.first, !firstPara.isEmpty else { return nil }
+
+            let narratorVoice: String = await MainActor.run {
+                UserDefaults.standard.string(forKey: "readerNarratorVoice") ?? "zh-CN-XiaoxiaoNeural"
             }
 
+            do {
+                let audioData = try await EdgeTTSService.shared.synthesize(
+                    text: firstPara, voice: narratorVoice,
+                    rate: 0, pitch: 0, style: "neutral", volume: "default",
+                    serverID: nil
+                )
+                let scriptSeg = ScriptSegment(
+                    id: UUID(), characterName: "旁白", voice: narratorVoice,
+                    rate: 0, pitch: 0, style: "neutral",
+                    text: firstPara, emotionTag: "neutral", paragraphIndex: 0
+                )
+                return TTSQueueItem(
+                    segment: scriptSeg, audioURL: nil, audioData: audioData,
+                    chapterTitle: chapter.title, bookTitle: bookTitle,
+                    bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                    segmentIndex: 0, totalSegments: 1,
+                    paragraphIndex: 0, sentenceIndex: nil,
+                    anchor: PlaybackAnchor(
+                        bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
+                        paragraphIndex: 0, sentenceIndex: 0, speakerID: nil
+                    )
+                )
+            } catch {
+                return nil
+            }
+        }
+
+        // Start speculative playback immediately if item ready
+        if let item = await speculativeTask.value {
+            await speculativePlayer.startSpeculative(paragraphIndex: 0)
+            await MainActor.run {
+                audioController.playQueue([item])
+            }
+        }
+
+        do {
             let slices = AIWorkerService.shared.sliceText(effectiveText, maxChars: workerConfig.sliceCharLimit)
             let totalSlices = slices.count
             var allSegments: [AISegment] = []
@@ -1790,7 +1836,13 @@ final class ReaderStore: NSObject, ObservableObject {
 
                 let request = AIWorkerRequest(text: slice, sliceIndex: sliceIdx, totalSlices: totalSlices, context: context)
                 let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
-                let segments = response.segments
+                let rawSegments = response.segments
+                let segments = rawSegments.map { seg -> AISegment in
+                    AISegment(
+                        speaker: CharacterAliasManager.normalizeSpeakerName(seg.speaker),
+                        emotion: seg.emotion, tone: seg.tone, text: seg.text, gender: seg.gender
+                    )
+                }
                 context = response.nextContext
 
                 DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_slice", details: [
@@ -1821,12 +1873,28 @@ final class ReaderStore: NSObject, ObservableObject {
                 let merged = mergeConsecutiveAISegments(segments)
                 guard !merged.isEmpty else { continue }
 
+                // Speculative-aware: skip first segment if speculative item is already playing it
+                let isFirstSlice = (sliceIdx == 0)
+                let segmentsToSynthesize: [AISegment]
+                let segmentOffset: Int
+                if isFirstSlice, await speculativePlayer.isSpeculative, merged.count > 1 {
+                    segmentsToSynthesize = Array(merged.dropFirst())
+                    segmentOffset = 1
+                } else {
+                    segmentsToSynthesize = merged
+                    segmentOffset = 0
+                }
+
                 // Capture base index for this slice before task group (nonisolated let)
                 let baseIndex = totalSynthesizedCount
                 let sliceTotal = merged.count
 
                 let audioRef = AudioControllerRef(audioController)
                 let firstFlag = FirstPlayFlag()
+                // If speculative is playing, skip playQueue and go straight to appendToQueue
+                if isFirstSlice, await speculativePlayer.isSpeculative {
+                    firstFlag.value = false
+                }
                 let buffer = SynthesisBuffer { @Sendable readyItems in
                     if firstFlag.value {
                         firstFlag.value = false
@@ -1837,7 +1905,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
 
                 try await withThrowingTaskGroup(of: (Int, TTSQueueItem).self) { group in
-                    for (segIdx, seg) in merged.enumerated() {
+                    for (segIdx, seg) in segmentsToSynthesize.enumerated() {
                         guard !Task.isCancelled else { break }
                         let speaker = seg.speaker
                         let voice = voiceMap[speaker] ?? ""
@@ -1845,7 +1913,7 @@ final class ReaderStore: NSObject, ObservableObject {
                         let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
                         let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
                         let style = seg.emotion.ssmlStyle
-                        let paragraphIndex = baseIndex + segIdx
+                        let paragraphIndex = baseIndex + segmentOffset + segIdx
                         group.addTask {
                             let audioData = try await EdgeTTSService.shared.synthesize(
                                 text: seg.text, voice: voice.isEmpty ? nil : voice,
@@ -1883,6 +1951,15 @@ final class ReaderStore: NSObject, ObservableObject {
                 await buffer.flushRemaining()
                 totalSynthesizedCount += merged.count
 
+                // Lazy loading: yield if buffer has enough items to keep playback busy
+                let prefetchThreshold = await MainActor.run {
+                    let val = UserDefaults.standard.double(forKey: "aiPrefetchThreshold")
+                    return Int(max(3, min(val == 0 ? 10 : val, 20)))
+                }
+                if audioController.queueCount > prefetchThreshold {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+
                 DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_slice_synthesized", details: [
                     "slice_index": sliceIdx,
                     "merged_segments": merged.count,
@@ -1892,6 +1969,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
             await workerRotator.markSuccess(workerConfig.id)
             await aiParseCache.save(chapter: chapter, segments: allSegments)
+            await speculativePlayer.reset()
 
             DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_end", details: [
                 "total_segments": allSegments.count,
@@ -1903,6 +1981,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 "worker": workerConfig.name,
             ])
             await workerRotator.markFailure(workerConfig.id)
+            await speculativePlayer.reset()
             await MainActor.run { statusMessage = "AI 解析失败，回退本地解析..." }
             try? await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
             return
