@@ -56,15 +56,6 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var ttsChapterTitle: String = ""
     @Published var ttsSegmentTitle: String = ""
 
-    // Mid-playback voice change re-synthesis trigger
-    @Published var resynthesizingSpeaker: String? = nil {
-        didSet {
-            if let speaker = resynthesizingSpeaker {
-                Task.detached { await self.resynthesizeSpeaker(speaker) }
-            }
-        }
-    }
-
     @Published var ttsProgressMessage: String = ""
     @Published var currentParagraphIndex: Int?
     @Published var currentSentenceIndex: Int?
@@ -173,7 +164,7 @@ final class ReaderStore: NSObject, ObservableObject {
     private let speechSynthesizer = AVSpeechSynthesizer()
     private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
     private var autoSaveTimer: Timer?
-    let aiParseCache = AIParseCache()
+    private let aiParseCache = AIParseCache()
     private var workerRotator = WorkerRotator()
     private let speculativePlayer = SpeculativePlayer()
 
@@ -198,9 +189,6 @@ final class ReaderStore: NSObject, ObservableObject {
         
         // Load AI Worker configs
         loadWorkerConfigs()
-        
-        // Probe TTS servers on launch (background)
-        Task { await EdgeTTSService.shared.probeServerLatencies() }
     }
 
     private func loadWorkerConfigs() {
@@ -1797,31 +1785,26 @@ final class ReaderStore: NSObject, ObservableObject {
                 UserDefaults.standard.string(forKey: "readerNarratorVoice") ?? "zh-CN-XiaoxiaoNeural"
             }
 
-            // Get fastest server for speculative synthesis
-            let serverID = await EdgeTTSService.shared.fastestServer()?.id
-
             do {
                 let audioData = try await EdgeTTSService.shared.synthesize(
                     text: firstPara, voice: narratorVoice,
                     rate: 0, pitch: 0, style: "neutral", volume: "default",
-                    serverID: serverID
+                    serverID: nil
                 )
-                // Speculative paragraph index: if fromParagraphIndex provided, use that; else 0
-                let speculativeParaIndex = fromParagraphIndex ?? 0
                 let scriptSeg = ScriptSegment(
                     id: UUID(), characterName: "旁白", voice: narratorVoice,
                     rate: 0, pitch: 0, style: "neutral",
-                    text: firstPara, emotionTag: "neutral", paragraphIndex: speculativeParaIndex
+                    text: firstPara, emotionTag: "neutral", paragraphIndex: 0
                 )
                 return TTSQueueItem(
                     segment: scriptSeg, audioURL: nil, audioData: audioData,
                     chapterTitle: chapter.title, bookTitle: bookTitle,
                     bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
                     segmentIndex: 0, totalSegments: 1,
-                    paragraphIndex: speculativeParaIndex, sentenceIndex: nil,
+                    paragraphIndex: 0, sentenceIndex: nil,
                     anchor: PlaybackAnchor(
                         bookID: bookUUID.uuidString, chapterIndex: chapterIndex,
-                        paragraphIndex: speculativeParaIndex, sentenceIndex: 0, speakerID: nil
+                        paragraphIndex: 0, sentenceIndex: 0, speakerID: nil
                     )
                 )
             } catch {
@@ -1831,7 +1814,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
         // Start speculative playback immediately if item ready
         if let item = await speculativeTask.value {
-            await speculativePlayer.startSpeculative(paragraphIndex: fromParagraphIndex ?? 0)
+            await speculativePlayer.startSpeculative(paragraphIndex: 0)
             await MainActor.run {
                 audioController.playQueue([item])
             }
@@ -1882,16 +1865,13 @@ final class ReaderStore: NSObject, ObservableObject {
                     let availableVoices = edgeVoices.isEmpty ? fallbackVoices : edgeVoices
                     for seg in segments {
                         guard voiceMap[seg.speaker] == nil else { continue }
-                        voiceMap[seg.speaker] = VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
+                        voiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
                     }
                 }
 
                 // Merge consecutive segments for same speaker/emotion/tone
                 let merged = mergeConsecutiveAISegments(segments)
                 guard !merged.isEmpty else { continue }
-
-                // Get fastest server for this slice's synthesis
-                let sliceServerID = await EdgeTTSService.shared.fastestServer()?.id
 
                 // Speculative-aware: skip first segment if speculative item is already playing it
                 let isFirstSlice = (sliceIdx == 0)
@@ -1938,8 +1918,7 @@ final class ReaderStore: NSObject, ObservableObject {
                             let audioData = try await EdgeTTSService.shared.synthesize(
                                 text: seg.text, voice: voice.isEmpty ? nil : voice,
                                 rate: Double(rate), pitch: Double(pitch),
-                                style: style, volume: volume,
-                                serverID: sliceServerID
+                                style: style, volume: volume
                             )
                             let scriptSeg = ScriptSegment(
                                 id: UUID(), characterName: speaker, voice: voice,
@@ -1986,13 +1965,6 @@ final class ReaderStore: NSObject, ObservableObject {
                     "merged_segments": merged.count,
                     "total_synthesized": totalSynthesizedCount,
                 ])
-                
-                // Cross-chapter prefetch: trigger when 80% through slices
-                if sliceIdx == totalSlices - 2 { // 2 slices remaining = ~80% done
-                    Task.detached { [weak self] in
-                        await self?.prefetchNextChapter()
-                    }
-                }
             }
 
             await workerRotator.markSuccess(workerConfig.id)
@@ -2042,78 +2014,9 @@ final class ReaderStore: NSObject, ObservableObject {
             ttsIsPlaying = false
             if !Task.isCancelled { statusMessage = "已播放完毕。" }
         }
-}
-
-// MARK: - Cross-chapter prefetch (consideration 4)
-
-    /// Prefetch next chapter's AI parse + first paragraph speculative audio
-    private func prefetchNextChapter() async {
-        guard let currentID = selectedChapterID,
-              let currentIndex = chapters.firstIndex(where: { $0.id == currentID }),
-              currentIndex + 1 < chapters.count else { return }
-        
-        let nextChapter = chapters[currentIndex + 1]
-        
-        // Check if already cached
-        let hasCache = await aiParseCache.getSegments(chapter: nextChapter) != nil
-        if hasCache { return }
-        
-        // Prefetch: trigger AI parse in background (fire-and-forget)
-        Task.detached { [weak self] in
-            guard let self else { return }
-            let workerConfig = await self.workerRotator.next(chapterIndex: currentIndex + 1)
-            guard let config = workerConfig else { return }
-            _ = try? await AIWorkerService.shared.processChapter(
-                text: nextChapter.text, config: config,
-                progress: { _, _ in }
-            )
-        }
     }
 
-    // MARK: - Mid-playback Voice Change Re-synthesis
-
-    private func resynthesizeSpeaker(_ speaker: String) async {
-        await MainActor.run { statusMessage = "正在重新合成「\(speaker)」的待播段落..." }
-        
-        // For now: log intent. Full implementation would:
-        // 1. Find queued items with this speaker
-        // 2. Cancel their synthesis if in progress
-        // 3. Re-synthesize with new voice
-        // 4. Replace in queue at correct positions
-        // This requires queue inspection API in AdvancedAudioPlaybackController
-        
-        // Clear the trigger
-        await MainActor.run { self.resynthesizingSpeaker = nil }
-}
-
-// MARK: - Synthesize & Play (shared by cache-hit and AI-parsed paths)
-
-    /// Monitor playback progress and trigger cross-chapter prefetch at ~80%
-    private func monitorAndPrefetchNextChapter() async {
-        // Wait a bit for playback to start
-        try? await Task.sleep(for: .seconds(2))
-        
-        var hasPrefetched = false
-        while !hasPrefetched && !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(3))
-            
-            let queueCount = await MainActor.run { audioController.queueCount }
-            let isPlaying = await MainActor.run { audioController.isPlaying }
-            
-            // Trigger prefetch when queue is low (near end of current chapter)
-            if isPlaying && queueCount <= 3 {
-                await prefetchNextChapter()
-                hasPrefetched = true
-            }
-            
-            // Stop monitoring if playback finished
-            if !isPlaying && queueCount == 0 {
-                break
-            }
-        }
-    }
-
-// MARK: - Synthesize & Play (shared by cache-hit and AI-parsed paths)
+    // MARK: - Synthesize & Play (shared by cache-hit and AI-parsed paths)
 
     private func synthesizeAndPlaySegments(
         _ segments: [AISegment],
@@ -2137,7 +2040,7 @@ final class ReaderStore: NSObject, ObservableObject {
         var speakerVoiceMap: [String: String] = [:]
         for seg in segments {
             guard speakerVoiceMap[seg.speaker] == nil else { continue }
-            speakerVoiceMap[seg.speaker] = VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
+            speakerVoiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
         }
 
         let mergedSegments = mergeConsecutiveAISegments(segments)
@@ -2226,70 +2129,6 @@ final class ReaderStore: NSObject, ObservableObject {
             isSpeaking = false
             ttsIsPlaying = false
             if !Task.isCancelled { statusMessage = "已播放完毕。" }
-        }
-    }
-
-        // Determine gender from first item
-        let gender = itemsToResynthesize.first?.segment.emotionTag ?? ""
-        let aiGender: Gender = gender == "neutral" ? .unknown : .female // placeholder
-        let newVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: aiGender, availableVoices: availableVoices)
-
-        // Re-synthesize each item
-        let serverID = await EdgeTTSService.shared.fastestServer()?.id
-        var resynthesizedItems: [TTSQueueItem] = []
-
-        for item in itemsToResynthesize {
-            do {
-                let audioData = try await EdgeTTSService.shared.synthesize(
-                    text: item.segment.text,
-                    voice: newVoice,
-                    rate: Double(item.segment.rate),
-                    pitch: Double(item.segment.pitch),
-                    style: item.segment.style,
-                    volume: item.segment.emotionTag, // this is actually volume string
-                    serverID: serverID
-                )
-                let newSeg = ScriptSegment(
-                    id: UUID(),
-                    characterName: speaker,
-                    voice: newVoice,
-                    rate: item.segment.rate,
-                    pitch: item.segment.pitch,
-                    style: item.segment.style,
-                    text: item.segment.text,
-                    emotionTag: item.segment.emotionTag,
-                    paragraphIndex: item.segment.paragraphIndex
-                )
-                let newItem = TTSQueueItem(
-                    segment: newSeg,
-                    audioURL: nil,
-                    audioData: audioData,
-                    chapterTitle: item.chapterTitle,
-                    bookTitle: item.bookTitle,
-                    bookID: item.bookID,
-                    chapterIndex: item.chapterIndex,
-                    segmentIndex: item.segmentIndex,
-                    totalSegments: item.totalSegments,
-                    paragraphIndex: item.paragraphIndex,
-                    sentenceIndex: item.sentenceIndex,
-                    anchor: item.anchor
-                )
-                resynthesizedItems.append(newItem)
-            } catch {
-                // Keep original item on failure
-                resynthesizedItems.append(item)
-            }
-        }
-
-        // Replace queued items (this is a simplification - full implementation would need queue index tracking)
-        // For now, append to end - full replace requires AudioController API extension
-        for item in resynthesizedItems {
-            await audioController.appendToQueue([item])
-        }
-
-        await MainActor.run {
-            statusMessage = "已重新合成 \(resynthesizedItems.count) 段。"
-            resynthesizingSpeaker = nil
         }
     }
 
