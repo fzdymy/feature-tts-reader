@@ -542,7 +542,7 @@ let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
                 case .unknown: return .unknown
                 }
             }()
-            let autoVoiceID = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: genderForVoice, availableVoices: availableVoices)
+            let autoVoiceID = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
                             CharacterRoleCard(
                                 speaker: speaker,
                                 aliases: aliases,

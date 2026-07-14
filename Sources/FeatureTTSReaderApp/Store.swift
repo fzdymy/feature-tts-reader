@@ -2105,14 +2105,13 @@ final class ReaderStore: NSObject, ObservableObject {
         ]
         let availableVoices = edgeVoices.isEmpty ? fallbackVoices : edgeVoices
 
-        var speakerVoiceMap: [String: String] = [:]
         for seg in segments {
             guard speakerVoiceMap[seg.speaker] == nil else { continue }
             let cg: CharacterGender = {
                 switch seg.gender {
-                case Gender.male: return .male
-                case Gender.female: return .female
-                case Gender.unknown: return .unknown
+                case .male: return .male
+                case .female: return .female
+                case .unknown: return .unknown
                 }
             }()
             speakerVoiceMap[seg.speaker] = VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
@@ -2253,7 +2252,7 @@ group.addTask {
             case .unknown: return .unknown
             }
         }()
-        let newVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: genderForVoice, availableVoices: availableVoices)
+        let newVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: cg, availableVoices: availableVoices)
 
         // 4. 重新合成每个项
         let serverID = await EdgeTTSService.shared.fastestServer()?.id.uuidString ?? ""
