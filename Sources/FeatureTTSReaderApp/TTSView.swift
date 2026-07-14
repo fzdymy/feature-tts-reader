@@ -1310,6 +1310,29 @@ private actor StatusTracker {
         return offset
     }
 
+    return offset
+    }
+
+    /// 根据 tone 关键词推导基准音量(dB)，叠加全局滑块偏移，输出 SSML 兼容 dB 值
+    static nonisolated func resolvedVolume(tone: String, globalOffset: Double) -> String {
+        let t = tone
+        let baseDb: Double
+        if t.contains("大喊") || t.contains("怒吼") || t.contains("咆哮") || t.contains("吼叫") || t.contains("大喝") || t.contains("厉喝") || t.contains("怒喝") || t.contains("厉声") || t.contains("怒声") || t.contains("高喝") {
+            baseDb = 8
+        } else if t.contains("喊") || t.contains("叫") || t.contains("嚷") || t.contains("喝令") {
+            baseDb = 4
+        } else if t.contains("低语") || t.contains("轻声") || t.contains("悄悄") || t.contains("小声") || t.contains("窃窃") || t.contains("低喃") || t.contains("低声道") || t.contains("低声") || t.contains("沉吟") {
+            baseDb = -4
+        } else if t.contains("耳语") || t.contains("气声") || t.contains("呢喃") || t.contains("默念") || t.contains("无声") {
+            baseDb = -8
+        } else {
+            baseDb = 0
+        }
+        // 全局滑块每步 0.5dB，叠加到基准音量上
+        let total = baseDb + globalOffset * 0.5
+        return String(format: "%+.1fdB", total)
+    }
+
     /// 根据情绪和角色名计算音调偏移
     static nonisolated func pitchOffset(for segment: AISegment, speakerName: String, preferredPitch: Double? = nil) -> Int {
         let gender = resolveGender(speaker: speakerName, aiGender: segment.gender)
