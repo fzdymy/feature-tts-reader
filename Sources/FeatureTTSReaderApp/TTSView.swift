@@ -528,7 +528,7 @@ Picker("发音人", selection: $testVoice) {
                             let emotions = speakerSegments.map { $0.emotion }
                             let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
 let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
-            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender.map { (g: Gender) -> CharacterGender in
+            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender.map { g in
                 switch g {
                 case .male: return CharacterGender.male
                 case .female: return CharacterGender.female
@@ -1409,9 +1409,9 @@ private actor StatusTracker {
                 let raw = voiceForSpeaker(seg.speaker)
                 let cg: CharacterGender = {
                     switch seg.gender {
-                    case AIWorkerConfig.Gender.male: return CharacterGender.male
-                    case AIWorkerConfig.Gender.female: return CharacterGender.female
-                    case AIWorkerConfig.Gender.unknown: return CharacterGender.unknown
+                    case .male: return CharacterGender.male
+                    case .female: return CharacterGender.female
+                    case .unknown: return CharacterGender.unknown
                     }
                 }()
                 return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw

@@ -1888,9 +1888,9 @@ final class ReaderStore: NSObject, ObservableObject {
                         guard voiceMap[seg.speaker] == nil else { continue }
                         let cg: CharacterGender = {
                             switch seg.gender {
-                            case AIWorkerConfig.Gender.male: return .male
-                            case AIWorkerConfig.Gender.female: return .female
-                            case AIWorkerConfig.Gender.unknown: return .unknown
+                            case Gender.male: return .male
+                            case Gender.female: return .female
+                            case Gender.unknown: return .unknown
                             }
                         }()
                         voiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
@@ -2109,9 +2109,9 @@ final class ReaderStore: NSObject, ObservableObject {
             guard speakerVoiceMap[seg.speaker] == nil else { continue }
             let cg: CharacterGender = {
                 switch seg.gender {
-                case AIWorkerConfig.Gender.male: return .male
-                case AIWorkerConfig.Gender.female: return .female
-                case AIWorkerConfig.Gender.unknown: return .unknown
+                case Gender.male: return .male
+                case Gender.female: return .female
+                case Gender.unknown: return .unknown
                 }
             }()
             speakerVoiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
