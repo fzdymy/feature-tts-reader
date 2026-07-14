@@ -8,6 +8,8 @@ struct CharacterListView: View {
     @Binding var characters: [CharacterProfile]
     let availableVoices: [EdgeVoiceInfo]
     let onDismiss: (() -> Void)?
+    @Binding var resynthesizingSpeaker: String?
+    @Binding var aiCacheAvailable: Bool
 
     @State private var searchText = ""
     @State private var showAddCharacter = false
@@ -27,6 +29,19 @@ struct CharacterListView: View {
     var body: some View {
         NavigationStack {
             List {
+                // AI 缓存指示器
+                if aiCacheAvailable {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("AI 解析已缓存")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .listRowBackground(Color.green.opacity(0.05))
+                }
+
                 // 顶部操作
                 Section {
                     HStack(spacing: 8) {
@@ -77,7 +92,7 @@ struct CharacterListView: View {
                             .font(.caption)
                     }
                     ForEach(sortedCharacters) { character in
-                        CharacterRow(character: character, availableVoices: availableVoices) { updated in
+                        CharacterRow(character: character, availableVoices: availableVoices, resynthesizingSpeaker: $resynthesizingSpeaker) { updated in
                             if let idx = characters.firstIndex(where: { $0.id == updated.id }) {
                                 characters[idx] = updated
                                 store.saveState()
@@ -119,11 +134,14 @@ struct CharacterListView: View {
 private struct CharacterRow: View {
     let character: CharacterProfile
     let availableVoices: [EdgeVoiceInfo]
+    @Binding var resynthesizingSpeaker: String?
     let onUpdate: (CharacterProfile) -> Void
 
     @State private var showVoicePicker = false
     @State private var showRenameAlert = false
     @State private var renameText = ""
+    @State private var showVoiceChangeActionSheet = false
+    @State private var pendingVoiceChange: (speaker: String, newVoice: String)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -163,10 +181,10 @@ private struct CharacterRow: View {
                     VoicePickerPopover(availableVoices: availableVoices,
                         selection: Binding(
                             get: { character.voice },
-                            set: {
-                                var c = character
-                                c.voice = $0
-                                onUpdate(c)
+                            set: { newVoice in
+                                guard newVoice != character.voice else { return }
+                                pendingVoiceChange = (speaker: character.name, newVoice: newVoice)
+                                showVoiceChangeActionSheet = true
                             }
                         ),
                         onSelect: nil
@@ -192,6 +210,26 @@ private struct CharacterRow: View {
                 }
                 renameText = ""
             }
+        }
+        .confirmationDialog("更换音色", isPresented: $showVoiceChangeActionSheet, titleVisibility: .visible) {
+            Button("仅对后续段落生效") {
+                if let change = pendingVoiceChange {
+                    var c = character
+                    c.voice = change.newVoice
+                    onUpdate(c)
+                }
+            }
+            Button("重新合成待播段", role: .destructive) {
+                if let change = pendingVoiceChange {
+                    var c = character
+                    c.voice = change.newVoice
+                    onUpdate(c)
+                    resynthesizingSpeaker = change.speaker
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("更换「\(pendingVoiceChange?.speaker ?? "")」的音色后，如何处理已入队的音频？")
         }
     }
 }

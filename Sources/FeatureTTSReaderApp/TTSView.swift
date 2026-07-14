@@ -529,7 +529,7 @@ Picker("发音人", selection: $testVoice) {
                             let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
                             let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
                             let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender)
-                            let autoVoiceID = TTSView.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
+                            let autoVoiceID = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
                             CharacterRoleCard(
                                 speaker: speaker,
                                 aliases: aliases,
@@ -818,7 +818,7 @@ private actor StatusTracker {
                     let sCount = segments.count
                     let voiceIDs: [String] = segments.map { seg in
                         let raw = voiceForSpeaker(seg.speaker)
-                        return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: voices) : raw
+                        return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: voices) : raw
                     }
                     let audioRef = SendableStoreRef(store.audioController)
 
@@ -1147,6 +1147,7 @@ private actor StatusTracker {
     }
 
     /// 根据说话人自动匹配音色（基于性别，优先从 zh-CN 女声/男声中选择）
+    /// - Note: Deprecated — use `VoiceMatchUtility.autoMatchVoice` instead.
     static nonisolated func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let voices = zhVoices.isEmpty ? defaultChineseVoices : zhVoices
@@ -1470,7 +1471,7 @@ private actor StatusTracker {
         characterResynthesisStates[speaker] = true
         // 先自动匹配音色（如果当前为空或为"自动"），再合成
         let currentVoice = voiceForSpeaker(speaker)
-        let autoVoice = TTSView.autoMatchVoice(for: speaker, gender: segments.first?.gender ?? .unknown, availableVoices: availableVoices)
+        let autoVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: segments.first?.gender ?? .unknown, availableVoices: availableVoices)
         let resolvedVoice = currentVoice.isEmpty ? autoVoice : currentVoice
         if resolvedVoice != currentVoice {
             customCharacterVoices[speaker] = resolvedVoice

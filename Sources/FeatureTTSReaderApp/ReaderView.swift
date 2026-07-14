@@ -46,6 +46,9 @@ struct ReaderView: View {
     @State private var selectedTextForCharacter = ""
     @State private var showCharacterFromText = false
 
+    @State private var resynthesizingSpeaker: String? = nil
+    @State private var aiCacheAvailable = false
+
     @State private var currentTime = Date()
     @State private var batteryLevel: Int = 100
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
@@ -230,7 +233,9 @@ struct ReaderView: View {
                         styles: v.styleList
                     )
                 },
-                onDismiss: { showCharacterList = false }
+                onDismiss: { showCharacterList = false },
+                resynthesizingSpeaker: $resynthesizingSpeaker,
+                aiCacheAvailable: $aiCacheAvailable
             )
             .environmentObject(store)
             .presentationDetents([.medium, .large])
@@ -252,6 +257,16 @@ struct ReaderView: View {
         .onDisappear(perform: onDisappearCleanup)
         .onChange(of: store.externalChapterNavigate) { _, newValue in
             handleExternalNavigate(nav: newValue)
+        }
+        .onChange(of: resynthesizingSpeaker) { _, speaker in
+            guard let speaker else { return }
+            Task {
+                await MainActor.run { store.statusMessage = "「\(speaker)」重新合成功能开发中..." }
+                resynthesizingSpeaker = nil
+            }
+        }
+        .task(id: currentChapter.id) {
+            aiCacheAvailable = await store.aiParseCache.getSegments(chapter: currentChapter) != nil
         }
         .modifier(ReaderSheets(
             showSettings: $showSettings,
@@ -367,7 +382,9 @@ struct ReaderView: View {
                     styles: v.styleList
                 )
             },
-            onDismiss: { showCharacterPanel = false }
+            onDismiss: { showCharacterPanel = false },
+            resynthesizingSpeaker: $resynthesizingSpeaker,
+            aiCacheAvailable: $aiCacheAvailable
         )
         .environmentObject(store)
     }

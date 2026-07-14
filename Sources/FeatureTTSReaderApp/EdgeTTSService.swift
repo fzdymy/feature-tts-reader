@@ -516,6 +516,45 @@ actor EdgeTTSService {
         }
     }
 
+    /// Probe all configured servers and update latency tracking
+    func probeServerLatencies() async {
+        let servers = configuredServers
+        for server in servers {
+            let start = Date()
+            guard let url = URL(string: server.url.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 5
+            do {
+                _ = try await session.data(for: request)
+                let latency = Date().timeIntervalSince(start) * 1000
+                updateServerLatency(id: server.id, latencyMs: latency)
+            } catch {
+                updateServerLatency(id: server.id, latencyMs: nil)
+            }
+        }
+    }
+
+    /// Update a specific server config's latency fields
+    private func updateServerLatency(id: UUID, latencyMs: Double?) {
+        guard var data = UserDefaults.standard.data(forKey: Self.serverListKey),
+              var configs = try? JSONDecoder().decode([EdgeTTSServerConfig].self, from: data) else { return }
+        if let idx = configs.firstIndex(where: { $0.id == id }) {
+            configs[idx].lastLatencyMs = latencyMs
+            configs[idx].lastChecked = Date()
+            if let encoded = try? JSONEncoder().encode(configs) {
+                UserDefaults.standard.set(encoded, forKey: Self.serverListKey)
+            }
+        }
+    }
+
+    /// Get fastest server (lowest latency)
+    func fastestServer() -> EdgeTTSServerConfig? {
+        let servers = configuredServers
+        return servers
+            .filter { $0.lastLatencyMs != nil }
+            .min(by: { ($0.lastLatencyMs ?? .infinity) < ($1.lastLatencyMs ?? .infinity) })
+    }
+
     func setServers(_ servers: [EdgeTTSServerConfig]) {
         let trimmed = servers.map { EdgeTTSServerConfig(id: $0.id, name: $0.name, url: $0.url, apiKey: $0.apiKey) }.filter { !$0.url.isEmpty }
         if let data = try? JSONEncoder().encode(trimmed) {
