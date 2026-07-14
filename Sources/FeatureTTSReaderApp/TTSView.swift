@@ -2272,6 +2272,8 @@ struct CharacterRoleCard: View {
     @State private var renameText = ""
     @State private var showMergePicker = false
     @State private var showDeleteConfirm = false
+    @State private var showVoicePicker = false
+    @State private var showVoicePicker = false
 
     private var selectedLabel: String {
         guard !voice.isEmpty else { return "自动" }
@@ -2332,13 +2334,11 @@ struct CharacterRoleCard: View {
                 }
             }
 
-            if let emotionSummary {
+if let emotionSummary {
                 Text(emotionSummary)
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-
-            @State private var showVoicePicker = false
             
             HStack(spacing: 8) {
                 Button {
@@ -2456,9 +2456,6 @@ struct CharacterRoleCard: View {
             Text("将删除 \(segmentCount) 个相关片段，不可撤销。")
         }
     }
-}
-
-}
 }
 
 private extension CharacterSet {
