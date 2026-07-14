@@ -127,13 +127,23 @@ struct ReaderSettingsView: View {
                 }
 
                 Section(header: Text("朗读设置")) {
+                    Toggle("AI 语义分段", isOn: Binding(
+                        get: { UserDefaults.standard.bool(forKey: "readerUseAI") },
+                        set: { UserDefaults.standard.set($0, forKey: "readerUseAI") }
+                    ))
+
                     HStack {
                         Text("旁白默认音色")
                         Spacer()
-                        let narratorVoice = UserDefaults.standard.string(forKey: "narratorVoice") ?? ""
-                        Text(narratorVoice.isEmpty ? "自动选择" : narratorVoice)
-                            .foregroundColor(.secondary)
+                        NavigationLink {
+                            NarratorVoicePickerView()
+                        } label: {
+                            let narratorVoice = UserDefaults.standard.string(forKey: "narratorVoice") ?? ""
+                            Text(narratorVoice.isEmpty ? "自动" : EdgeVoiceInfo.chineseVoiceName(for: narratorVoice))
+                                .foregroundColor(.secondary)
+                        }
                     }
+
                     HStack {
                         Text("全局语速偏移")
                         Slider(value: Binding(
@@ -160,6 +170,18 @@ struct ReaderSettingsView: View {
                         ), in: 0...500, step: 10)
                         Text("\(Int(UserDefaults.standard.double(forKey: "globalOverlap")))")
                             .font(.caption.monospaced()).frame(width: 40)
+                    }
+
+                    Toggle("Worker 轮询", isOn: Binding(
+                        get: { UserDefaults.standard.bool(forKey: "readerEnableRotation") },
+                        set: { UserDefaults.standard.set($0, forKey: "readerEnableRotation") }
+                    ))
+
+                    NavigationLink("管理 AI Workers") {
+                        WorkerManagementView().environmentObject(store)
+                    }
+                    NavigationLink("管理 TTS 服务器") {
+                        TTSServerManagementView().environmentObject(store)
                     }
                 }
 
@@ -198,6 +220,80 @@ struct ReaderSettingsView: View {
                 store.keepScreenOn = keepScreenOn
             }
         }
+    }
+}
+
+// MARK: - Narrator Voice Picker
+
+struct NarratorVoicePickerView: View {
+    @EnvironmentObject private var store: ReaderStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var voices: [EdgeVoiceInfo] = []
+    @State private var searchText = ""
+
+    private var filteredVoices: [EdgeVoiceInfo] {
+        let zh = searchText.isEmpty ? voices : voices.filter { $0.id.localizedCaseInsensitiveContains(searchText) || $0.name.localizedCaseInsensitiveContains(searchText) }
+        return zh.filter { $0.locale.hasPrefix("zh") }
+    }
+
+    var body: some View {
+        List {
+            Button("自动选择（第一个可用中文女声）") {
+                UserDefaults.standard.set("", forKey: "narratorVoice")
+                dismiss()
+            }
+            ForEach(filteredVoices) { v in
+                Button {
+                    UserDefaults.standard.set(v.id, forKey: "narratorVoice")
+                    dismiss()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(EdgeVoiceInfo.chineseVoiceName(for: v.id))
+                                .font(.subheadline)
+                            Text(v.id)
+                                .font(.caption2).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if v.id == (UserDefaults.standard.string(forKey: "narratorVoice") ?? "") {
+                            Image(systemName: "checkmark").foregroundColor(.blue)
+                        }
+                    }
+                }
+            }
+        }
+        .searchable(text: $searchText, prompt: "搜索音色")
+        .navigationTitle("旁白音色")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { voices = await EdgeTTSService.shared.fetchVoices() }
+    }
+}
+
+// MARK: - Worker Management View
+
+struct WorkerManagementView: View {
+    @EnvironmentObject private var store: ReaderStore
+    var body: some View {
+        List {
+            Text("请在「语音引擎」页面管理 AI Worker 配置")
+                .foregroundColor(.secondary)
+        }
+        .navigationTitle("AI Workers")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - TTS Server Management View
+
+struct TTSServerManagementView: View {
+    @EnvironmentObject private var store: ReaderStore
+    var body: some View {
+        List {
+            Text("请在「语音引擎」页面管理 TTS 服务器配置")
+                .foregroundColor(.secondary)
+        }
+        .navigationTitle("TTS 服务器")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

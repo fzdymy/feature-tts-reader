@@ -1085,29 +1085,17 @@ private struct ReaderOverlayView: View {
     // MARK: - Playback Status Summary
 
     private var playbackStatusSummary: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(store.ttsIsPlaying ? Color.green : Color.orange)
-                .frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(store.ttsIsPlaying ? "正在朗读" : "已暂停")
-                    .font(.caption2).fontWeight(.semibold)
-                Text(currentPlaybackInfoText.isEmpty ? "轻点任意句子，从这里开始朗读" : currentPlaybackInfoText)
-                    .font(.caption2)
-                    .foregroundColor(textColor.opacity(0.75))
-                    .lineLimit(2)
-            }
-            Spacer()
-            if let paragraphIndex = store.currentParagraphIndex, let sentenceIndex = store.currentSentenceIndex {
-                Text("第\(paragraphIndex + 1)段 · 第\(sentenceIndex + 1)句")
-                    .font(.caption2)
-                    .foregroundColor(textColor.opacity(0.65))
+        Group {
+            if !store.statusMessage.isEmpty && store.statusMessage != "已停止播放。" {
+                HStack(spacing: 4) {
+                    if store.isBusy { ProgressView().scaleEffect(0.6) }
+                    Text(store.statusMessage)
+                        .font(.caption2)
+                        .foregroundColor(textColor.opacity(0.6))
+                        .lineLimit(1)
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(textColor.opacity(0.06))
-        .cornerRadius(10)
     }
 
     // MARK: - Silent Bottom Bar
@@ -1259,6 +1247,7 @@ private struct ReaderOverlayView: View {
 
     private var audioBottomBar: some View {
         VStack(spacing: 0) {
+            // Chapter slider row
             HStack(spacing: 8) {
                 Button(action: {
                     guard currentChapterIndex > 0 else { return }
@@ -1294,67 +1283,63 @@ private struct ReaderOverlayView: View {
             .padding(.horizontal, 16).padding(.vertical, 6)
             .foregroundColor(textColor)
 
-            if !currentPlaybackInfoText.isEmpty {
-                Text(currentPlaybackInfoText)
-                    .font(.caption2)
-                    .foregroundColor(textColor.opacity(0.8))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-            }
-
             Divider()
 
-            playbackStatusSummary
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-
-            HStack(spacing: 8) {
-                Button(action: { store.audioController.skipPreviousSentence() }) {
-                    Label("上一句", systemImage: "backward")
-                        .font(.caption2)
-                        .frame(minWidth: 70, minHeight: 36)
-                }
-                .buttonStyle(.borderless)
-                Button(action: { store.audioController.skipCurrentSentence() }) {
-                    Label("下一句", systemImage: "forward")
-                        .font(.caption2)
-                        .frame(minWidth: 70, minHeight: 36)
-                }
-                .buttonStyle(.borderless)
+            // Simplified control row
+            HStack(spacing: 12) {
                 Button(action: {
                     if store.ttsIsPlaying {
                         store.audioController.pause()
-                    } else {
+                    } else if store.audioController.queueCount > 0 {
                         store.audioController.resume()
                     }
                 }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 20))
-                        Text(store.ttsIsPlaying ? "暂停" : "播放")
-                            .font(.caption2)
+                    Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 28))
+                }
+
+                if store.audioController.queueCount > 0 {
+                    Text("队列:\(store.audioController.queueCount)")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                // Speed popover
+                Menu {
+                    Slider(value: Binding(
+                        get: { UserDefaults.standard.double(forKey: "globalRate") },
+                        set: { UserDefaults.standard.set($0, forKey: "globalRate") }
+                    ), in: -10...10, step: 1)
+                    Text("语速: \(Int(UserDefaults.standard.double(forKey: "globalRate")))")
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "speedometer")
+                        Text("\(Int(UserDefaults.standard.double(forKey: "globalRate")))")
+                            .font(.caption.monospaced())
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 40)
+                    .foregroundColor(textColor.opacity(0.8))
                 }
-                .buttonStyle(.borderless)
-                Button(action: { store.audioController.skipPreviousParagraph() }) {
-                    Label("上一段", systemImage: "backward.end")
-                        .font(.caption2)
-                        .frame(minWidth: 70, minHeight: 36)
+
+                // Volume popover
+                Menu {
+                    Slider(value: Binding(
+                        get: { UserDefaults.standard.double(forKey: "globalVolume") },
+                        set: { UserDefaults.standard.set($0, forKey: "globalVolume") }
+                    ), in: -10...10, step: 1)
+                    Text("音量: \(Int(UserDefaults.standard.double(forKey: "globalVolume")))dB")
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "speaker.wave.2")
+                        Text("\(Int(UserDefaults.standard.double(forKey: "globalVolume")))")
+                            .font(.caption.monospaced())
+                    }
+                    .foregroundColor(textColor.opacity(0.8))
                 }
-                .buttonStyle(.borderless)
-                Button(action: { store.audioController.skipCurrentParagraph() }) {
-                    Label("下一段", systemImage: "forward.end")
-                        .font(.caption2)
-                        .frame(minWidth: 70, minHeight: 36)
-                }
-                .buttonStyle(.borderless)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
 
             Divider()
 
@@ -1380,49 +1365,22 @@ private struct ReaderOverlayView: View {
     private var floatingAudioControls: some View {
         VStack(spacing: 12) {
             Spacer()
-            Button(action: { store.audioController.skipCurrentSentence() }) {
-                Image(systemName: "forward")
-                    .font(.system(size: 18))
-                    .foregroundColor(textColor)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
-            }
-            .buttonStyle(.borderless)
             Button(action: {
                 if store.ttsIsPlaying {
                     store.audioController.pause()
-                } else {
+                } else if store.audioController.queueCount > 0 {
                     store.audioController.resume()
                 }
             }) {
                 Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 36))
-                    .foregroundColor(.blue)
-                    .background(Circle().fill(bgColor).shadow(radius: 4))
+                    .font(.system(size: 44))
+                    .foregroundColor(textColor)
             }
-            .buttonStyle(.borderless)
-            VStack(spacing: 2) {
-                if !store.ttsProgressMessage.isEmpty {
-                    Text(store.ttsProgressMessage)
-                        .font(.system(size: 8))
-                        .foregroundColor(textColor.opacity(0.6))
-                        .lineLimit(2)
-                        .frame(width: 60)
-                        .multilineTextAlignment(.center)
-                }
-                if let paragraphIndex = store.currentParagraphIndex, let sentenceIndex = store.currentSentenceIndex {
-                    Text("段\(paragraphIndex + 1)-句\(sentenceIndex + 1)")
-                        .font(.system(size: 8))
-                        .foregroundColor(textColor.opacity(0.6))
-                        .lineLimit(2)
-                        .frame(width: 60)
-                        .multilineTextAlignment(.center)
-                }
-            }
+            .shadow(color: .black.opacity(0.2), radius: 4)
+            Spacer().frame(height: 80)
         }
-        .padding(.trailing, 8)
-        .padding(.bottom, 120)
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.trailing, 16)
     }
 
     private var floatingPlayButton: some View {

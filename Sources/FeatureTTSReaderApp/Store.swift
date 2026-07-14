@@ -1358,11 +1358,16 @@ final class ReaderStore: NSObject, ObservableObject {
         currentSentenceText = nil
         ttsProgressMessage = ""
 
+        let useAI = UserDefaults.standard.bool(forKey: "readerUseAI")
         playbackTask = Task { [weak self] in
             guard let self else { return }
             do {
                 try Task.checkCancellation()
-                try await self.playChapterStreaming(chapter: chapter, fromParagraphIndex: max(0, fromParagraphIndex), fromSentenceIndex: sentenceIndex)
+                if useAI {
+                    try await self.playChapterWithAI(chapter: chapter, fromParagraphIndex: max(0, fromParagraphIndex))
+                } else {
+                    try await self.playChapterStreaming(chapter: chapter, fromParagraphIndex: max(0, fromParagraphIndex), fromSentenceIndex: sentenceIndex)
+                }
             } catch {
                 if !Task.isCancelled {
                     await MainActor.run { self.statusMessage = "朗读失败：\(error.localizedDescription)" }
@@ -1373,11 +1378,16 @@ final class ReaderStore: NSObject, ObservableObject {
 
     func startPlaybackTask(chapter: BookChapter, fromParagraphIndex: Int? = nil, sentenceIndex: Int? = nil) async {
         await cancelPlaybackTaskAndWait()
+        let useAI = UserDefaults.standard.bool(forKey: "readerUseAI")
         playbackTask = Task { [weak self] in
             guard let self = self else { return }
             do {
                 try Task.checkCancellation()
-                try await self.playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: sentenceIndex)
+                if useAI {
+                    try await self.playChapterWithAI(chapter: chapter, fromParagraphIndex: fromParagraphIndex)
+                } else {
+                    try await self.playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: sentenceIndex)
+                }
             } catch {
                 if !Task.isCancelled {
                     await MainActor.run { self.statusMessage = "朗读失败：\(error.localizedDescription)" }
@@ -1701,6 +1711,8 @@ final class ReaderStore: NSObject, ObservableObject {
     func playChapterWithAI(chapter: BookChapter, fromParagraphIndex: Int? = nil) async {
         await MainActor.run {
             stopPlayback()
+            isSpeaking = true
+            ttsIsPlaying = true
             isBusy = true
             isLoadingAISegments = true
             statusMessage = "正在解析章节角色..."
@@ -1732,9 +1744,13 @@ final class ReaderStore: NSObject, ObservableObject {
             ])
             await MainActor.run { statusMessage = "使用缓存解析结果 (\(cached.count) 段)..." }
         } else {
-            // 2. Get default worker config
-            guard let workerConfig = defaultWorkerConfig else {
-                await MainActor.run { statusMessage = "未配置 AI Worker，请在设置中添加。" }
+            // 2. Get worker config via rotator (with fallback to default)
+            var workerConfig = await workerRotator.next(chapterIndex: chapterIndex)
+            if workerConfig == nil { workerConfig = defaultWorkerConfig }
+            guard let workerConfig else {
+                // All workers unavailable — fallback to local parsing
+                await MainActor.run { statusMessage = "无可用 AI Worker，回退本地解析..." }
+                await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
                 return
             }
 
@@ -1742,6 +1758,7 @@ final class ReaderStore: NSObject, ObservableObject {
             DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_start", details: [
                 "chapter": chapter.title,
                 "text_length": chapter.text.count,
+                "worker": workerConfig.name,
             ])
 
             do {
@@ -1752,11 +1769,16 @@ final class ReaderStore: NSObject, ObservableObject {
                         await MainActor.run { self?.statusMessage = message }
                     }
                 )
+                await workerRotator.markSuccess(workerConfig.id)
             } catch {
                 DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_error", details: [
                     "error": error.localizedDescription,
+                    "worker": workerConfig.name,
                 ])
-                await MainActor.run { statusMessage = "AI 解析失败: \(error.localizedDescription)" }
+                await workerRotator.markFailure(workerConfig.id)
+                // Fallback: try local parsing
+                await MainActor.run { statusMessage = "AI 解析失败，回退本地解析..." }
+                await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
                 return
             }
 

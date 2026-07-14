@@ -5,8 +5,10 @@ actor WorkerRotator {
     private var configs: [AIWorkerConfig] = []
     private var currentIndex = 0
     private var chapterCounter = 0
-    private var rotationInterval = 5       // 默认每 5 章切换
-    private var maxSlicesPerWorker = 10   // 单章超长分片上限
+    private var rotationInterval = 5
+    private var maxSlicesPerWorker = 10
+    private var failedWorkerIDs: Set<UUID> = []
+    private var failureCooldown: [UUID: Date] = [:]
 
     func configure(with configs: [AIWorkerConfig], interval: Int = 5, maxSlices: Int = 10) {
         self.configs = configs
@@ -16,10 +18,18 @@ actor WorkerRotator {
 
     /// 获取下一个健康的 Worker。chapterIndex 用于计算轮询边界
     func next(chapterIndex: Int, sliceCount: Int = 0) -> AIWorkerConfig? {
-        let enabled = configs.filter { $0.isEnabled }
+        let now = Date()
+        // Recover workers after 5 minute cooldown
+        for id in failedWorkerIDs {
+            if let cooldown = failureCooldown[id], now.timeIntervalSince(cooldown) > 300 {
+                failedWorkerIDs.remove(id)
+                failureCooldown.removeValue(forKey: id)
+            }
+        }
+
+        let enabled = configs.filter { $0.isEnabled && !failedWorkerIDs.contains($0.id) }
         guard !enabled.isEmpty else { return configs.first(where: { $0.isDefault }) ?? configs.first }
 
-        // 按章节轮询
         if chapterCounter >= rotationInterval || sliceCount > maxSlicesPerWorker {
             currentIndex = (currentIndex + 1) % enabled.count
             chapterCounter = 0
@@ -28,13 +38,23 @@ actor WorkerRotator {
         return enabled[currentIndex % enabled.count]
     }
 
-    /// 标记 Worker 失败（临时跳过）
+    /// 标记 Worker 失败（5 分钟冷却后自动恢复）
     func markFailure(_ id: UUID) {
-        // 从 configs 中暂时移除，下次重新加入
+        failedWorkerIDs.insert(id)
+        failureCooldown[id] = Date()
     }
 
     /// 标记 Worker 恢复
     func markSuccess(_ id: UUID) {
-        // 重新加入轮询池
+        failedWorkerIDs.remove(id)
+        failureCooldown.removeValue(forKey: id)
+    }
+
+    /// 重置状态（切换书籍时调用）
+    func reset() {
+        currentIndex = 0
+        chapterCounter = 0
+        failedWorkerIDs.removeAll()
+        failureCooldown.removeAll()
     }
 }
