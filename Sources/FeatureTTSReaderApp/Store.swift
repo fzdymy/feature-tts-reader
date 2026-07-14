@@ -2244,7 +2244,7 @@ group.addTask {
 
 // 找到该角色的 profile 获取 gender
         let profile = characters.first { $0.name == speaker }
-        let cg = profile?.gender ?? .unknown
+        let cg: CharacterGender = profile?.gender ?? .unknown
         let genderForVoice: Gender = {
             switch cg {
             case .male: return .male
