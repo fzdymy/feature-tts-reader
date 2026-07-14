@@ -11,6 +11,7 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
     var timeout: TimeInterval
     var isDefault: Bool
     var isEnabled: Bool
+    var priority: Int
 
     init(
         id: UUID = UUID(),
@@ -21,7 +22,8 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
         sliceCharLimit: Int = 1000,
         timeout: TimeInterval = 30,
         isDefault: Bool = false,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        priority: Int = 0
     ) {
         self.id = id
         self.name = name
@@ -32,6 +34,7 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
         self.timeout = timeout
         self.isDefault = isDefault
         self.isEnabled = isEnabled
+        self.priority = priority
     }
 }
 

@@ -10,10 +10,15 @@ actor WorkerRotator {
     private var failedWorkerIDs: Set<UUID> = []
     private var failureCooldown: [UUID: Date] = [:]
 
-    func configure(with configs: [AIWorkerConfig], interval: Int = 5, maxSlices: Int = 10) {
+    func configure(with configs: [AIWorkerConfig], interval: Int? = nil, maxSlices: Int = 10) {
         self.configs = configs
-        self.rotationInterval = max(1, interval)
+        let userInterval = UserDefaults.standard.object(forKey: "workerRotationInterval") as? Int
+        self.rotationInterval = max(1, interval ?? userInterval ?? 5)
         self.maxSlicesPerWorker = max(1, maxSlices)
+    }
+
+    nonisolated func saveInterval(_ interval: Int) {
+        UserDefaults.standard.set(interval, forKey: "workerRotationInterval")
     }
 
     /// 获取下一个健康的 Worker。chapterIndex 用于计算轮询边界

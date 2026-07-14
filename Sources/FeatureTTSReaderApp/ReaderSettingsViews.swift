@@ -13,6 +13,7 @@ struct ReaderSettingsView: View {
     @State private var showBackgroundPicker: Bool = false
     @State private var enableHyphenation: Bool = false
     @State private var enableKerning: Bool = true
+    @State private var readerEnableRotation: Bool = false
     @State private var textAlignment: TextAlign = .leading
 
     var body: some View {
@@ -133,6 +134,21 @@ struct ReaderSettingsView: View {
                     ))
 
                     HStack {
+                        Text("懒加载窗口")
+                        Slider(value: Binding(
+                            get: { UserDefaults.standard.double(forKey: "aiPrefetchThreshold") == 0 ? 5 : UserDefaults.standard.double(forKey: "aiPrefetchThreshold") },
+                            set: { UserDefaults.standard.set($0, forKey: "aiPrefetchThreshold") }
+                        ), in: 3...20, step: 1)
+                        Text("\(Int(UserDefaults.standard.double(forKey: "aiPrefetchThreshold") == 0 ? 5 : UserDefaults.standard.double(forKey: "aiPrefetchThreshold")))")
+                            .font(.caption.monospaced()).frame(width: 24)
+                    }
+
+                    Toggle("TTS 音色自动匹配", isOn: Binding(
+                        get: { UserDefaults.standard.object(forKey: "ttsAutoMatch") as? Bool ?? true },
+                        set: { UserDefaults.standard.set($0, forKey: "ttsAutoMatch") }
+                    ))
+
+                    HStack {
                         Text("旁白默认音色")
                         Spacer()
                         NavigationLink {
@@ -172,10 +188,22 @@ struct ReaderSettingsView: View {
                             .font(.caption.monospaced()).frame(width: 40)
                     }
 
-                    Toggle("Worker 轮询", isOn: Binding(
-                        get: { UserDefaults.standard.bool(forKey: "readerEnableRotation") },
-                        set: { UserDefaults.standard.set($0, forKey: "readerEnableRotation") }
-                    ))
+                    Toggle("Worker 轮询", isOn: $readerEnableRotation)
+                        .onChange(of: readerEnableRotation) { _, newValue in
+                            UserDefaults.standard.set(newValue, forKey: "readerEnableRotation")
+                        }
+
+                    if readerEnableRotation {
+                        HStack {
+                            Text("轮询间隔")
+                            Slider(value: Binding(
+                                get: { UserDefaults.standard.double(forKey: "workerRotationInterval") == 0 ? 5 : UserDefaults.standard.double(forKey: "workerRotationInterval") },
+                                set: { UserDefaults.standard.set($0, forKey: "workerRotationInterval") }
+                            ), in: 1...20, step: 1)
+                            Text("\(Int(UserDefaults.standard.double(forKey: "workerRotationInterval") == 0 ? 5 : UserDefaults.standard.double(forKey: "workerRotationInterval")))")
+                                .font(.caption.monospaced()).frame(width: 24)
+                        }
+                    }
 
                     NavigationLink("管理 AI Workers") {
                         WorkerManagementView().environmentObject(store)
@@ -209,6 +237,7 @@ struct ReaderSettingsView: View {
                 textAlignment = TextAlign(rawValue: UserDefaults.standard.integer(forKey: "textAlignment")) ?? .leading
                 enableKerning = UserDefaults.standard.object(forKey: "enableKerning") as? Bool ?? true
                 enableHyphenation = UserDefaults.standard.object(forKey: "enableHyphenation") as? Bool ?? false
+                readerEnableRotation = UserDefaults.standard.bool(forKey: "readerEnableRotation")
             }
             .onDisappear {
                 UserDefaults.standard.set(useSystemBrightness, forKey: "useSystemBrightness")

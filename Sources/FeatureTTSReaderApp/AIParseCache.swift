@@ -87,5 +87,25 @@ actor AIParseCache {
         for (url, _) in toDelete {
             try? FileManager.default.removeItem(at: url)
         }
+
+        // Also enforce storage size limit
+        guard let allFiles = try? FileManager.default.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else { return }
+        let allJson = allFiles.filter { $0.pathExtension == "json" }
+        let totalSize = allJson.reduce(0) { $0 + ((try? FileManager.default.attributesOfItem(atPath: $1.path)[.size] as? Int) ?? 0) }
+        let maxSizeBytes = Int(maxStorageMB * 1024 * 1024)
+        if totalSize > maxSizeBytes {
+            let sortedSize = allJson.compactMap { url -> (URL, Date)? in
+                guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                      let modDate = attrs[.modificationDate] as? Date else { return nil }
+                return (url, modDate)
+            }.sorted { $0.1 < $1.1 }
+            var runningSize = totalSize
+            for (file, _) in sortedSize {
+                guard runningSize > maxSizeBytes else { break }
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
+                try? FileManager.default.removeItem(at: file)
+                runningSize -= fileSize
+            }
+        }
     }
 }
