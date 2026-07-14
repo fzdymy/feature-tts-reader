@@ -45,7 +45,8 @@ struct ReaderSheets: ViewModifier {
                 .environmentObject(store)
             }
             .sheet(isPresented: $showAddCharacter) {
-                AddCharacterView { name, gender, age, tone in
+                AddCharacterView { name, genderStr, age, tone in
+                    let gender: CharacterGender = genderStr == "男性" ? .male : (genderStr == "女性" ? .female : .unknown)
                     store.addCharacter(name: name, gender: gender, age: age, tone: tone, bookID: bookID)
                     showAddCharacter = false
                 }
@@ -59,7 +60,8 @@ struct ReaderSheets: ViewModifier {
                     candidateName: selectedTextForCharacter,
                     bookText: store.bookText,
                     existingCharacters: store.characters,
-                    onAdd: { name, gender, age, tone in
+                    onAdd: { name, genderStr, age, tone in
+                        let gender: CharacterGender = genderStr == "男性" ? .male : (genderStr == "女性" ? .female : .unknown)
                         store.addCharacter(name: name, gender: gender, age: age, tone: tone, bookID: bookID)
                     },
                     onEdit: { character in

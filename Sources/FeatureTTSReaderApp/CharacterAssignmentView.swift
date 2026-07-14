@@ -164,8 +164,8 @@ struct CharacterAssignmentPanel: View {
                         .background(Color.blue.opacity(0.15)).cornerRadius(3)
                 }
                 Spacer()
-                if !profile.gender.isEmpty, profile.gender != "未知" {
-                    Text(profile.gender).font(.system(size: 10)).foregroundColor(.secondary)
+                if profile.gender != .unknown {
+                    Text(profile.gender.rawValue).font(.system(size: 10)).foregroundColor(.secondary)
                 }
             }
             let attrs = [profile.age, profile.tone].filter { !$0.isEmpty && $0 != "未知" }
@@ -299,13 +299,13 @@ struct CharacterAssignmentPanel: View {
                 }.value
                 var gender = attrs.gender
                 let age = attrs.age
-                if gender == "未知" { gender = store.guessGender(from: name) ? "男性" : "女性" }
+                let gender: CharacterGender = gender == "Male" ? .male : (gender == "Female" ? .female : .unknown)
                 let acFreq = freqResult[name] ?? 0
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: [],
                     gender: gender, age: age, tone: attrs.baseTone,
-                    voice: "", rate: attrs.baseRate, pitch: attrs.basePitch, style: attrs.baseStyle,
-                    sensitivity: defaultSensitivity, frequency: acFreq,
+                    voiceID: "", rate: attrs.baseRate, pitch: attrs.basePitch, style: attrs.baseStyle,
+                    sensitivity: defaultSensitivity, appearanceCount: acFreq,
                     bookID: book.id
                 ))
                 let elapsed = Date().timeIntervalSince(startTime)
