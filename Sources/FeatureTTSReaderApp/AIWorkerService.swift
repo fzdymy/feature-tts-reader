@@ -222,7 +222,7 @@ final class AIWorkerService {
     }
 
     /// 修复 JSON 中 text 字段的未转义双引号
-    private func repairJSONTextFields(_ raw: String) -> String {
+    private nonisolated func repairJSONTextFields(_ raw: String) -> String {
         var result = ""
         var i = raw.startIndex
         while i < raw.endIndex {
