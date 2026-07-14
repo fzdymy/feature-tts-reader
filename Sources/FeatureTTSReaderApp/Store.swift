@@ -1100,9 +1100,9 @@ final class ReaderStore: NSObject, ObservableObject {
             for speaker in speakers {
                 let speakerSegments = segments.filter { $0.speaker == speaker }
                 let isNarrator = speaker == "旁白"
-                let gender = isNarrator ? "Unknown" : (speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") ? "Female" : "Male")
+                let gender: CharacterGender = isNarrator ? .unknown : (speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") ? .female : .male)
                 let tone = isNarrator ? "平稳" : speakerSegments.first?.emotion.rawValue ?? "平稳"
-                let voice = "" // Will be auto-assigned
+                let voiceID = "" // Will be auto-assigned
 
                 let profile = CharacterProfile(
                     id: UUID(),
@@ -1111,7 +1111,7 @@ final class ReaderStore: NSObject, ObservableObject {
                     gender: gender,
                     age: isNarrator ? "未知" : "青年",
                     tone: tone,
-                    voice: voice,
+                    voiceID: voiceID,
                     rate: 0,
                     pitch: 0,
                     style: "neutral",
@@ -1134,7 +1134,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
 
                 if final.isEmpty {
-                    final = [CharacterProfile(id: UUID(), name: "叙述者", gender: "未知", age: "未知", tone: "中性", voice: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                    final = [CharacterProfile(id: UUID(), name: "叙述者", gender: .unknown, age: "未知", tone: "中性", voiceID: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
                     statusMessage = "未识别到明确人物，已创建默认叙述者。"
                 } else {
                     statusMessage = "已识别 \(final.count) 个角色。"
@@ -1246,7 +1246,7 @@ final class ReaderStore: NSObject, ObservableObject {
         saveState()
     }
 
-    func addCharacter(name: String, gender: String = "未知", age: String = "未知", tone: String = "平稳", bookID: UUID? = nil) {
+    func addCharacter(name: String, gender: CharacterGender = .unknown, age: String = "未知", tone: String = "平稳", bookID: UUID? = nil) {
         let newCharacter = CharacterProfile(
             id: UUID(),
             name: name,
@@ -1254,7 +1254,7 @@ final class ReaderStore: NSObject, ObservableObject {
             gender: gender,
             age: age,
             tone: tone,
-            voice: defaultVoice(for: gender, tone: tone, voices: voices),
+            voiceID: defaultVoice(for: gender.rawValue, tone: tone, voices: voices),
             rate: 0,
             pitch: 0,
             style: "neutral",
@@ -2355,10 +2355,10 @@ final class ReaderStore: NSObject, ObservableObject {
             id: UUID(),
             name: "叙述者",
             aliases: [],
-            gender: "Unknown",
+            gender: .unknown,
             age: "未知",
             tone: "中性",
-            voice: defaultVoice(for: "Unknown", tone: "neutral", role: "旁白", voices: voices),
+            voiceID: defaultVoice(for: "Unknown", tone: "neutral", role: "旁白", voices: voices),
             rate: 0,
             pitch: 0,
             style: "neutral",
@@ -2392,7 +2392,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 let chunks = part.text.chunked(into: maxLength)
                 for chunk in chunks {
                     let toneResult = sharedAnalyzer.analyzeSentenceTone(chunk)
-                    var profile = speakerProfile ?? CharacterProfile(id: UUID(), name: part.speaker, gender: "未知", age: "未知", tone: toneResult.style, voice: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
+                    var profile = speakerProfile ?? CharacterProfile(id: UUID(), name: part.speaker, gender: .unknown, age: "未知", tone: toneResult.style, voiceID: "", rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)
 
                     if profile.voiceID.isEmpty && speakerProfile == nil {
                         let isMale = guessGender(from: part.speaker)
@@ -2865,16 +2865,16 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
-    nonisolated func defaultVoice(for gender: String, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
+    nonisolated func defaultVoice(for gender: CharacterGender, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
         if !voices.isEmpty {
-            let targetGender: VoiceGender = (gender == "男") ? .male : .female
+            let targetGender: VoiceGender = (gender == .male) ? .male : .female
             let preferred = voices.first { $0.gender == targetGender }
             if let v = preferred { return v.id }
             return voices[0].id
         }
         switch gender {
-        case "男": return "zh-CN-YunxiNeural"
-        case "女": return "zh-CN-XiaoxiaoNeural"
+        case .male: return "zh-CN-YunxiNeural"
+        case .female: return "zh-CN-XiaoxiaoNeural"
         default:   return "zh-CN-XiaoxiaoNeural"
         }
     }

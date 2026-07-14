@@ -22,7 +22,7 @@ struct CharacterListView: View {
         return filtered.sorted { a, b in
             if a.isNarrator { return true }
             if b.isNarrator { return false }
-            return a.frequency > b.frequency
+            return a.appearanceCount > b.appearanceCount
         }
     }
 
@@ -156,11 +156,11 @@ private struct CharacterRow: View {
                             .background(Color.orange.opacity(0.15))
                             .cornerRadius(4)
                     }
-                    let genderIcon = character.gender == "Male" ? "♂" : (character.gender == "Female" ? "♀" : "")
+                    let genderIcon = character.gender == .male ? "♂" : (character.gender == .female ? "♀" : "")
                     if !genderIcon.isEmpty {
                         Text(genderIcon)
                             .font(.caption2)
-                            .foregroundColor(character.gender == "Male" ? .blue : .pink)
+                            .foregroundColor(character.gender == .male ? .blue : .pink)
                     }
                 }
                 Text(character.voiceID.isEmpty ? "未分配" : character.voiceID)

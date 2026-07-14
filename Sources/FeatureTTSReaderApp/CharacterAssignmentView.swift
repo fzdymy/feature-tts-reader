@@ -23,7 +23,7 @@ struct CharacterAssignmentPanel: View {
         store.characters.filter { $0.bookID == nil || $0.bookID == book.id }
             .sorted { a, b in
                 if a.isNarrator != b.isNarrator { return a.isNarrator }
-                return a.frequency > b.frequency
+                return a.appearanceCount > b.appearanceCount
             }
     }
 
@@ -344,7 +344,7 @@ struct CharacterAssignmentPanel: View {
                 let candidates = inferred.filter {
                     $0.id != profile.id && !$0.isNarrator && $0.name.hasPrefix(base)
                 }
-                if let best = candidates.max(by: { $0.frequency < $1.frequency }) {
+                if let best = candidates.max(by: { $0.appearanceCount < $1.appearanceCount }) {
                     toRemove.insert(profile.id)
                     var merged = mergedMap[best.id] ?? best
                     if !merged.aliases.contains(profile.name) {
