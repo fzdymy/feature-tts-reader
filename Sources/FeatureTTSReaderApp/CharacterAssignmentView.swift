@@ -297,9 +297,8 @@ struct CharacterAssignmentPanel: View {
                 let attrs = await Task.detached(priority: .userInitiated) { [analyzer] in
                     analyzer.estimateAttributes(for: name, in: text)
                 }.value
-                var gender = attrs.gender
+                let gender: CharacterGender = attrs.gender == "Male" ? .male : (attrs.gender == "Female" ? .female : .unknown)
                 let age = attrs.age
-                let gender: CharacterGender = gender == "Male" ? .male : (gender == "Female" ? .female : .unknown)
                 let acFreq = freqResult[name] ?? 0
                 inferred.append(CharacterProfile(
                     id: UUID(), name: name, aliases: [],
