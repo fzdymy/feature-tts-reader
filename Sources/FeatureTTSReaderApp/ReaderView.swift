@@ -182,6 +182,7 @@ struct ReaderView: View {
                 isPlaying: $isPlaying,
                 showBookmarks: $showBookmarks,
                 showCharacterPanel: $showCharacterPanel,
+                showCharacterList: $showCharacterList,
                 showTOC: $showTOC,
                 showSettings: $showSettings,
                 showFontPicker: $showFontPicker,
@@ -899,6 +900,7 @@ private struct ReaderOverlayView: View {
     @Binding var isPlaying: Bool
     @Binding var showBookmarks: Bool
     @Binding var showCharacterPanel: Bool
+    @Binding var showCharacterList: Bool
     @Binding var showTOC: Bool
     @Binding var showSettings: Bool
     @Binding var showFontPicker: Bool
