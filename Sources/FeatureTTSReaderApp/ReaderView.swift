@@ -260,6 +260,7 @@ struct ReaderView: View {
             showAddCharacter: $showAddCharacter,
             showAllRecommendations: $showAllRecommendations,
             showCharacterFromText: $showCharacterFromText,
+            showCharacterList: $showCharacterList,
             selectedTextForCharacter: selectedTextForCharacter,
             bookID: book.id,
             currentChapterID: currentChapter.id,

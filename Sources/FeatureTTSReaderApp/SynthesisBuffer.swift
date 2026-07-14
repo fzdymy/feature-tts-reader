@@ -5,6 +5,7 @@ actor SynthesisBuffer {
     var buffer: [Int: TTSQueueItem] = [:]
     var nextExpected = 0
     var flushedCount = 0
+    var hasPlayedFirst = false
     let onReady: @Sendable ([TTSQueueItem]) async -> Void
 
     init(onReady: @Sendable @escaping ([TTSQueueItem]) async -> Void) {
@@ -31,5 +32,13 @@ actor SynthesisBuffer {
         if !sorted.isEmpty {
             await onReady(sorted.map { $0.value })
         }
+    }
+
+    func markFirstPlayed() -> Bool {
+        if hasPlayedFirst {
+            return false
+        }
+        hasPlayedFirst = true
+        return true
     }
 }

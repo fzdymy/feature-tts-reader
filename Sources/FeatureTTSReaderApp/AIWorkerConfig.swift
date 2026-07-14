@@ -10,6 +10,7 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
     var sliceCharLimit: Int
     var timeout: TimeInterval
     var isDefault: Bool
+    var isEnabled: Bool
 
     init(
         id: UUID = UUID(),
@@ -19,7 +20,8 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
         model: String = "qwen-plus",
         sliceCharLimit: Int = 1000,
         timeout: TimeInterval = 30,
-        isDefault: Bool = false
+        isDefault: Bool = false,
+        isEnabled: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -29,6 +31,7 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
         self.sliceCharLimit = sliceCharLimit
         self.timeout = timeout
         self.isDefault = isDefault
+        self.isEnabled = isEnabled
     }
 }
 

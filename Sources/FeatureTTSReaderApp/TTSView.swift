@@ -1148,7 +1148,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 根据说话人自动匹配音色（基于性别，优先从 zh-CN 女声/男声中选择）
-    private static func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
+    static func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let voices = zhVoices.isEmpty ? defaultChineseVoices : zhVoices
         let resolved: Gender = {
@@ -1296,7 +1296,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 根据情绪和角色名计算语速偏移
-    private static func rateOffset(for segment: AISegment) -> Int {
+    static func rateOffset(for segment: AISegment) -> Int {
         switch segment.emotion {
         case .angry, .shouting, .excited: return 4
         case .happy, .cheerful, .surprised: return 2
@@ -1306,7 +1306,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 从 tone 语气关键词推导基准音量(dB)，叠加全局滑块偏移，输出 SSML 兼容 dB 值
-    private static func resolvedVolume(tone: String, globalOffset: Double) -> String {
+    static func resolvedVolume(tone: String, globalOffset: Double) -> String {
         let t = tone
         let baseDb: Double
         if t.contains("大喊") || t.contains("怒吼") || t.contains("咆哮") || t.contains("吼叫") || t.contains("大喝") || t.contains("厉喝") || t.contains("怒喝") || t.contains("厉声") || t.contains("怒声") || t.contains("高喝") {
@@ -1326,7 +1326,7 @@ Picker("发音人", selection: $testVoice) {
     }
 
     /// 根据情绪和角色名计算音调偏移
-    private static func pitchOffset(for segment: AISegment, speakerName: String) -> Int {
+    static func pitchOffset(for segment: AISegment, speakerName: String) -> Int {
         let gender = resolveGender(speaker: speakerName, aiGender: segment.gender)
         let genderOffset: Int = {
             switch gender {
@@ -2217,51 +2217,6 @@ struct WorkerEditView: View {
         }
     }
 }
-
-struct CharacterRoleCard: View {
-    let speaker: String
-    let aliases: [String]
-    let segmentCount: Int
-    let emotionSummary: String?
-    let gender: Gender
-    let autoMatchedVoiceID: String
-    @Binding var voice: String
-    let isResynthesizing: Bool
-    let availableVoices: [EdgeVoiceInfo]
-    let onResynthesize: () -> Void
-    let onMerge: (String) -> Void
-    let onSplit: ((String) -> Void)?
-    let onDelete: () -> Void
-    let onRename: (String) -> Void
-    let otherSpeakers: [String]
-
-    @State private var showRenameAlert = false
-    @State private var renameText = ""
-    @State private var showMergePicker = false
-    @State private var showDeleteConfirm = false
-    @State private var showVoicePicker = false
-
-    private var selectedLabel: String {
-        guard !voice.isEmpty else { return "自动" }
-        let base = TTSView.shortVoiceLabel(voice, name: TTSView.chineseVoiceName(for: voice))
-        let g = availableVoices.first(where: { $0.id == voice })?.gender ?? ""
-        let icon = g == "Male" ? " ♂" : (g == "Female" ? " ♀" : "")
-        return base + icon
-    }
-
-    private var genderLabel: (String, String, Color)? {
-        switch gender {
-        case .male: return ("♂", "男", .blue)
-        case .female: return ("♀", "女", .pink)
-        case .unknown: return nil
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: speaker == "旁白" ? "person.fill" : "person.2.fill")
-                    .font(.caption)
                     .foregroundColor(speaker == "旁白" ? .blue : .orange)
                 Text(speaker)
                     .font(.subheadline.weight(.semibold))
@@ -2423,50 +2378,6 @@ if let emotionSummary {
         }
     }
 }
-/// 通用的音色选择弹出菜单（列表中直接显示性别标签）
-struct VoicePickerPopover: View {
-    let availableVoices: [EdgeVoiceInfo]
-    @Binding var selection: String
-    let onSelect: ((String) -> Void)?
-    
-    var body: some View {
-        List {
-            Button {
-                selection = ""
-            } label: {
-                HStack {
-                    Text("自动")
-                    if selection.isEmpty { Image(systemName: "checkmark") }
-                }
-            }
-            ForEach(availableVoices) { v in
-                Button {
-                    selection = v.id
-                    onSelect?(v.id)
-                } label: {
-                    HStack {
-                        Text(TTSView.shortVoiceLabel(v.id, name: TTSView.chineseVoiceName(for: v.id)))
-                            .font(.subheadline)
-                        Text(v.gender == "Male" ? "♂" : "♀")
-                            .font(.caption2)
-                            .foregroundColor(v.gender == "Male" ? .blue : .pink)
-                        if selection == v.id { Spacer(); Image(systemName: "checkmark") }
-                    }
-                }
-            }
-        }
-        .frame(minWidth: 300, maxWidth: 400)
-    }
-    
-    private var selectedLabel: String {
-        guard !selection.isEmpty else { return "自动" }
-        let base = TTSView.shortVoiceLabel(selection, name: TTSView.chineseVoiceName(for: selection))
-        let g = availableVoices.first(where: { $0.id == selection })?.gender ?? ""
-        let icon = g == "Male" ? " ♂" : (g == "Female" ? " ♀" : "")
-        return base + icon
-    }
-}
-
 private extension CharacterSet {
     static let urlQueryParameterAllowed: CharacterSet = {
         var allowed = CharacterSet.urlQueryAllowed

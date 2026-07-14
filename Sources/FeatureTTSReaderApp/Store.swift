@@ -1792,20 +1792,9 @@ final class ReaderStore: NSObject, ObservableObject {
         let totalCount = mergedSegments.count
         await MainActor.run { statusMessage = "正在合成音频 (\(totalCount) 段)..." }
 
-        var isFirstPlayback = true
-        let playbackLock = OSAllocatedUnfairLock()
-
         let buffer = SynthesisBuffer { @Sendable [weak self] readyItems in
             guard let self else { return }
-            let shouldPlayFirst: Bool = {
-                playbackLock.withLock {
-                    if isFirstPlayback {
-                        isFirstPlayback = false
-                        return true
-                    }
-                    return false
-                }
-            }()
+            let shouldPlayFirst = await buffer.markFirstPlayed()
             if shouldPlayFirst {
                 audioController.playQueue(readyItems)
             } else {

@@ -103,7 +103,7 @@ struct CharacterListView: View {
                 }
             }
             .sheet(item: $editingCharacter) { character in
-                CharacterEditorView(character: character, availableVoices: availableVoices) { updated in
+                CharacterEditorView(character: character) { updated in
                     if let idx = characters.firstIndex(where: { $0.id == updated.id }) {
                         characters[idx] = updated
                         store.saveState()

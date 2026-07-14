@@ -69,7 +69,23 @@ struct ReaderSheets: ViewModifier {
                 .environmentObject(store)
             }
             .sheet(isPresented: $showCharacterList) {
-                CharacterListView(bookID: bookID, characters: $store.characters, availableVoices: [], onDismiss: { showCharacterList = false }).environmentObject(store)
+                CharacterListView(
+                    bookID: bookID,
+                    characters: Binding(
+                        get: { store.characters },
+                        set: { store.characters = $0 }
+                    ),
+                    availableVoices: store.voices.map { v in
+                        EdgeVoiceInfo(
+                            id: v.id,
+                            name: v.name,
+                            gender: v.gender.rawValue,
+                            locale: v.locale,
+                            styles: v.styleList
+                        )
+                    },
+                    onDismiss: { showCharacterList = false }
+                ).environmentObject(store)
             }
     }
 }

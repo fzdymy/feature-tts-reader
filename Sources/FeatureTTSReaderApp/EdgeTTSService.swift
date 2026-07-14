@@ -65,6 +65,62 @@ struct EdgeVoiceInfo: Codable, Sendable, Identifiable {
         if base.hasSuffix("Neural") { base = String(base.dropLast(6)) }
         return base
     }
+
+    /// 提取服务器模型后缀（如 :DragonHDFlashLatestNeural → :DragonHD）
+    static func shortModelSuffix(_ id: String) -> String {
+        guard let colon = id.firstIndex(of: ":") else { return "" }
+        var suffix = String(id[id.index(after: colon)...])
+        for strip in ["FlashLatestNeural", "LatestNeural", "FlashLatest", "Latest", "Neural"] {
+            guard suffix.hasSuffix(strip) else { continue }
+            suffix = String(suffix.dropLast(strip.count))
+            break
+        }
+        return ":\(suffix)"
+    }
+
+    /// 音色显示标签：中文名/英文短名:模型后缀（如 晓晓/Xiaoxiao:DragonHD）
+    static func shortVoiceLabel(_ id: String, name: String) -> String {
+        let base = baseVoiceID(id)
+        let engName = base
+            .replacingOccurrences(of: "zh-CN-", with: "")
+            .replacingOccurrences(of: "zh-HK-", with: "")
+            .replacingOccurrences(of: "zh-TW-", with: "")
+        let suffix = shortModelSuffix(id)
+        return "\(name)/\(engName)\(suffix)"
+    }
+
+    /// 拼音 → 中文名映射（键不含 Neural 后缀）
+    static func chineseVoiceName(for voiceID: String) -> String {
+        let base = baseVoiceID(voiceID)
+        let map: [String: String] = [
+            // zh-CN 女声
+            "zh-CN-Xiaoxiao": "小晓", "zh-CN-Xiaochen": "晓辰",
+            "zh-CN-Xiaohan": "晓涵", "zh-CN-Xiaomo": "晓墨",
+            "zh-CN-Xiaomeng": "晓萌", "zh-CN-Xiaorui": "晓睿",
+            "zh-CN-Xiaoshuang": "晓双", "zh-CN-Xiaoxuan": "晓萱",
+            "zh-CN-Xiaoyan": "晓颜", "zh-CN-Xiaoyi": "晓伊",
+            "zh-CN-Xiaozhen": "晓臻", "zh-CN-Xiaoyu": "晓雨",
+            // zh-CN 男声
+            "zh-CN-Yunxi": "云希", "zh-CN-Yunyang": "云扬",
+            "zh-CN-Yunye": "云野", "zh-CN-Yunjian": "云健",
+            "zh-CN-Yunfeng": "云峰", "zh-CN-Yunxia": "云夏",
+            "zh-CN-Yunze": "云泽", "zh-CN-Yunhao": "云皓",
+            "zh-CN-Yunqi": "云奇", "zh-CN-Yunyi": "云逸",
+            "zh-CN-Yunxiao": "云霄", "zh-CN-Yunjia": "云嘉",
+            // 方言
+            "zh-CN-henan-Yundeng": "云登",
+            "zh-CN-shaanxi-Xiaoni": "晓妮",
+            "zh-CN-sichuan-Xiaomo": "晓墨",
+            "zh-CN-sichuan-Yunxi": "云希",
+            // 粤语
+            "zh-HK-HiuGaai": "晓佳", "zh-HK-HiuMaan": "晓曼",
+            "zh-HK-WanLung": "云龙",
+            // 台语
+            "zh-TW-HsiaoChen": "晓臻", "zh-TW-HsiaoYu": "晓雨",
+            "zh-TW-YunJhe": "云哲",
+        ]
+        return map[base] ?? base
+    }
 }
 
 private struct ServerConfigResponse: Decodable {
