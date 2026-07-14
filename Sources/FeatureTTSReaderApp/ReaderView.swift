@@ -230,7 +230,9 @@ struct ReaderView: View {
                         styles: v.styleList
                     )
                 },
-                onDismiss: { showCharacterList = false }
+                onDismiss: { showCharacterList = false },
+                resynthesizingSpeaker: $store.resynthesizingSpeaker,
+                aiCacheAvailable: .constant(false)
             )
             .environmentObject(store)
             .presentationDetents([.medium, .large])
@@ -367,7 +369,9 @@ struct ReaderView: View {
                     styles: v.styleList
                 )
             },
-            onDismiss: { showCharacterPanel = false }
+            onDismiss: { showCharacterPanel = false },
+            resynthesizingSpeaker: $store.resynthesizingSpeaker,
+            aiCacheAvailable: .constant(false)
         )
         .environmentObject(store)
     }
