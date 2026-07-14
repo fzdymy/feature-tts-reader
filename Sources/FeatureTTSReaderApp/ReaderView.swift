@@ -46,9 +46,6 @@ struct ReaderView: View {
     @State private var selectedTextForCharacter = ""
     @State private var showCharacterFromText = false
 
-    @State private var resynthesizingSpeaker: String? = nil
-    @State private var aiCacheAvailable = false
-
     @State private var currentTime = Date()
     @State private var batteryLevel: Int = 100
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
@@ -120,60 +117,48 @@ struct ReaderView: View {
 
     // MARK: - Body
 
-    @ViewBuilder
-    private var mainContent: some View {
+    var body: some View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            scrollViewContent
-        }
-    }
-
-    @ViewBuilder
-    private var scrollViewContent: some View {
-        ScrollView {
-            ScrollViewAccessor(coordinator: scrollCoordinator)
-                .frame(height: 0)
-            LazyVStack(spacing: 0) {
-                ForEach(chaptersList.indices, id: \.self) { i in
-                    chapterContent(index: i)
-                        .id("ch_\(i)")
+            ScrollView {
+                ScrollViewAccessor(coordinator: scrollCoordinator)
+                    .frame(height: 0)
+                LazyVStack(spacing: 0) {
+                    ForEach(chaptersList.indices, id: \.self) { i in
+                        chapterContent(index: i)
+                            .id("ch_\(i)")
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollPosition(id: $scrollPositionID, anchor: .top)
+            .onChange(of: scrollPositionID) { _, newID in
+                let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
+                guard !isRecentAutoScroll else { return }
+                guard let idStr = newID else { return }
+                if isPlaying, isAudioMode, isImmersive {
+                    scrolledAway = true
+                }
+                let parts = idStr.split(separator: "_", maxSplits: 3)
+                guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
+                if currentChapterIndex != chIdx {
+                    currentChapterIndex = chIdx
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
+                    if chIdx < chaptersList.count {
+                        currentChapter = chaptersList[chIdx]
+                        store.selectedChapterID = chaptersList[chIdx].id
+                    }
                 }
             }
-            .scrollTargetLayout()
-        }
-        .scrollPosition(id: $scrollPositionID, anchor: .top)
-        .onChange(of: scrollPositionID) { _, newID in
-            let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
-            guard !isRecentAutoScroll else { return }
-            guard let idStr = newID else { return }
-            if isPlaying, isAudioMode, isImmersive {
-                scrolledAway = true
-            }
-            let parts = idStr.split(separator: "_", maxSplits: 3)
-            guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
-            if currentChapterIndex != chIdx {
-                currentChapterIndex = chIdx
-                chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
-                if chIdx < chaptersList.count {
-                    currentChapter = chaptersList[chIdx]
-                    store.selectedChapterID = chaptersList[chIdx].id
+            .onAppear {
+                if currentChapterIndex > 0 {
+                    scrollPositionID = "ch_\(currentChapterIndex)"
                 }
             }
-        }
-        .onAppear {
-            if currentChapterIndex > 0 {
-                scrollPositionID = "ch_\(currentChapterIndex)"
+            .onChange(of: chaptersList.count) { _, _ in
+                // chapter list changed
             }
-        }
-        .onChange(of: chaptersList.count) { _, _ in
-            // chapter list changed
-        }
-    }
-
-    var body: some View {
-        mainContent
-    }
             .onChange(of: store.currentParagraphIndex) { _, _ in
                 scheduleAutoScrollUpdate()
             }
@@ -245,9 +230,7 @@ struct ReaderView: View {
                         styles: v.styleList
                     )
                 },
-                onDismiss: { showCharacterList = false },
-                resynthesizingSpeaker: $resynthesizingSpeaker,
-                aiCacheAvailable: $aiCacheAvailable
+                onDismiss: { showCharacterList = false }
             )
             .environmentObject(store)
             .presentationDetents([.medium, .large])
@@ -269,16 +252,6 @@ struct ReaderView: View {
         .onDisappear(perform: onDisappearCleanup)
         .onChange(of: store.externalChapterNavigate) { _, newValue in
             handleExternalNavigate(nav: newValue)
-        }
-        .onChange(of: resynthesizingSpeaker) { _, speaker in
-            guard let speaker else { return }
-            Task {
-                await MainActor.run { store.statusMessage = "「\(speaker)」重新合成功能开发中..." }
-                resynthesizingSpeaker = nil
-            }
-        }
-        .task(id: currentChapter.id) {
-            aiCacheAvailable = await store.aiParseCache.getSegments(chapter: currentChapter) != nil
         }
         .modifier(ReaderSheets(
             showSettings: $showSettings,
@@ -394,9 +367,7 @@ struct ReaderView: View {
                     styles: v.styleList
                 )
             },
-            onDismiss: { showCharacterPanel = false },
-            resynthesizingSpeaker: $resynthesizingSpeaker,
-            aiCacheAvailable: $aiCacheAvailable
+            onDismiss: { showCharacterPanel = false }
         )
         .environmentObject(store)
     }
