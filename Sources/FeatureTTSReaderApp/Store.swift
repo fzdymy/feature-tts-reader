@@ -1601,7 +1601,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
             pendingUnits.append(PendingUnit(
                 sentence: sentence, characterName: canonical, speakerID: speakerID,
-                voice: (profile?.voiceID.isEmpty == false) ? profile?.voiceID : nil,
+                voiceID: (profile?.voiceID.isEmpty == false) ? profile?.voiceID : nil,
                 rate: Double(profile?.rate ?? 0), pitch: Double(profile?.pitch ?? 0),
                 emotionTag: refined.emotionTag,
                 paragraphIndex: pIdx, sentenceIndex: sIdx
