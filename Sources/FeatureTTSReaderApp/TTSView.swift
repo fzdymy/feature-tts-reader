@@ -521,7 +521,35 @@ Picker("发音人", selection: $testVoice) {
                             return sorted
                         }()
                         let allSpeakers = speakers
-                        roleCardsView(speakers: speakers, allSpeakers: allSpeakers)
+                        ForEach(speakers.prefix(10), id: \.self) { speaker in
+                            let aliases = aliasesOf(speaker)
+                            let speakerSegments = customWorkerSegments.filter { aliases.contains($0.speaker) || $0.speaker == speaker }
+                            let segmentCount = speakerSegments.count
+                            let emotions = speakerSegments.map { $0.emotion }
+                            let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
+                            let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
+                            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender)
+                            let autoVoiceID = TTSView.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
+                            CharacterRoleCard(
+                                speaker: speaker,
+                                aliases: aliases,
+                                segmentCount: segmentCount,
+                                emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
+                                gender: resolvedGender,
+                                autoMatchedVoiceID: autoVoiceID,
+                                voiceSelection: Binding(
+                                    get: { voiceForSpeaker(speaker) },
+                                    set: { customCharacterVoices[speaker] = $0 }
+                                ),
+                                availableVoices: availableVoices.filter { $0.locale.hasPrefix("zh-CN") },
+                                onResynthesize: { resynthesizeCharacter(speaker) },
+                                onMerge: { target in mergeCharacter(speaker, into: target) },
+                                onSplit: { alias in splitCharacter(alias) },
+                                onDelete: { deleteCharacter(speaker) },
+                                onRename: { newName in renameCharacter(speaker, to: newName) },
+                                otherSpeakers: allSpeakers.filter { $0 != speaker }
+                            )
+                        }
                     }
                 }
 
@@ -1254,48 +1282,6 @@ private actor StatusTracker {
         }
         merged.append(current)
         return merged
-    }
-
-    private func topSpeakersArray(_ speakers: [String]) -> [String] {
-        Array(speakers.prefix(10))
-    }
-
-    @ViewBuilder
-    private func roleCardsView(speakers: [String], allSpeakers: [String]) -> some View {
-        ForEach(topSpeakersArray(speakers), id: \.self) { speaker in
-            let aliases = aliasesOf(speaker)
-            let speakerSegments = customWorkerSegments.filter { aliases.contains($0.speaker) || $0.speaker == speaker }
-            let segmentCount = speakerSegments.count
-            let emotions = speakerSegments.map { $0.emotion }
-            let emotionSummary = Set(emotions).prefix(3).map { $0.chineseLabel }.joined(separator: "、")
-            let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
-            let resolvedGender = TTSView.resolveGender(speaker: speaker, aiGender: aiGender)
-            let autoVoiceID = TTSView.autoMatchVoice(for: speaker, gender: resolvedGender, availableVoices: availableVoices)
-            let voiceSelection = Binding(
-                get: { voiceForSpeaker(speaker) },
-                set: { customCharacterVoices[speaker] = $0 }
-            )
-            let isResyn = characterResynthesisStates[speaker] ?? false
-            let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
-            let other = allSpeakers.filter { $0 != speaker }
-            CharacterRoleCard(
-                speaker: speaker,
-                aliases: aliases,
-                segmentCount: segmentCount,
-                emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
-                gender: resolvedGender,
-                autoMatchedVoiceID: autoVoiceID,
-                voice: voiceSelection,
-                isResynthesizing: isResyn,
-                availableVoices: zhVoices,
-                onResynthesize: { resynthesizeCharacter(speaker) },
-                onMerge: { target in mergeCharacter(speaker, into: target) },
-                onSplit: { alias in splitCharacter(alias) },
-                onDelete: { deleteCharacter(speaker) },
-                onRename: { newName in renameCharacter(speaker, to: newName) },
-                otherSpeakers: other
-            )
-        }
     }
 
     /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
