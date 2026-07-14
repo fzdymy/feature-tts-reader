@@ -10,6 +10,7 @@ struct ReaderSheets: ViewModifier {
     @Binding var showAddCharacter: Bool
     @Binding var showAllRecommendations: Bool
     @Binding var showCharacterFromText: Bool
+    @Binding var showCharacterList: Bool
     let selectedTextForCharacter: String
     let bookID: UUID
     let currentChapterID: UUID
@@ -66,6 +67,9 @@ struct ReaderSheets: ViewModifier {
                     }
                 )
                 .environmentObject(store)
+            }
+            .sheet(isPresented: $showCharacterList) {
+                CharacterListView(bookID: bookID, characters: $store.characters, availableVoices: [], onDismiss: { showCharacterList = false }).environmentObject(store)
             }
     }
 }

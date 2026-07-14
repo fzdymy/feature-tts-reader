@@ -39,6 +39,7 @@ struct ReaderView: View {
     @State private var playbackProgress: Double = 0
 
     @State private var showCharacterPanel = false
+    @State private var showCharacterList = false
     @State private var editingCharacter: CharacterProfile?
     @State private var showAddCharacter = false
     @State private var showAllRecommendations = false
@@ -215,6 +216,24 @@ struct ReaderView: View {
             characterPanelSheet
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showCharacterList) {
+            CharacterListView(
+                bookID: book.id,
+                characters: $store.characters,
+                availableVoices: store.voices.map { v in
+                    EdgeVoiceInfo(
+                        id: v.id,
+                        name: v.name,
+                        gender: v.gender.rawValue,
+                        locale: v.locale,
+                        styles: v.styleList
+                    )
+                },
+                onDismiss: { showCharacterList = false }
+            )
+            .environmentObject(store)
+            .presentationDetents([.medium, .large])
+        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(true)
@@ -334,39 +353,21 @@ struct ReaderView: View {
 
     @ViewBuilder
     private var characterPanelSheet: some View {
-        NavigationStack {
-            List {
-                ForEach(store.characters) { character in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(character.name).font(.subheadline)
-                                if let rec = store.recommendations.first(where: { $0.profile.id == character.id }) {
-                                    Text("x\(rec.count)").font(.caption2).foregroundColor(.secondary)
-                                }
-                            }
-                            Text(character.voice).font(.caption2).foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Button("试听") { Task { await store.previewVoice(for: character) } }
-                            .font(.caption).buttonStyle(.borderless)
-                        Button("编辑") { editingCharacter = character }
-                            .font(.caption).buttonStyle(.borderless)
-                    }
-                }
-                .onDelete { offsets in
-                    for i in offsets where i < store.characters.count {
-                        store.deleteCharacter(at: store.characters[i].id)
-                    }
-                }
-            }
-            .navigationTitle("角色音色 (\(store.characters.count))")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { showCharacterPanel = false }
-                }
-            }
-        }
+        CharacterListView(
+            bookID: book.id,
+            characters: $store.characters,
+            availableVoices: store.voices.map { v in
+                EdgeVoiceInfo(
+                    id: v.id,
+                    name: v.name,
+                    gender: v.gender.rawValue,
+                    locale: v.locale,
+                    styles: v.styleList
+                )
+            },
+            onDismiss: { showCharacterPanel = false }
+        )
+        .environmentObject(store)
     }
 
     // MARK: - Character Panel Components
@@ -1060,16 +1061,16 @@ private struct ReaderOverlayView: View {
             Spacer()
 
             if isAudioMode {
-                Button(action: { showCharacterPanel.toggle() }) {
+                Button(action: { showCharacterList.toggle() }) {
                     HStack(spacing: 4) {
-                        Image(systemName: showCharacterPanel ? "person.2.fill" : "person.2")
+                        Image(systemName: showCharacterList ? "person.2.fill" : "person.2")
                             .font(.title3)
                         if !store.characters.isEmpty {
                             Text("\(store.characters.count)")
                                 .font(.caption2)
                         }
                     }
-                    .foregroundColor(showCharacterPanel ? .blue : textColor.opacity(0.7))
+                    .foregroundColor(showCharacterList ? .blue : textColor.opacity(0.7))
                 }
             }
         }
@@ -1376,14 +1377,6 @@ private struct ReaderOverlayView: View {
     private var floatingAudioControls: some View {
         VStack(spacing: 12) {
             Spacer()
-            Button(action: { store.audioController.skipCurrentParagraph() }) {
-                Image(systemName: "forward.end")
-                    .font(.system(size: 18))
-                    .foregroundColor(textColor)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
-            }
-            .buttonStyle(.borderless)
             Button(action: { store.audioController.skipCurrentSentence() }) {
                 Image(systemName: "forward")
                     .font(.system(size: 18))
@@ -1403,14 +1396,6 @@ private struct ReaderOverlayView: View {
                     .font(.system(size: 36))
                     .foregroundColor(.blue)
                     .background(Circle().fill(bgColor).shadow(radius: 4))
-            }
-            .buttonStyle(.borderless)
-            Button(action: { store.audioController.playNext() }) {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(textColor)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(bgColor.opacity(0.8)).shadow(radius: 2))
             }
             .buttonStyle(.borderless)
             VStack(spacing: 2) {

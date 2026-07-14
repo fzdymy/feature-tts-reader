@@ -1,84 +1,196 @@
 import SwiftUI
 
+/// 角色列表页 — 可排序/搜索，旁白在首，其余按出现次数降序
+/// 可在 ReaderView、BookDetailView 中复用
 struct CharacterListView: View {
-    @EnvironmentObject private var store: ReaderStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedCharacter: CharacterProfile?
+    @EnvironmentObject var store: ReaderStore
+    let bookID: UUID?
+    @Binding var characters: [CharacterProfile]
+    let availableVoices: [EdgeVoiceInfo]
+    let onDismiss: (() -> Void)?
+
+    @State private var searchText = ""
+    @State private var showAddCharacter = false
+    @State private var editingCharacter: CharacterProfile?
+
+    private var sortedCharacters: [CharacterProfile] {
+        let filtered = searchText.isEmpty ? characters : characters.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+        }
+        return filtered.sorted { a, b in
+            if a.isNarrator { return true }
+            if b.isNarrator { return false }
+            return a.frequency > b.frequency
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                if store.characters.isEmpty {
-                    Text("未识别到角色，请先导入小说并扫描角色。")
-                        .foregroundColor(.secondary)
-                } else {
-                    Section(header: Text("角色与音色")) {
-                        ForEach(store.characters) { character in
-                            Button(action: { selectedCharacter = character }) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(character.name)
-                                        .font(.headline)
-                                    Text(character.info)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    Text("音色：\(character.voice) · 语速：\(character.rate) · 音调：\(character.pitch) · 风格：\(character.style)")
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.vertical, 4)
+                // 顶部操作
+                Section {
+                    HStack(spacing: 8) {
+                        Button(action: { Task { await store.scanCharacters() } }) {
+                            Label("扫描角色", systemImage: "person.badge.plus")
+                                .font(.caption).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(store.isBusy)
+
+                        Button(action: { Task { await store.buildScript(for: false) } }) {
+                            Label("生成脚本", systemImage: "doc.richtext")
+                                .font(.caption).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(store.isBusy)
+                    }
+                }
+
+                // 旁白设置
+                Section {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("旁白默认音色")
+                                .font(.subheadline)
+                            Text("首次朗读时立即用此音色启动播放")
+                                .font(.caption2).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if !availableVoices.isEmpty {
+                            let narratorVoice = UserDefaults.standard.string(forKey: "narratorVoice") ?? ""
+                            let narratorLabel = narratorVoice.isEmpty
+                                ? "自动选择"
+                                : EdgeVoiceInfo.shortVoiceLabel(narratorVoice, name: EdgeVoiceInfo.chineseVoiceName(for: narratorVoice))
+                            Button(narratorLabel) {
+                                editingCharacter = characters.first(where: { $0.isNarrator })
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+
+                // 角色列表
+                Section {
+                    if sortedCharacters.isEmpty {
+                        Text("暂无角色，请先扫描或添加")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
+                    ForEach(sortedCharacters) { character in
+                        CharacterRow(character: character, availableVoices: availableVoices) { updated in
+                            if let idx = characters.firstIndex(where: { $0.id == updated.id }) {
+                                characters[idx] = updated
+                                store.saveState()
                             }
                         }
                     }
-
-                    Section(header: Text("角色扫描")) {
-                        Button(action: {
-                            if let chapter = store.chapters.first(where: { $0.id == store.selectedChapterID }) {
-                                Task { await store.scanCharacters(chapterText: chapter.text) }
-                            }
-                        }) {
-                            Label("扫描当前章节", systemImage: "doc.text")
-                        }
-                        Button(action: {
-                            Task { await store.scanCharacters() }
-                        }) {
-                            Label("扫描全文", systemImage: "book.fill")
-                        }
-                    }
-
-                    Section(header: Text("朗读脚本")) {
-                        Button(action: {
-                            Task { await store.buildScript(for: false) }
-                        }) {
-                            Label("生成朗读脚本（当前章节）", systemImage: "doc.richtext")
-                        }
-                        Button(action: {
-                            Task { await store.buildScript(for: true) }
-                        }) {
-                            Label("生成朗读脚本（整本书）", systemImage: "book.fill")
+                    .onDelete { offsets in
+                        for i in offsets where i < sortedCharacters.count {
+                            let c = sortedCharacters[i]
+                            characters.removeAll { $0.id == c.id }
+                            store.saveState()
                         }
                     }
                 }
             }
-            .navigationTitle("角色音色设置")
+            .searchable(text: $searchText, prompt: "搜索角色")
+            .navigationTitle("角色管理 (\(characters.count))")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    if let onDismiss {
+                        Button("完成") { onDismiss() }
+                    }
                 }
             }
-            .onAppear {
-                if store.characters.isEmpty || store.lastScannedBookText != store.bookText {
-                    Task { await store.scanCharacters() }
-                }
-            }
-            .sheet(item: $selectedCharacter) { character in
-                CharacterEditorView(
-                    character: character
-                ) { updated in
-                    if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
-                        store.characters[idx] = updated
+            .sheet(item: $editingCharacter) { character in
+                CharacterEditorView(character: character, availableVoices: availableVoices) { updated in
+                    if let idx = characters.firstIndex(where: { $0.id == updated.id }) {
+                        characters[idx] = updated
                         store.saveState()
                     }
                 }
-                .environmentObject(store)
+            }
+        }
+    }
+}
+
+// MARK: - CharacterRow
+
+private struct CharacterRow: View {
+    let character: CharacterProfile
+    let availableVoices: [EdgeVoiceInfo]
+    let onUpdate: (CharacterProfile) -> Void
+
+    @State private var showVoicePicker = false
+    @State private var showRenameAlert = false
+    @State private var renameText = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(character.name)
+                        .font(.subheadline.weight(.medium))
+                    if character.isNarrator {
+                        Text("旁白")
+                            .font(.caption2).foregroundColor(.orange)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                    let genderIcon = character.gender == "Male" ? "♂" : (character.gender == "Female" ? "♀" : "")
+                    if !genderIcon.isEmpty {
+                        Text(genderIcon)
+                            .font(.caption2)
+                            .foregroundColor(character.gender == "Male" ? .blue : .pink)
+                    }
+                }
+                Text(character.voice.isEmpty ? "未分配" : character.voice)
+                    .font(.caption2).foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(action: { showVoicePicker = true }) {
+                Image(systemName: "music.note.list")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(.blue)
+            .popover(isPresented: $showVoicePicker) {
+                if !availableVoices.isEmpty {
+                    VoicePickerPopover(availableVoices: availableVoices,
+                        selection: Binding(
+                            get: { character.voice },
+                            set: {
+                                var c = character
+                                c.voice = $0
+                                onUpdate(c)
+                            }
+                        ),
+                        onSelect: nil
+                    )
+                }
+            }
+        }
+        .contextMenu {
+            Button("改名", systemImage: "pencil") {
+                renameText = character.name
+                showRenameAlert = true
+            }
+        }
+        .alert("重命名角色", isPresented: $showRenameAlert) {
+            TextField("新名称", text: $renameText)
+            Button("取消", role: .cancel) { renameText = "" }
+            Button("确定") {
+                let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty, trimmed != character.name {
+                    var c = character
+                    c.name = trimmed
+                    onUpdate(c)
+                }
+                renameText = ""
             }
         }
     }

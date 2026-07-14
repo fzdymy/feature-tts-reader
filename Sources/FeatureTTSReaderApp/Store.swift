@@ -35,6 +35,7 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var bookIDForChapters: UUID?
     @Published var isSpeaking: Bool = false
     @Published var playTimeoutSeconds: Double = 30.0
+    @Published var isLoadingAISegments: Bool = false
 
     // Enhanced TTS playback state
     @Published var ttsQueue: [TTSQueueItem] = []
@@ -153,6 +154,15 @@ final class ReaderStore: NSObject, ObservableObject {
     private let speechSynthesizer = AVSpeechSynthesizer()
     private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
     private var autoSaveTimer: Timer?
+    private let aiParseCache = AIParseCache()
+    private var workerRotator = WorkerRotator()
+
+    private var defaultWorkerConfig: AIWorkerConfig? {
+        if let id = selectedWorkerID, let config = aiWorkerConfigs.first(where: { $0.id == id }) {
+            return config
+        }
+        return aiWorkerConfigs.first(where: { $0.isDefault }) ?? aiWorkerConfigs.first
+    }
 
     override init() {
         super.init()
@@ -1675,6 +1685,252 @@ final class ReaderStore: NSObject, ObservableObject {
         } catch {
             await MainActor.run { statusMessage = "朗读失败: \(error.localizedDescription)" }
         }
+    }
+
+    /// 多角色 AI 朗读：使用 AI Worker 解析章节 → 分配音色 → 并发合成 → 流式播放
+    func playChapterWithAI(chapter: BookChapter, fromParagraphIndex: Int? = nil) async {
+        await MainActor.run {
+            stopPlayback()
+            isBusy = true
+            isLoadingAISegments = true
+            statusMessage = "正在解析章节角色..."
+        }
+
+        defer {
+            Task { @MainActor in
+                isBusy = false
+                isLoadingAISegments = false
+            }
+        }
+
+        guard !chapter.text.isEmpty else {
+            await MainActor.run { statusMessage = "章节内容为空。" }
+            return
+        }
+
+        let bookTitle = currentBookTitle.isEmpty ? "未知书籍" : currentBookTitle
+        let bookUUID = UUID(uuidString: currentBookID) ?? UUID()
+        let chapterIndex = chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0
+
+        // 1. Check AIParseCache
+        var aiSegments: [AISegment]
+        if let cached = await aiParseCache.getSegments(chapter: chapter) {
+            aiSegments = cached
+            DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_cache_hit", details: [
+                "chapter": chapter.title,
+                "segments_count": cached.count,
+            ])
+            await MainActor.run { statusMessage = "使用缓存解析结果 (\(cached.count) 段)..." }
+        } else {
+            // 2. Get default worker config
+            guard let workerConfig = defaultWorkerConfig else {
+                await MainActor.run { statusMessage = "未配置 AI Worker，请在设置中添加。" }
+                return
+            }
+
+            await MainActor.run { statusMessage = "正在调用 AI Worker 解析..." }
+            DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_start", details: [
+                "chapter": chapter.title,
+                "text_length": chapter.text.count,
+            ])
+
+            do {
+                aiSegments = try await AIWorkerService.shared.processChapter(
+                    text: chapter.text,
+                    config: workerConfig,
+                    progress: { @Sendable [weak self] progress, message in
+                        await MainActor.run { self?.statusMessage = message }
+                    }
+                )
+            } catch {
+                DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_error", details: [
+                    "error": error.localizedDescription,
+                ])
+                await MainActor.run { statusMessage = "AI 解析失败: \(error.localizedDescription)" }
+                return
+            }
+
+            // 3. Cache results
+            await aiParseCache.save(chapter: chapter, segments: aiSegments)
+        }
+
+        guard !aiSegments.isEmpty, !Task.isCancelled else {
+            await MainActor.run { statusMessage = "解析结果为空。" }
+            return
+        }
+
+        // 4. Build speaker→voice mapping using autoMatchVoice
+        await MainActor.run { statusMessage = "正在分配音色 (\(aiSegments.count) 段)..." }
+
+        let edgeVoices = await EdgeTTSService.shared.fetchVoices()
+        let fallbackVoices: [EdgeVoiceInfo] = [
+            EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
+            EdgeVoiceInfo(id: "zh-CN-YunxiNeural", name: "云希", gender: "Male", locale: "zh-CN"),
+        ]
+        let availableVoices = edgeVoices.isEmpty ? fallbackVoices : edgeVoices
+
+        var speakerVoiceMap: [String: String] = [:]
+        for seg in aiSegments {
+            guard speakerVoiceMap[seg.speaker] == nil else { continue }
+            let voice = TTSView.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: availableVoices)
+            speakerVoiceMap[seg.speaker] = voice
+        }
+
+        // 5. Merge consecutive segments for same speaker/emotion/tone
+        let mergedSegments = mergeConsecutiveAISegments(aiSegments)
+        DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_merged", details: [
+            "before_merge": aiSegments.count,
+            "after_merge": mergedSegments.count,
+        ])
+
+        guard !mergedSegments.isEmpty, !Task.isCancelled else {
+            await MainActor.run { statusMessage = "合并后无有效片段。" }
+            return
+        }
+
+        // 6. Concurrently synthesize with SynthesisBuffer
+        let totalCount = mergedSegments.count
+        await MainActor.run { statusMessage = "正在合成音频 (\(totalCount) 段)..." }
+
+        var isFirstPlayback = true
+        let playbackLock = OSAllocatedUnfairLock()
+
+        let buffer = SynthesisBuffer { @Sendable [weak self] readyItems in
+            guard let self else { return }
+            let shouldPlayFirst: Bool = {
+                playbackLock.withLock {
+                    if isFirstPlayback {
+                        isFirstPlayback = false
+                        return true
+                    }
+                    return false
+                }
+            }()
+            if shouldPlayFirst {
+                audioController.playQueue(readyItems)
+            } else {
+                audioController.appendToQueue(readyItems)
+            }
+        }
+
+        try? await withThrowingTaskGroup(of: (Int, TTSQueueItem).self) { group in
+            for (idx, seg) in mergedSegments.enumerated() {
+                guard !Task.isCancelled else { break }
+                group.addTask { [weak self] in
+                    guard let self else { throw CancellationError() }
+                    let speaker = seg.speaker
+                    let voice = speakerVoiceMap[speaker] ?? ""
+                    let rate = TTSView.rateOffset(for: seg)
+                    let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
+                    let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
+                    let style = seg.emotion.ssmlStyle
+
+                    let audioData = try await EdgeTTSService.shared.synthesize(
+                        text: seg.text,
+                        voice: voice.isEmpty ? nil : voice,
+                        rate: Double(rate),
+                        pitch: Double(pitch),
+                        style: style,
+                        volume: volume
+                    )
+
+                    let scriptSeg = ScriptSegment(
+                        id: UUID(),
+                        characterName: speaker,
+                        voice: voice,
+                        rate: rate,
+                        pitch: pitch,
+                        style: style,
+                        text: seg.text,
+                        emotionTag: seg.emotion.rawValue,
+                        paragraphIndex: idx
+                    )
+
+                    let anchor = PlaybackAnchor(
+                        bookID: bookUUID.uuidString,
+                        chapterIndex: chapterIndex,
+                        paragraphIndex: idx,
+                        sentenceIndex: 0,
+                        speakerID: nil
+                    )
+
+                    let item = TTSQueueItem(
+                        segment: scriptSeg,
+                        audioURL: nil,
+                        audioData: audioData,
+                        chapterTitle: chapter.title,
+                        bookTitle: bookTitle,
+                        bookID: bookUUID.uuidString,
+                        chapterIndex: chapterIndex,
+                        segmentIndex: idx,
+                        totalSegments: totalCount,
+                        paragraphIndex: idx,
+                        sentenceIndex: nil,
+                        anchor: anchor
+                    )
+
+                    return (idx, item)
+                }
+            }
+
+            for try await (idx, item) in group {
+                guard !Task.isCancelled else { break }
+                await buffer.insert(idx, item)
+            }
+        }
+
+        guard !Task.isCancelled else { return }
+        await buffer.flushRemaining()
+
+        // 7. Wait for playback completion
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            if !audioController.isPlaying { cont.resume(); return }
+            let c = audioController.$isPlaying
+                .dropFirst().filter { !$0 }.first()
+                .sink { _ in
+                    self.playbackContinuationCancellable = nil
+                    cont.resume()
+                }
+            playbackContinuationCancellable = c
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                guard let self else { return }
+                guard let c = self.playbackContinuationCancellable else { return }
+                self.playbackContinuationCancellable = nil
+                c.cancel()
+                cont.resume()
+            }
+        }
+        playbackContinuationCancellable = nil
+
+        await MainActor.run {
+            isSpeaking = false
+            ttsIsPlaying = false
+            if !Task.isCancelled { statusMessage = "已播放完毕。" }
+        }
+    }
+
+    /// 合并说话人/情绪/语气相同的连续段落
+    private func mergeConsecutiveAISegments(_ segments: [AISegment]) -> [AISegment] {
+        guard !segments.isEmpty else { return segments }
+        var merged: [AISegment] = []
+        var current = segments[0]
+        for seg in segments.dropFirst() {
+            if seg.speaker == current.speaker && seg.emotion == current.emotion && seg.tone == current.tone {
+                let sep = current.text.hasSuffix("。") || current.text.hasSuffix("？") || current.text.hasSuffix("！") ? "" : "。"
+                current = AISegment(
+                    speaker: current.speaker,
+                    emotion: current.emotion,
+                    tone: current.tone,
+                    text: current.text + sep + seg.text,
+                    gender: current.gender
+                )
+            } else {
+                merged.append(current)
+                current = seg
+            }
+        }
+        merged.append(current)
+        return merged
     }
 
     private func playLocalSpeech(_ text: String) async {

@@ -126,6 +126,43 @@ struct ReaderSettingsView: View {
                     Toggle("显示电池", isOn: Binding(get: { store.showBattery }, set: { store.showBattery = $0 }))
                 }
 
+                Section(header: Text("朗读设置")) {
+                    HStack {
+                        Text("旁白默认音色")
+                        Spacer()
+                        let narratorVoice = UserDefaults.standard.string(forKey: "narratorVoice") ?? ""
+                        Text(narratorVoice.isEmpty ? "自动选择" : narratorVoice)
+                            .foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Text("全局语速偏移")
+                        Slider(value: Binding(
+                            get: { UserDefaults.standard.double(forKey: "globalRate") },
+                            set: { UserDefaults.standard.set($0, forKey: "globalRate") }
+                        ), in: -10...10, step: 1)
+                        Text("\(Int(UserDefaults.standard.double(forKey: "globalRate")))")
+                            .font(.caption.monospaced()).frame(width: 24)
+                    }
+                    HStack {
+                        Text("全局音量偏移 (dB)")
+                        Slider(value: Binding(
+                            get: { UserDefaults.standard.double(forKey: "globalVolume") },
+                            set: { UserDefaults.standard.set($0, forKey: "globalVolume") }
+                        ), in: -10...10, step: 1)
+                        Text("\(Int(UserDefaults.standard.double(forKey: "globalVolume")))")
+                            .font(.caption.monospaced()).frame(width: 24)
+                    }
+                    HStack {
+                        Text("段落重叠 (ms)")
+                        Slider(value: Binding(
+                            get: { UserDefaults.standard.double(forKey: "globalOverlap") },
+                            set: { UserDefaults.standard.set($0, forKey: "globalOverlap") }
+                        ), in: 0...500, step: 10)
+                        Text("\(Int(UserDefaults.standard.double(forKey: "globalOverlap")))")
+                            .font(.caption.monospaced()).frame(width: 40)
+                    }
+                }
+
                 Section {
                     Button("保存并应用") { dismiss() }
                         .frame(maxWidth: .infinity, alignment: .center).foregroundColor(.blue)
