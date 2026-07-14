@@ -2105,6 +2105,8 @@ final class ReaderStore: NSObject, ObservableObject {
         ]
         let availableVoices = edgeVoices.isEmpty ? fallbackVoices : edgeVoices
 
+        var speakerVoiceMap: [String: String] = [:]
+
         for seg in segments {
             guard speakerVoiceMap[seg.speaker] == nil else { continue }
             let cg: CharacterGender = {
