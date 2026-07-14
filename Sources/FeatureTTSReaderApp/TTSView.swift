@@ -1288,8 +1288,14 @@ private actor StatusTracker {
     }
 
     /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
-    static nonisolated func resolveGender(speaker: String, aiGender: Gender?) -> Gender {
-        if let g = aiGender, g != .unknown { return g }
+    static nonisolated func resolveGender(speaker: String, aiGender: CharacterGender?) -> Gender {
+        if let g = aiGender, g != .unknown {
+            switch g {
+            case .male: return .male
+            case .female: return .female
+            case .unknown: return .unknown
+            }
+        }
         let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") || speaker.contains("姐") || speaker.contains("娘") || speaker.contains("妈") || speaker.contains("婆") || speaker.contains("奶") || speaker.contains("妹") || speaker.contains("嫂") || speaker.contains("婶") || speaker.contains("女士") || speaker.contains("太太") || speaker.contains("夫人")
         let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他") || speaker.contains("叔") || speaker.contains("爸") || speaker.contains("父") || speaker.contains("先生") || speaker.contains("少爷") || speaker.contains("公子") || speaker.contains("郎") || speaker.contains("伯") || speaker.contains("舅")
         if isFemale { return .female }
