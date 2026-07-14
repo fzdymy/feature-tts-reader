@@ -784,7 +784,8 @@ private actor StatusTracker {
                         text: slice,
                         sliceIndex: sliceIdx,
                         totalSlices: totalSlices,
-                        context: nil
+                        context: nil,
+                        focusFromParagraph: nil
                     )
                     let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
                     let segments = response.segments
@@ -935,7 +936,8 @@ private actor StatusTracker {
                             text: slice,
                             sliceIndex: sliceIdx,
                             totalSlices: totalSlices,
-                            context: context
+                            context: context,
+                            focusFromParagraph: nil
                         )
                         let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
                         segments = response.segments

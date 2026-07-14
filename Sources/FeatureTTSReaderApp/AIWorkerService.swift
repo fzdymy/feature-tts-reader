@@ -33,7 +33,8 @@ final class AIWorkerService {
                 text: slice,
                 sliceIndex: idx,
                 totalSlices: slices.count,
-                context: context
+                context: context,
+                focusFromParagraph: nil
             )
 
             let response = try await sendRequest(request, config: config)
@@ -55,7 +56,7 @@ final class AIWorkerService {
     /// 测试 Worker 连通性
     func testConnection(config: AIWorkerConfig) async throws -> Bool {
         let testText = "测试文本。"
-        let request = AIWorkerRequest(text: testText, sliceIndex: 0, totalSlices: 1, context: nil)
+        let request = AIWorkerRequest(text: testText, sliceIndex: 0, totalSlices: 1, context: nil, focusFromParagraph: nil)
         _ = try await sendRequest(request, config: config)
         return true
     }
