@@ -38,4 +38,64 @@ actor SpeculativePlayer {
         state = .idle
         speculativeParagraphIndex = nil
     }
+
+    /// Synthesize a placeholder segment with narrator voice for immediate playback.
+    /// Returns a TTSQueueItem ready for immediate queueing, or nil on failure.
+    func synthesizePlaceholder(
+        text: String,
+        narratorVoice: String,
+        serverID: UUID?
+    ) async -> TTSQueueItem? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        do {
+            let audioData = try await EdgeTTSService.shared.synthesize(
+                text: trimmed,
+                voice: narratorVoice,
+                rate: 0,
+                pitch: 0,
+                style: "neutral",
+                volume: "default",
+                serverID: serverID
+            )
+
+            let scriptSeg = ScriptSegment(
+                id: UUID(),
+                characterName: "旁白",
+                voice: narratorVoice,
+                rate: 0,
+                pitch: 0,
+                style: "neutral",
+                text: trimmed,
+                emotionTag: "neutral",
+                paragraphIndex: 0
+            )
+
+            let anchor = PlaybackAnchor(
+                bookID: "",
+                chapterIndex: 0,
+                paragraphIndex: 0,
+                sentenceIndex: 0,
+                speakerID: nil
+            )
+
+            return TTSQueueItem(
+                segment: scriptSeg,
+                audioURL: nil,
+                audioData: audioData,
+                chapterTitle: "",
+                bookTitle: "",
+                bookID: "",
+                chapterIndex: 0,
+                segmentIndex: 0,
+                totalSegments: 1,
+                paragraphIndex: 0,
+                sentenceIndex: nil,
+                anchor: anchor
+            )
+        } catch {
+            return nil
+        }
+    }
 }
