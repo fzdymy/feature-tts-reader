@@ -179,6 +179,14 @@ enum CharacterGender: String, Codable, CaseIterable {
     case male = "Male"
     case female = "Female"
     case unknown = "Unknown"
+
+    var displayName: String {
+        switch self {
+        case .male: return "男性"
+        case .female: return "女性"
+        case .unknown: return "未知"
+        }
+    }
 }
 
 enum CharacterRole: String, Codable, CaseIterable {

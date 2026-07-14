@@ -1134,7 +1134,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 }
 
                 if final.isEmpty {
-                    final = [CharacterProfile(id: UUID(), name: "叙述者", gender: .unknown, age: "未知", tone: "中性", voiceID: defaultVoice(for: "未知", tone: "平稳", role: "旁白", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                    final = [CharacterProfile(id: UUID(), name: "叙述者", gender: .unknown, age: "未知", tone: "中性", voiceID: defaultVoice(for: .unknown, tone: "平稳", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
                     statusMessage = "未识别到明确人物，已创建默认叙述者。"
                 } else {
                     statusMessage = "已识别 \(final.count) 个角色。"
@@ -1254,7 +1254,7 @@ final class ReaderStore: NSObject, ObservableObject {
             gender: gender,
             age: age,
             tone: tone,
-            voiceID: defaultVoice(for: gender.rawValue, tone: tone, voices: voices),
+            voiceID: defaultVoice(for: gender, tone: tone, voices: voices),
             rate: 0,
             pitch: 0,
             style: "neutral",
@@ -1620,7 +1620,7 @@ final class ReaderStore: NSObject, ObservableObject {
         // 立即预取前 N 句（HTTP 并行发出，不等响应）
         for i in 0..<min(prefetchWindowSize, pendingUnits.count) {
             let u = pendingUnits[i]
-            await prefetcher.prefetch(index: i, text: u.sentence, voice: u.voiceID,
+            await prefetcher.prefetch(index: i, text: u.sentence, voice: u.voice ?? "",
                                 rate: u.rate, pitch: u.pitch, style: u.emotionTag)
         }
 
@@ -1634,7 +1634,7 @@ final class ReaderStore: NSObject, ObservableObject {
             let nextIndex = index + prefetchWindowSize
             if nextIndex < pendingUnits.count {
                 let nu = pendingUnits[nextIndex]
-                await prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voiceID,
+                await prefetcher.prefetch(index: nextIndex, text: nu.sentence, voice: nu.voice ?? "",
                                     rate: nu.rate, pitch: nu.pitch, style: nu.emotionTag)
             }
             guard let audioData = audioData else { continue }
@@ -2358,7 +2358,7 @@ final class ReaderStore: NSObject, ObservableObject {
             gender: .unknown,
             age: "未知",
             tone: "中性",
-            voiceID: defaultVoice(for: "Unknown", tone: "neutral", role: "旁白", voices: voices),
+            voiceID: defaultVoice(for: .unknown, tone: "neutral", role: "旁白", voices: voices),
             rate: 0,
             pitch: 0,
             style: "neutral",
@@ -2881,7 +2881,7 @@ final class ReaderStore: NSObject, ObservableObject {
 
     nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
         var score = 0
-        let targetGender: VoiceGender = (profile.gender == "男") ? .male : .female
+        let targetGender: VoiceGender = (profile.gender == .male) ? .male : .female
         if voice.gender == targetGender { score += 3 }
         if voice.locale.hasPrefix("zh-CN") { score += 2 }
         if voice.styleList?.contains(profile.tone) == true { score += 1 }
