@@ -46,20 +46,26 @@ AVAudioPlayer delegate 驱动播放 + 段落/句子高亮
 **问题：** AI Worker（Cloudflare Workers AI）有免费额度限制，单一账号容易被限流。
 
 **方案：**
-- Worker 配置增加「轮询组」概念：用户可配置多个 Worker URL，各自属于不同账号
-- `AIWorkerService` 增加轮询调度器（`WorkerRotator`）：
-  - **轮询策略**：Round-robin 轮流使用
-  - **健康检测**：每个 Worker 独立状态检测（已有），失败时自动跳过
-  - **降级**：所有 Worker 都失败时提示用户
-- 保留「默认 Worker」标记（已有），当轮询关闭时固定使用默认 Worker
-- UI 增加「启用轮询」开关 + 优先级排序
+
+#### 轮询粒度决策：按「章节」轮询，而非按「请求」或「分片」
+
+| 策略 | 优点 | 缺点 |
+|------|------|------|
+| **按请求（round-robin per request）** | 分摊最均匀 | ① 上下文断裂 — AI Worker 的 `nextContext` 按章节传递，切 Worker 后丢失上下文；② 每次冷启动 LLM 模型加载；③ 调试困难 |
+| **按分片（per slice）** | 粒度适中 | 同上，上下文在分片间传递，换 Worker 断裂 |
+| **✅ 按章节（per chapter）** | ① 上下文完整，一个 Worker 处理完整章节；② 减少冷启动次数；③ 配额易追踪 | 章节长短不均时负载略偏，但可通过最大分片数兜底 |
+
+**决策：** 按章节轮询，配置 `rotationInterval: Int`（几章换一次 Worker，默认 3，范围 1~10）。当连续处理 N 章后，`WorkerRotator` 切换到下一个健康 Worker。单章超长（分片数 > `maxSlicesPerWorker`，默认 10）时强制切换。
 
 ```
 Worker Rotator 数据流:
-请求到达 → WorkerRotator.next() → 选取下一个健康 Worker URL
-         → sendRequest(url, body) → 成功则返回
-         → 失败则标记状态 → 尝试下一个 Worker
-         → 全部失败则报错
+请求到达（第 N 章）
+  → WorkerRotator.next(chapterIndex: N) 
+  → if N % rotationInterval == 0 → 切换到下一个 Worker
+  → 选取当前 Worker URL → sendRequest(url, body, context)
+  → 成功则更新上下文 → 继续同章节后续分片使用同一 Worker
+  → 失败则标记该 Worker 状态 → 尝试下一个 Worker
+  → 全部失败则报错 + 回退本地解析
 ```
 
 **配置模型扩展（`AIWorkerConfig`）：**
@@ -84,21 +90,45 @@ struct AIWorkerConfig: Codable, Identifiable {
 **方案：**
 - **旁白角色预设**：用户预先为「旁白」（narrator）设定一个默认音色
 - **投机流水线**（Speculative Pipeline）：
-  1. 用户点击播放 → 立即用预设旁白音色 + `neutral` 情感合成第一章**第一段文本**（所有文本视作旁白）
-  2. 同时后台发起 AI Worker 解析请求
-  3. AI Worker 返回后 → 丢弃预合成的旁白段 → 用真正的分段结果重新合成 → 替换队列内容
-  4. 用户几乎无感知等待
+
+#### 投机文本长度决策
+
+根据现有 Debug Logger 数据估算（`edge_tts.synthesize_*` + `custom_multi_role.processCustomWithWorker_*`）：
+
+| 阶段 | 耗时估算 |
+|------|----------|
+| Edge TTS 合成（首段 50~200 字） | 150~300ms（LAN） |
+| AI Worker LLM 推理（首片 1000~2000 字） | 1~3s（Cloudflare Workers AI） |
+| AI Worker 返回 + 解码 + 重新合成 | 200~500ms |
+
+投机文本需要 **短到快速合成，长到覆盖 AI 延迟**。50~200 字合成只需 ~200ms，但朗读只持续 3~8 秒，若 AI 延迟 >3 秒则出现静音间隔。
+
+**决策：投机首段长度 = 第一个自然段（通常 100~300 字）**。
+- 合成耗时 ~300ms，朗读耗时 5~15 秒
+- AI Worker 在 1~3 秒内返回，投机段还未播完
+- 若 AI 返回后角色与旁白不同，在段落间隙切换，用户无感知
+- TTS 并发参数：使用预设旁白音色的 `rate`/`pitch`/`volume`，es 情感为 `neutral`
 
 ```
-时间线:
-t=0   用户点击播放
-t=0.1 立即用旁白音色合成首段文本 → appendToQueue → 开始播放
-t=0.5 AI Worker 返回 [AISegment]
-t=0.6 丢弃队列中预合成项
-       用真实分段结果批量合成 → appendToQueue
-t=1.0 用户听到的角色切换（无缝衔接）
+投机文本选择逻辑:
+  playChapterWithAI()
+    → 取 chapter.text 的第一个段落（split("\n\n")[0]）
+    → 若段落 > 500 字，截取前 500 字（避免合成过慢）
+    → 用旁白音色合成 → appendToQueue → 立即播放
+    → 后台 AI Worker 开始解析
+    → 返回后丢弃投机段 → 用真实分段替换
+```
 
-用户感受：点击后不到 1 秒就听到声音开始朗读
+**时间线：**
+```
+t=0   用户点击播放
+t=0.1 SpeculativePlayer 截取首段(～200字) → 合成 → appendToQueue
+t=0.3 用户听到旁白开始朗读
+t=1.5 AI Worker 返回 [AISegment]（首片）
+t=1.6 丢弃队列中投机段，批量合成真实分段 → 替换队列
+t=2.0 用户听到带角色的朗读（段落间隙无缝切换）
+
+用户感受：点击后 <0.5s 就听到声音，持续播放不中断
 ```
 
 - **配置存储**：`@AppStorage("narratorVoice")` 保存旁白音色 ID
@@ -133,6 +163,36 @@ struct AICacheEntry: Codable {
     let segments: [AISegment]
     let timestamp: Date
     let chapterTitle: String
+}
+```
+
+### 考量 5：TTS 服务器自动匹配 — 最快节点优先
+
+**问题：** 用户可能配置多个 Edge TTS 服务器（不同地域/网络），固定使用某一个可能不是最快的。
+
+**方案：**
+- **延迟探测**：在 app 启动或切换网络时，对所有已配置的 TTS 服务器发一次轻量 health check（`GET /api/v1/tts`），记录响应时间
+- **自动选择**：选定延迟最低的服务器作为当前 TTS 目标
+- **降级**：当前服务器超时/失败时，切换到次优节点
+- **UI**：设置面板开关「TTS 自动匹配」，开启时自动选最快节点，关闭时使用用户手动选择的服务器
+
+```
+TTS 服务器选择逻辑:
+  启动 / 网络变化
+    → 遍历所有 serverConfigs
+    → 并发 GET /api/v1/tts（超时 2s）
+    → 记录每个服务器的响应延迟（ms）
+    → 选取延迟最低且可用的服务器
+    → 缓存到 selectedServerID
+    → 定时刷新（每 5 分钟或播放结束时）
+```
+
+**数据结构扩展：**
+```swift
+struct EdgeTTSServerConfig: Codable, Identifiable {
+    // ... 现有字段
+    var lastLatencyMs: Double?    // 新增：最后一次探测延迟
+    var lastChecked: Date?        // 新增：探测时间
 }
 ```
 
@@ -257,6 +317,11 @@ enum AIParseState {
 
 ### 角色面板（替换 `characterPanelSheet`）
 
+角色持久化到 `UserDefaults`（通过 `ReaderStore.saveState()` / `loadState()`），排序规则：
+- 旁白（narrator）始终在第一位
+- 其余角色按本书中**出现次数**降序排列（来自 `CharacterProfile.appearanceCount`，AI Worker 返回时累计）
+- 新角色追加到末尾，不打断已有顺序
+
 ```
 ┌─ Sheet: 角色管理 ──────────────────────────────────────┐
 │  章节: 《第一章 初到京城》                                │
@@ -266,15 +331,15 @@ enum AIParseState {
 │  │  第一次朗读时立即使用此音色启动播放                │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                          │
-│  ┌─ 小明 ──────────── [♂] ─── [⋮] ┐                   │
-│  │  音色：晓晓 (zh-CN-Xiaoxiao)    │                   │
-│  │  [小晓] [晓萱] [晓伊] ...        │  ← voice picker   │
-│  │  别名：明明                      │                   │
-│  │  合并到... / 分离角色            │                   │
-│  └──────────────────────────────────┘                   │
-│  ┌─ 李华 ──────────── [♀] ─── [⋮] ┐                   │
-│  │  ...                             │                   │
-│  └──────────────────────────────────┘                   │
+│  ┌─ 小明 ───── (出现 47 次) ── [♂] ─── [⋮] ┐          │
+│  │  音色：晓晓 (zh-CN-Xiaoxiao)              │          │
+│  │  [小晓] [晓萱] [晓伊] ...                  │          │
+│  │  别名：明明                                │          │
+│  │  合并到... / 分离角色                      │          │
+│  └──────────────────────────────────────────┘          │
+│  ┌─ 李华 ───── (出现 23 次) ── [♀] ─── [⋮] ┐          │
+│  │  ...                                       │          │
+│  └──────────────────────────────────────────┘          │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -292,8 +357,9 @@ enum AIParseState {
 │  段落重叠： [━━●━━━━━━]  80ms                           │
 │                                                          │
 │  AI Worker 轮询: [启用]                                  │
-│  [管理 Worker 列表 →]  (跳转语音引擎页面)                 │
-│  [管理 TTS 服务器 →]   (跳转语音引擎页面)                │
+│  [管理 Worker 列表 →]  (跳转语音引擎页面)                │
+│  TTS 自动匹配: [启用]  // 自动选择响应最快的节点          │
+│  [管理 TTS 服务器 →]  (跳转语音引擎页面)                 │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -401,8 +467,9 @@ func playChapterWithAI(chapter: BookChapter, from paragraphIndex: Int) async {
 - `globalVolume` → 音量
 - `globalOverlap` → 重叠
 - `narratorVoice` → 旁白默认音色（新增）
-- `aiWorkerRotation` → 是否启用轮询（新增）
+- `aiWorkerRotation` → 是否启用 Worker 轮询（新增）
 - `aiPrefetchThreshold` → 懒加载阈值（新增）
+- `ttsAutoMatch` → 是否启用 TTS 服务器自动匹配（新增）
 
 ---
 
@@ -472,6 +539,7 @@ func playChapterWithAI(chapter: BookChapter, from paragraphIndex: Int) async {
 | `VoicePickerPopover.swift` | **新建** | 从 TTSView 底部分离 |
 | `SynthesisBuffer.swift` | **新建** | 从 TTSView 分离 |
 | `AIWorkerConfig.swift` | 修改（或内联） | 增加 `isEnabled`、`priority` |
+| `EdgeTTSServerConfig.swift` | 修改（或内联在 EdgeTTSService） | 增加 `lastLatencyMs`、`lastChecked` |
 | `ReaderStore.swift` | 修改 | 新增懒加载状态、`playChapterWithAI()`、缓存逻辑 |
 | `ReaderView.swift` | 修改 | 精简底部栏、替换角色面板 |
 | `ReaderSettingsViews.swift` | 修改 | 新增朗读设置 Section |
