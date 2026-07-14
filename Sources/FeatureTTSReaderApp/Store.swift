@@ -2085,35 +2085,35 @@ final class ReaderStore: NSObject, ObservableObject {
         // Clear the trigger
         await MainActor.run { self.resynthesizingSpeaker = nil }
 }
-2046: 
-2047: // MARK: - Synthesize & Play (shared by cache-hit and AI-parsed paths)
-2048: 
-2049:     /// Monitor playback progress and trigger cross-chapter prefetch at ~80%
-2050:     private func monitorAndPrefetchNextChapter() async {
-2051:         // Wait a bit for playback to start
-2052:         try? await Task.sleep(for: .seconds(2))
-2053:         
-2054:         var hasPrefetched = false
-2055:         while !hasPrefetched && !Task.isCancelled {
-2056:             try? await Task.sleep(for: .seconds(3))
-2057:             
-2058:             let queueCount = await MainActor.run { audioController.queueCount }
-2059:             let isPlaying = await MainActor.run { audioController.isPlaying }
-2060:             
-2061:             // Trigger prefetch when queue is low (near end of current chapter)
-2061:             if isPlaying && queueCount <= 3 {
-2062:                 await prefetchNextChapter()
-2063:                 hasPrefetched = true
-2064:             }
-2065:             
-2066:             // Stop monitoring if playback finished
-2067:             if !isPlaying && queueCount == 0 {
-2068:                 break
-2069:             }
-2070:         }
-2071:     }
-2072: 
-2073: // MARK: - Synthesize & Play (shared by cache-hit and AI-parsed paths)
+
+// MARK: - Synthesize & Play (shared by cache-hit and AI-parsed paths)
+
+    /// Monitor playback progress and trigger cross-chapter prefetch at ~80%
+    private func monitorAndPrefetchNextChapter() async {
+        // Wait a bit for playback to start
+        try? await Task.sleep(for: .seconds(2))
+        
+        var hasPrefetched = false
+        while !hasPrefetched && !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3))
+            
+            let queueCount = await MainActor.run { audioController.queueCount }
+            let isPlaying = await MainActor.run { audioController.isPlaying }
+            
+            // Trigger prefetch when queue is low (near end of current chapter)
+            if isPlaying && queueCount <= 3 {
+                await prefetchNextChapter()
+                hasPrefetched = true
+            }
+            
+            // Stop monitoring if playback finished
+            if !isPlaying && queueCount == 0 {
+                break
+            }
+        }
+    }
+
+// MARK: - Synthesize & Play (shared by cache-hit and AI-parsed paths)
 
     private func synthesizeAndPlaySegments(
         _ segments: [AISegment],
