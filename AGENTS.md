@@ -236,10 +236,17 @@ TTS 引擎 (Edge TTS)
 
 详见 `Docs/book-reader-integration-plan.md`
 
-核心变更：
-1. 抽取通用组件：`CharacterRoleCard`、`VoicePickerPopover`、`SynthesisBuffer` 为独立文件
-2. 替换 `playChapterStreaming()` → 使用 AI Worker 按片解析 + 并发合成 + 保序入队
-3. 角色面板改用 CharacterRoleCard + 别名系统
-4. 底部控制栏增加语速/音量/重叠滑块
-5. ReaderSettingsView 增加朗读设置 Section
-6. 保留本地解析模式作为回退
+核心变更（7 步实施）：
+1. **新增基础设施**：`WorkerRotator`（轮询）、`AIParseCache`（缓存）、`SpeculativePlayer`（投机播放）
+2. **抽取通用组件**：`CharacterRoleCard`、`VoicePickerPopover`、`SynthesisBuffer` 独立文件
+3. **改造播放流程**：缓存 → 轮询 → 投机启动 → 懒加载逐片解析 → 并发合成
+4. **精简底部栏**：移除冗余句子/跳转 UI，保留简洁控制行 + 语速/音量 Popover
+5. **替换角色面板**：CharacterRoleCard + 别名 + 旁白音色预设
+6. **扩展 ReaderSettingsView**：朗读设置 Section（旁白/轮询/懒加载阈值/语速/音量/重叠）
+7. **测试与打磨**：容错、缓存、投机替换、跨章节预取、中断恢复
+
+关键决策：
+- ✅ **多 Worker 轮询** — `WorkerRotator` round-robin 分摊配额
+- ✅ **投机播放** — 旁白预设音色零等待启动，AI 返回后无缝替换
+- ✅ **解析缓存** — chapterID+text.hash 键值缓存到文件，避免重复调用
+- ✅ **懒加载窗口** — 缓冲区剩余 ≤ N 段时触发下一片，非一次性全发

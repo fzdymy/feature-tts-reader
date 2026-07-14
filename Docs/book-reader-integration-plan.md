@@ -20,6 +20,8 @@ AVAudioPlayer delegate 驱动播放 + 段落/句子高亮
 3. **无段落合并** — 相同说话人连续段落未合并，导致不必要的切换
 4. **角色管理弱** — 角色面板只有基础列表，无音色选择器、无别名系统、无音量/语速调节
 5. **缺失控制** — 无全局语速/音量/重叠滑块、无播放队列状态
+6. **无 Worker 轮询** — 不支多个 AI Worker 账号分摊配额
+7. **无解析缓存** — 每次打开章节都重新调用 AI Worker，浪费免费额度
 
 ### 当前 TTSView 多角色模块优势（待移植）
 
@@ -37,32 +39,177 @@ AVAudioPlayer delegate 驱动播放 + 段落/句子高亮
 | 性别检测 | ✅ `AISegment.gender` | ❌ 无 |
 | 重试截断结果 | ✅ AI Worker 重试逻辑 | ❌ 无 |
 
----
+## 二、核心架构设计（4 个关键考量）
 
-## 二、整合目标
+### 考量 1：多 Worker 轮询 — 分摊账号配额
 
-将 TTSView 的**多角色 TTS 通用模块**移植到 ReaderView 中，替换现有 `playChapterStreaming()` 流程，保留 ReaderView 的**书籍特有功能**（段落滚动、高亮同步、章节导航、书签）。
+**问题：** AI Worker（Cloudflare Workers AI）有免费额度限制，单一账号容易被限流。
 
-### 保留不动
-- `BookshelfView` / `BookDetailView` — 书籍列表和详情
-- `ChapterContentView` — 段落渲染（保持文本高亮功能）
-- `ReaderSheets` — 设置/字体/目录/角色面板入口
-- `ReaderSettingsView` — 排版/字体/背景等阅读设置
-- `ChapterListView` — 目录
-- `PlaybackAnchor` — 高亮同步机制
-- `AdvancedAudioPlaybackController` — 播放引擎（复用）
-- `EdgeTTSService` — TTS 合成（复用）
+**方案：**
+- Worker 配置增加「轮询组」概念：用户可配置多个 Worker URL，各自属于不同账号
+- `AIWorkerService` 增加轮询调度器（`WorkerRotator`）：
+  - **轮询策略**：Round-robin 轮流使用
+  - **健康检测**：每个 Worker 独立状态检测（已有），失败时自动跳过
+  - **降级**：所有 Worker 都失败时提示用户
+- 保留「默认 Worker」标记（已有），当轮询关闭时固定使用默认 Worker
+- UI 增加「启用轮询」开关 + 优先级排序
 
-### 替换
-- **`playChapterStreaming()`** → 改为 AI Worker 逐片分段 + 并发合成（类似 `processCustomWithWorker`）
-- **`parseDialogueSegments()`** → 由 AI Worker 返回 `AISegment[]`
-- **角色面板** → 用 `CharacterRoleCard` + 别名系统替换
-- **底部控制栏** → 增加语音/语速/音量/重叠控制
+```
+Worker Rotator 数据流:
+请求到达 → WorkerRotator.next() → 选取下一个健康 Worker URL
+         → sendRequest(url, body) → 成功则返回
+         → 失败则标记状态 → 尝试下一个 Worker
+         → 全部失败则报错
+```
 
-### 新增
-- 书籍朗读模式下可调全局语速/音量/重叠滑块
-- 播放入口增加"AI 解析"步骤（扫描→解析→合成）
-- 播放队列状态显示（queueCount）
+**配置模型扩展（`AIWorkerConfig`）：**
+```swift
+struct AIWorkerConfig: Codable, Identifiable {
+    let id: UUID
+    var name: String
+    var baseURL: String
+    var authKey: String
+    var maxSliceChars: Int
+    var timeout: TimeInterval
+    var isDefault: Bool
+    var isEnabled: Bool          // 新增：是否参与轮询
+    var priority: Int            // 新增：轮询优先级/顺序
+}
+```
+
+### 考量 2：旁白默认音色 — 零等待启动播放
+
+**问题：** AI Worker 解析需要时间（尤其长文本），用户等待期间无反馈。
+
+**方案：**
+- **旁白角色预设**：用户预先为「旁白」（narrator）设定一个默认音色
+- **投机流水线**（Speculative Pipeline）：
+  1. 用户点击播放 → 立即用预设旁白音色 + `neutral` 情感合成第一章**第一段文本**（所有文本视作旁白）
+  2. 同时后台发起 AI Worker 解析请求
+  3. AI Worker 返回后 → 丢弃预合成的旁白段 → 用真正的分段结果重新合成 → 替换队列内容
+  4. 用户几乎无感知等待
+
+```
+时间线:
+t=0   用户点击播放
+t=0.1 立即用旁白音色合成首段文本 → appendToQueue → 开始播放
+t=0.5 AI Worker 返回 [AISegment]
+t=0.6 丢弃队列中预合成项
+       用真实分段结果批量合成 → appendToQueue
+t=1.0 用户听到的角色切换（无缝衔接）
+
+用户感受：点击后不到 1 秒就听到声音开始朗读
+```
+
+- **配置存储**：`@AppStorage("narratorVoice")` 保存旁白音色 ID
+- **角色面板**：旁白角色默认显示为「旁白」标签，可更换音色
+
+### 考量 3：解析结果缓存 — 避免重复调用 AI Worker
+
+**问题：** 每次打开章节或重新播放都调用 AI Worker，浪费免费额度。
+
+**方案：**
+- **缓存键**：`chapterID + text.hashValue`（文本变化时自动失效）
+- **缓存存储**：`UserDefaults` 或 JSON 文件（`Documents/ai_cache/`），以 `chapterID.md5` 为文件名
+- **缓存内容**：`[AISegment]` 完整数组 + 缓存时间戳
+- **缓存策略**：
+  - 读取时命中缓存 → 直接使用，零 AI 调用
+  - 读取时未命中 → 调用 AI Worker → 写入缓存
+  - 用户手动「重新解析」→ 清除该章节缓存 → 重新调用
+- **UI 指示**：角色面板显示「缓存命中」状态（绿色小点 / 提示文字）
+
+```
+缓存检查流程:
+processChapter(chapter) → 计算 cacheKey(chapter.id + text.hash)
+         → UserDefaults 中查找 cacheKey
+         → 命中? → 反序列化 [AISegment] → 直接返回
+         → 未命中? → AI Worker 解析 → 序列化 → 写入缓存 → 返回
+```
+
+**数据模型：**
+```swift
+struct AICacheEntry: Codable {
+    let key: String
+    let segments: [AISegment]
+    let timestamp: Date
+    let chapterTitle: String
+}
+```
+
+### 考量 4：按需懒加载 — 边播边解析
+
+**问题：** 整本书一次性发送给 AI Worker 浪费额度，且无法从中间恢复。
+
+**方案：**
+- **懒加载窗口**：仅当播放进度接近缓存区尾部时，才发送下一片到 AI Worker
+- **触发条件**：当**未播放的已解析段落数 ≤ N**（N 可配置，默认 5 段）时，请求下一片
+- **切片策略**：与现有 `sliceText()` 一致，但只发送「当前播放位置之后的下一片」
+- **目的**：避免解析用不上的章节、避免重复解析已读内容
+
+```
+懒加载窗口示意:
+
+已播放 ████████████░░░░░░░░░░░░░░░░░░░░░░░░ 未播放
+                    ↑
+              当前位置
+
+已解析缓冲区:
+[=====已解析=====][====已解析=====][待解析]
+                   ↑
+              剩余 N 段 → 触发请求下一片
+```
+
+**状态管理（`ReaderStore` 新增）：**
+```swift
+// 懒加载状态
+var aiParseProgress: [UUID: AIParseState] = [:]  // chapterID → state
+var parsedSegmentsBuffer: [AISegment] = []        // 有序的已解析段
+var pendingParseChapters: [BookChapter] = []      // 待解析章节队列
+
+enum AIParseState {
+    case notRequested
+    case parsing(progress: Double)
+    case parsed(cacheHit: Bool)
+    case failed(Error)
+}
+```
+
+**跨章节预取：**
+- 当前章节播放到 80% 时，自动开始解析下一章
+- 下一章有缓存则直接加载，无需 AI 调用
+
+### 数据流全景（整合后）
+
+```
+用户点击「朗读」
+   ↓
+① 投机启动：用旁白音色合成当前段落第一句文本 → appendToQueue → 声音立刻响起
+   ↓
+② 检查缓存：cacheKey = chapterID + text.hash
+   ├─ 命中 → 加载 [AISegment] → 丢弃投机段 → 并发合成 → 替换队列
+   └─ 未命中 → 进入步骤③
+   ↓
+③ AI Worker 轮询调度: WorkerRotator.next() → 选取健康 Worker
+   ↓
+④ sliceText() → 仅发送当前章节**第一片**（不是全书）
+   ↓
+⑤ 收到 [AISegment] → 写入缓存
+   → mergeConsecutiveSegments()
+   → assignVoicesToSegments()（旁白用预设音色，其余角色自动匹配）
+   → 丢弃投机段 → 并发合成 → 替换队列
+   ↓
+⑥ 播放进行中... 监听 parsedSegmentsBuffer 剩余量
+   ↓
+⑦ 当 未播已解析段 ≤ N（默认 5）→ 发送下一片到 AI Worker（切片位置 = 末尾）
+   ↓
+⑧ 回到步骤⑤ → 新段合成 → appendToQueue(restItems) 追加到队列尾部
+   ↓
+⑨ 持续... 直到本章节所有文本解析完毕且播放完毕
+   ↓
+⑩ 当前章节播放到 80% → 自动预取下一章（检查缓存 → 或 AI 解析）
+
+全程 WorkerRotator 轮询: 每片请求轮流使用不同 Worker URL
+```
 
 ---
 
@@ -70,236 +217,275 @@ AVAudioPlayer delegate 驱动播放 + 段落/句子高亮
 
 ### 布局架构（修改 `ReaderOverlayView`）
 
-```
-┌─ 朗读模式下底部栏（audioBottomBar）原结构 ─────────────────┐
-│  [上一章] ████████████░░░░░ [下一章]                          │
-│  当前句子文本（2行）                                            │
-│  ● 正在朗读 / 已暂停  "第X段·第Y句"                              │
-│  [上一句] [下一句] [▶/⏸] [上一段] [下一段]                    │
-│  [目录] [主题] [设置] [字体]                                    │
-└────────────────────────────────────────────────────────────┘
-```
+**原结构存在的问题**（已标注不需要的功能）：
+- 当前句子文本 → ❌ 文本中已有高亮显示
+- 播放状态文字「第X段·第Y句」→ ❌ 文本中已有高亮
+- 句子级跳转按钮（上/下一句、上/下一段）→ ❌ 双击文本播放，双击高亮文本停止
+- 底部栏中的角色按钮 → ❌ 右上角已有角色菜单入口
 
 **修改后结构：**
 
 ```
 ┌─ 朗读模式下底部栏（audioBottomBar）新结构 ────────────────────┐
 │  [上一章] ████████████░░░░░ [下一章]                          │
-│  当前句子文本（2行）                                            │
-│  ● 正在朗读  "王明说：你好"  "第3段·第5句"                      │
-│  ┌──────────── 播放控制 + 角色/设置融入 ────────────┐          │
-│  │  [⏮] [◀] [▶/⏸] [▶] [⏭]  │ 队列:N  │ [👤] [⚙️] │          │
-│  └────────────────────────────────────────────────┘          │
-│  [目录] [角色] [设置] [速度±] [音量±] [重叠]                   │
+│                                                               │
+│  ┌──────────── 简洁控制行 ────────────────────────┐           │
+│  │  [⏮]  [▶/⏸]  [⏭]   队列:N    [□x]语速 [□xdB] │           │
+│  └────────────────────────────────────────────────┘           │
+│                                                               │
+│  [目录] [设置齿轮] [字体]                                     │
 └────────────────────────────────────────────────────────────┘
+
+说明：
+- ⏮ 跳转到章节开头
+- ▶/⏸ 播放/暂停
+- ⏭ 跳转到下一段落
+- 队列:N 显示待播放数
+- 语速/音量：文字标签显示当前值，点击展开 Popover 滑块
+- 角色入口：屏幕右上角已有（header 中 person.2 图标），底部不重复
 ```
 
-### 新增/修改的 UI 组件
+### 沉浸模式浮动控制
 
-#### 1. 角色面板（替换现有 `characterPanelSheet`）
+```
+         ╭──────────────╮
+         │     ▶/⏸      │   ← 大圆按钮，仅播放/暂停
+         ╰──────────────╯
+         屏幕右侧浮动，沉浸模式下可见
+         不再包含段落/句子跳转按钮（双击文本即可）
+```
+
+### 角色面板（替换 `characterPanelSheet`）
+
 ```
 ┌─ Sheet: 角色管理 ──────────────────────────────────────┐
-│  [扫描角色] [AI 解析当前章节] [一键配音]                    │
+│  章节: 《第一章 初到京城》                                │
+│  [重新扫描角色] • AI 缓存: ● 已命中 / ○ 未缓存          │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │ 旁白（默认音色：晓晓）  [更换音色 ▾]              │   │
+│  │  第一次朗读时立即使用此音色启动播放                │   │
+│  └──────────────────────────────────────────────────┘   │
 │                                                          │
-│  ┌─ 小明 ──────────── [♂] ─── [⋮] ┐                    │
-│  │  音色：晓晓 (zh-CN-Xiaoxiao)    │                    │
-│  │  [小晓] [晓萱] [晓伊] ...        │  ← voice picker    │
-│  │  别名：明明                      │                    │
-│  │  ┌─ 合并到... ─┐ ┌─ 分离角色 ─┐ │                    │
-│  └──────────────────────────────────┘                    │
-│  ┌─ 李华 ──────────── [♀] ─── [⋮] ┐                    │
-│  │  ...                             │                    │
-│  └──────────────────────────────────┘                    │
+│  ┌─ 小明 ──────────── [♂] ─── [⋮] ┐                   │
+│  │  音色：晓晓 (zh-CN-Xiaoxiao)    │                   │
+│  │  [小晓] [晓萱] [晓伊] ...        │  ← voice picker   │
+│  │  别名：明明                      │                   │
+│  │  合并到... / 分离角色            │                   │
+│  └──────────────────────────────────┘                   │
+│  ┌─ 李华 ──────────── [♀] ─── [⋮] ┐                   │
+│  │  ...                             │                   │
+│  └──────────────────────────────────┘                   │
 └────────────────────────────────────────────────────────┘
 ```
 
-#### 2. 设置面板（修改 `ReaderSettingsView` + 新增朗读设置 section）
+### 设置面板 — 新增「朗读设置」Section
+
 ```
-┌─ 朗读设置（ReaderSettingsView 新增 Section） ────────────┐
-│  朗读设置                                                  │
-│  语速： [━━━━━●━━━━━]  +5                                 │
-│  音量： [━━━●━━━━━━━━]  -2dB                              │
-│  段落重叠： [━━●━━━━━━]  80ms                             │
-│  [AI Worker 配置 →]  (跳转语音引擎页面)                    │
-│  [Edge TTS 服务器 →]  (跳转语音引擎页面)                   │
+┌─ 朗读设置 ─────────────────────────────────────────────┐
+│  AI 语义分段（关闭=使用本地解析回退）  [Toggle]          │
+│  懒加载触发阈值：当前缓冲剩余 [5] 段时预取               │
+│                                                          │
+│  旁白默认音色: 晓晓  [更换 ▾]                            │
+│                                                          │
+│  语速： [━━━━━●━━━━━]  +5                               │
+│  音量： [━━━●━━━━━━━━]  -2dB                            │
+│  段落重叠： [━━●━━━━━━]  80ms                           │
+│                                                          │
+│  AI Worker 轮询: [启用]                                  │
+│  [管理 Worker 列表 →]  (跳转语音引擎页面)                 │
+│  [管理 TTS 服务器 →]   (跳转语音引擎页面)                │
 └────────────────────────────────────────────────────────┘
 ```
-
-#### 3. 底部控制栏新增按钮
-- **速度±**：点击展开语速滑块 Popover
-- **音量±**：点击展开音量滑块 Popover
-- **重叠**：点击展开重叠滑块 Popover
-- **队列:N**：显示当前队列中待播放数（`queueCount`）
 
 ---
 
 ## 四、核心模块划分与复用策略
 
-### 模块 A：AI 分段 + 并发合成（新，从 TTSView 抽取）
+### 模块 A：Worker 轮询调度器（新增）
 
-**来源：** TTSView.`processCustomWithWorker()` + `SynthesisBuffer` + `synthesizeAndPlayCustom()`
-
-**改造为通用函数（放到 ReaderStore 或新 Service 文件）：**
+**文件：** `WorkerRotator.swift`
 
 ```swift
-func processChapterWithWorker(
-    chapter: BookChapter,
-    characters: [CharacterProfile],
-    voiceAssignments: [String: String],  // speakerName → voiceID
-    workerConfig: AIWorkerConfig,
-    serverID: UUID,
-    globalRate: Double,
-    globalVolume: Double,
-    overlapMs: Double
-) async throws -> [TTSQueueItem]
-```
-
-**流程：**
-1. `sliceText()` → N个分片
-2. 逐片 `sendRequest()` → `AISegment[]`
-3. `mergeConsecutiveSegments()` → 合并相同 speaker/emotion/tone
-4. `assignVoicesToSegments()` → 为每段分配音色
-5. 并发 `withThrowingTaskGroup` → 每段 `EdgeTTSService.synthesize()`
-6. `SynthesisBuffer` → 按顺序组装 `TTSQueueItem`（带 paragraphIndex/sentenceIndex）
-7. 返回 `[TTSQueueItem]` → 交给 `appendToQueue()`
-
-### 模块 B：角色管理 UI（从 TTSView 抽取）
-
-**来源：** TTSView.`customMultiRoleSection` 中的角色管理部分
-- `CharacterRoleCard`（voice picker + gender badge + 删除按钮）
-- 合并/分离/重命名/删除
-- 别名系统
-
-**改造为通用组件（放入单独文件 `CharacterRoleCard.swift` / `CharacterManagementView.swift`）：**
-
-```swift
-struct CharacterRoleCard: View {
-    let character: CharacterProfile
-    @Binding var voiceAssignments: [String: String]
-    let availableVoices: [EdgeVoiceInfo]
-    let onMerge: (String) -> Void       // 合并到另一个角色
-    let onSplit: () -> Void              // 分离别名
-    let onRename: (String) -> Void
-    let onDelete: () -> Void
-    let onReassignVoice: (String) -> Void
+actor WorkerRotator {
+    private var configs: [AIWorkerConfig] = []
+    private var index = 0
+    
+    func next() -> AIWorkerConfig? {
+        let enabled = configs.filter(\.isEnabled).sorted(by: \.priority)
+        guard !enabled.isEmpty else { return configs.first(where: \.isDefault) }
+        index = (index + 1) % enabled.count
+        return enabled[index]
+    }
+    
+    func markFailure(_ id: UUID) { /* 临时跳过 */ }
+    func markSuccess(_ id: UUID) { /* 恢复 */ }
 }
 ```
 
-### 模块 C：全局 TTS 设置控制（从 TTSView 抽取）
+### 模块 B：投机播放器（新增）
 
-**来源：** TTSView 的 `@AppStorage` 全局设置
-- `multiRoleGlobalRate` → `@AppStorage("globalRate")`
-- `globalVolumeOffset` → `@AppStorage("globalVolume")`
-- `globalOverlapMs` → `@AppStorage("globalOverlap")`
+**文件：** `SpeculativePlayer.swift`
 
-**复用：** 直接使用相同的 `@AppStorage` key，ReaderView 和 TTSView 共享设置
+```swift
+actor SpeculativePlayer {
+    /// 用旁白音色快速合成一段文本作为占位
+    func synthesizePlaceholder(text: String, narratorVoice: String, serverID: UUID) async -> TTSQueueItem?
+    
+    /// 真实结果到达后，替换占位
+    func replaceWithReal(placeholderID: UUID, realItems: [TTSQueueItem], controller: AdvancedAudioPlaybackController)
+}
+```
 
-### 模块 D：VoicePickerPopover（已存在）
+### 模块 C：AI 分段 + 解析缓存（新增）
 
-**来源：** TTSView.`VoicePickerPopover`（第 2469-2510 行）
+**文件：** `AIParseCache.swift`
 
-**位置：** 已在 TTSView.swift 底部，可直接复用（需提取到单独文件或保持文件内访问）
+```swift
+actor AIParseCache {
+    func getCachedSegments(chapter: BookChapter) -> [AISegment]?
+    func saveSegments(chapter: BookChapter, segments: [AISegment])
+    func invalidate(chapterID: UUID)
+    func invalidateAll()
+}
+```
+
+### 模块 D：懒加载调度器（新增，整合进 ReaderStore）
+
+逻辑内联到 `ReaderStore.playChapterWithAI()`：
+
+```swift
+private var parsedSegmentsBuffer: [AISegment] = []
+private var currentSliceIndex = 0
+private let prefetchThreshold = 5  // 可配置
+
+func playChapterWithAI(chapter: BookChapter, from paragraphIndex: Int) async {
+    // 1. 投机启动：旁白合成第一段
+    let placeholder = await speculativePlayer.synthesizePlaceholder(...)
+    audioController.appendToQueue([placeholder].compactMap { $0 })
+    
+    // 2. 检查缓存
+    if let cached = await cache.getCachedSegments(chapter: chapter) {
+        parsedSegmentsBuffer = cached
+    } else {
+        // 3. 逐片懒加载
+        try await requestNextSlice()
+    }
+    
+    // 4. 并发合成所有已解析段
+    let items = await synthesizeSegments(parsedSegmentsBuffer)
+    audioController.replaceQueue(items)  // 替换投机段
+    
+    // 5. 播放循环中监听剩余量
+    while hasMoreText {
+        if (parsedSegmentsBuffer.count - currentPlayIndex) <= prefetchThreshold {
+            try await requestNextSlice()
+            let newItems = await synthesizeSegments(newSegments)
+            audioController.appendToQueue(newItems)
+        }
+        await Task.yield()
+    }
+}
+```
+
+### 模块 E：角色管理 UI（从 TTSView 抽取）
+
+**来源：** TTSView.`customMultiRoleSection` → `CharacterRoleCard`
+- 合并/分离/重命名/删除
+- 别名系统
+- 音色选择器 `VoicePickerPopover`
+
+### 模块 F：全局 TTS 设置控制（共享 @AppStorage）
+
+**Key 统一：**
+- `globalRate` → 语速
+- `globalVolume` → 音量
+- `globalOverlap` → 重叠
+- `narratorVoice` → 旁白默认音色（新增）
+- `aiWorkerRotation` → 是否启用轮询（新增）
+- `aiPrefetchThreshold` → 懒加载阈值（新增）
 
 ---
 
 ## 五、实施步骤
 
-### 第一步：抽取通用组件（无功能变更）
-1. 将 `VoicePickerPopover` 移到 `CharacterRoleCard.swift`（新建）
-2. 将 `CharacterRoleCard` 从 TTSView 内联代码抽取为独立 View
-3. 将 `SynthesisBuffer` actor 抽取为文件内/独立 actor
-4. 确认所有依赖（`EdgeVoiceInfo`, `AISegment`, `TTSQueueItem`）已导入
+### 第一步：新增基础设施（无 UI 变更）
+1. 创建 `WorkerRotator.swift` — 轮询调度 actor
+2. 创建 `AIParseCache.swift` — 缓存 actor（JSON 文件存储）
+3. 创建 `SpeculativePlayer.swift` — 投机合成 actor
+4. 创建 `AISegmentCacheManager.swift` — 统一缓存管理入口（可选，也可内联）
+5. 扩展 `AIWorkerConfig` 模型 — 增加 `isEnabled`、`priority`
 
-### 第二步：修改 ReaderStore 播放流程
-1. 在 `ReaderStore` 中添加新的播放入口（不破坏旧的 `playChapterStreaming`）
-2. 新方法 `playChapterWithAI(chapter:fromParagraphIndex:)`：
-   - 调用 `AIWorkerService.processChapter()` 获取 `AISegment[]`
-   - 调用 `mergeConsecutiveSegments()`
-   - 调用 `assignVoicesToSegments()`（基于 `store.characters` 的 voiceID）
-   - 并发合成 + `SynthesisBuffer` → `[TTSQueueItem]`
-   - 调用 `audioController.playQueue(items)`
-3. 将 `TTSQueueItem` 的 `paragraphIndex`/`sentenceIndex` 正确关联到原文位置
+### 第二步：抽取通用 UI 组件（从 TTSView 移出）
+1. 将 `VoicePickerPopover` 移出 TTSView 到独立文件
+2. 将 `CharacterRoleCard` 抽取为独立 View
+3. 将 `SynthesisBuffer` 抽取为独立 actor
+4. TTSView 中保持 import/引用
 
-### 第三步：替换 ReaderView 角色面板
-1. 将 `characterPanelSheet`（ReaderView 第 215 行）内容替换为角色管理 UI
-2. 集成 `CharacterRoleCard` + 合并/分离/重命名/删除
-3. 添加「AI 解析当前章节」按钮（调用 `processChapterWithAI` 但不播放，仅预览角色）
-4. 保持原有「扫描角色」「一键配音」按钮
+### 第三步：改造 ReaderStore 播放流程
+1. 新增懒加载状态属性：
+   - `parsedSegmentsBuffer: [AISegment]`
+   - `currentSliceIndex: Int`
+   - `aiParseState: [UUID: AIParseState]`
+2. 实现 `playChapterWithAI()`（整合缓存 → 轮询 → 懒加载 → 投机播放）
+3. 实现缓存读写逻辑
+4. 保留旧 `playChapterStreaming()` 作为回退
 
-### 第四步：扩展 ReaderView 底部控制栏
-1. `audioBottomBar` 增加：
-   - 速度按钮（显示当前值，点击弹出 Picker/滑块）
-   - 音量按钮
-   - 重叠按钮
-   - 队列数标签
-2. 移除旧 `playbackSpeed`（使⽤ `globalRate` 统⼀控制）
-3. `floatingAudioControls` 增加角色按钮快捷入口
+### 第四步：精简 ReaderView 底部控制栏
+1. 移除句子级跳转按钮（双击文本已有）
+2. 移除当前句子文字显示（高亮已有）
+3. 简化控制行：⏮ ▶/⏸ ⏭ 队列:N 语速 音量
+4. 语速/音量点击弹出 Popover 滑块
 
-### 第五步：将朗读设置加入 ReaderSettingsView
-1. 在 `ReaderSettingsView` 末尾添加「朗读设置」Section
-2. 语速/音量/重叠滑块
-3. AI Worker 配置入口（深链接到 TTSView）
+### 第五步：替换角色面板
+1. 保留右上角 person.2 图标入口
+2. 替换 sheet 内容为角色管理 UI（CharacterRoleCard + 别名）
+3. 顶部增加旁白默认音色设置
+4. 显示 AI 缓存状态
 
-### 第六步：迁移播放控制到新流程
-1. 修改「播放/从头听到」按钮，默认调用新的 AI 流程
-2. 保留旧的 `playChapterStreaming` 作为回退（设置中可选「本地解析」模式）
-3. 调整 `startPlayback(fromParagraphIndex:)` 以支持新的分段模式
+### 第六步：扩展 ReaderSettingsView
+1. 新增「朗读设置」Section
+2. AI 语义分段开关（回退到本地解析）
+3. 旁白默认音色选择器
+4. 懒加载阈值设置
+5. 语速/音量/重叠滑块
+6. Worker 轮询开关
 
 ### 第七步：测试与打磨
-1. 角色管理面板操作（合并/拆分/改名/删除）
-2. 音色选择器联动
-3. 语速/音量/重叠实时生效
-4. 段落高亮同步
-5. 章节切换时自动停止/重新解析
-6. 从中间段落开始播放（`fromParagraphIndex`）
+1. Worker 轮询容错（一个失败自动切下一个）
+2. 缓存命中/未命中/重新解析流程
+3. 投机播放 → 真实段替换 → 用户无感知
+4. 懒加载触发时机
+5. 跨章节预取
+6. 从中间段落恢复播放（需要重新切片计算偏移）
 
 ---
 
-## 六、与现有系统的集成
-
-### 1. 与 `AdvancedAudioPlaybackController` 的集成
-
-新流程生成的 `TTSQueueItem` 必须包含：
-- `paragraphIndex: Int?` — 用于高亮同步
-- `sentenceIndex: Int?` — 用于高亮同步
-- `segmentIndex: Int` — 用于队列顺序
-
-### 2. 与 `CharacterProfile` 的兼容
-
-TTSView 用 `[String: String]`（角色名→音色ID）管理音色分配。
-ReaderStore 用 `[CharacterProfile]`（含 `voiceID: String`）。
-需在 `CharacterProfile` 中确认已有 `voiceID` 字段，或将 `voiceAssignments` 存放在 `UserDefaults` 中与角色一一对应。
-
-### 3. 与现有 `AudioPrefetcher` 的关系
-
-新流程使用 `SynthesisBuffer` 保序，不再需要滑动窗口 `AudioPrefetcher`。
-`AudioPrefetcher` actor 可保留作为回退模式（本地解析模式）使用。
-
-### 4. 别名系统集成
-
-目前 `CharacterProfile` 已有 `alias: [String]`。TTSView 的 `characterAliases: [String: String]`（别名→主名）需要与 `CharacterProfile.alias` 同步。
-采用单向同步：`TTSView` 的别名操作写回 `CharacterProfile.alias`。
-
----
-
-## 七、文件改动清单
+## 六、文件改动清单
 
 | 文件 | 改动类型 | 说明 |
 |------|----------|------|
-| `TTSView.swift` | 抽取 + 删除 | 移出 `VoicePickerPopover`、`CharacterRoleCard`、`SynthesisBuffer`（文件内引用不变） |
-| `CharacterRoleCard.swift` | 新建 | 抽取自 TTSView，通用角色管理卡片 |
-| `VoicePickerPopover.swift` | 新建 | 抽取自 TTSView |
-| `SynthesisBuffer.swift` | 新建 | 抽取自 TTSView，通用保序缓冲 actor |
-| `ReaderStore.swift` | 修改 | 新增 `playChapterWithAI()`，保留旧方法为回退 |
-| `ReaderView.swift` | 修改 | 替换底部控制栏、角色面板 |
+| `WorkerRotator.swift` | **新建** | Worker 轮询调度 actor |
+| `AIParseCache.swift` | **新建** | 解析结果缓存 actor |
+| `SpeculativePlayer.swift` | **新建** | 投机（旁白预合成）actor |
+| `TTSView.swift` | 抽取 | 移出 `VoicePickerPopover`、`CharacterRoleCard`、`SynthesisBuffer` |
+| `CharacterRoleCard.swift` | **新建** | 通用角色管理卡片（从 TTSView 抽取） |
+| `VoicePickerPopover.swift` | **新建** | 从 TTSView 底部分离 |
+| `SynthesisBuffer.swift` | **新建** | 从 TTSView 分离 |
+| `AIWorkerConfig.swift` | 修改（或内联） | 增加 `isEnabled`、`priority` |
+| `ReaderStore.swift` | 修改 | 新增懒加载状态、`playChapterWithAI()`、缓存逻辑 |
+| `ReaderView.swift` | 修改 | 精简底部栏、替换角色面板 |
 | `ReaderSettingsViews.swift` | 修改 | 新增朗读设置 Section |
 | `ReaderSheets.swift` | 修改 | 调整角色面板 sheet 内容 |
 
----
+## 七、回退方案
 
-## 八、回退方案
+保持 AI 功能独立可控：
 
-保持「本地解析」模式作为可选项：
-- `ReaderSettingsView` 新增开关：「AI 语义分段」（默认开启）
-- 关闭时使用旧的 `playChapterStreaming()` + `parseDialogueSegments()`
-- `@AppStorage("readerUseAI")` 持久化用户选择
+| 回退层级 | 触发条件 | 行为 |
+|----------|----------|------|
+| **缓存回退** | 缓存命中 | 零 AI 调用，直接使用历史解析结果 |
+| **轮询降级** | 当前 Worker 失败 | `WorkerRotator` 自动切下一个 |
+| **本地解析回退** | 用户关闭「AI 语义分段」或所有 Worker 失败 | 回到旧的 `playChapterStreaming()` + `parseDialogueSegments()` |
+| **无旁白回退** | 用户未设置旁白音色 | 投机步骤跳过，等待 AI 返回后再开始播放（显示「正在解析...」） |
+
+所有回退对用户透明，通过设置面板 `@AppStorage("readerUseAI")` / `@AppStorage("readerEnableRotation")` 控制。
