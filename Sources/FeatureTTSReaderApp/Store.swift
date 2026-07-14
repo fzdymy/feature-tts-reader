@@ -11,6 +11,11 @@ private final class AudioControllerRef: @unchecked Sendable {
     init(_ c: AdvancedAudioPlaybackController?) { self.controller = c }
 }
 
+private final class FirstPlayFlag: @unchecked Sendable {
+    var value = true
+    init() {}
+}
+
 @MainActor
 struct ChapterNavigate: Equatable {
     let bookID: UUID
@@ -1797,11 +1802,11 @@ final class ReaderStore: NSObject, ObservableObject {
         let totalCount = mergedSegments.count
         await MainActor.run { statusMessage = "正在合成音频 (\(totalCount) 段)..." }
 
-        var isFirstPlay = true
         let audioRef = AudioControllerRef(audioController)
+        let firstFlag = FirstPlayFlag()
         let buffer = SynthesisBuffer { @Sendable readyItems in
-            if isFirstPlay {
-                isFirstPlay = false
+            if firstFlag.value {
+                firstFlag.value = false
                 await audioRef.controller?.playQueue(readyItems)
             } else {
                 await audioRef.controller?.appendToQueue(readyItems)

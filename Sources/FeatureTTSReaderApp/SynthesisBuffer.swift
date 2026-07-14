@@ -33,12 +33,4 @@ actor SynthesisBuffer {
             await onReady(sorted.map { $0.value })
         }
     }
-
-    func markFirstPlayed() -> Bool {
-        if hasPlayedFirst {
-            return false
-        }
-        hasPlayedFirst = true
-        return true
-    }
 }
