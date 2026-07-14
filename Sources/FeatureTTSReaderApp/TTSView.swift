@@ -2273,7 +2273,6 @@ struct CharacterRoleCard: View {
     @State private var showMergePicker = false
     @State private var showDeleteConfirm = false
     @State private var showVoicePicker = false
-    @State private var showVoicePicker = false
 
     private var selectedLabel: String {
         guard !voice.isEmpty else { return "自动" }
@@ -2457,16 +2456,6 @@ if let emotionSummary {
         }
     }
 }
-
-private extension CharacterSet {
-    static let urlQueryParameterAllowed: CharacterSet = {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove("&")
-        allowed.remove("+")
-        return allowed
-    }()
-}
-
 /// 通用的音色选择弹出菜单（列表中直接显示性别标签）
 struct VoicePickerPopover: View {
     let availableVoices: [EdgeVoiceInfo]
