@@ -106,9 +106,8 @@ actor AIParseCache {
                 try? FileManager.default.removeItem(at: file)
                 runningSize -= fileSize
             }
-        }
-    }
-    }
+}
+}
 
     /// 检查指定章节是否有缓存
     func hasCachedSegments(for chapter: BookChapter) -> Bool {
