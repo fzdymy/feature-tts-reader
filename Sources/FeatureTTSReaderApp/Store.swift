@@ -6,6 +6,11 @@ import MediaPlayer
 import NaturalLanguage
 import os
 
+private final class AudioControllerRef: @unchecked Sendable {
+    weak var controller: AdvancedAudioPlaybackController?
+    init(_ c: AdvancedAudioPlaybackController?) { self.controller = c }
+}
+
 @MainActor
 struct ChapterNavigate: Equatable {
     let bookID: UUID
@@ -1792,28 +1797,27 @@ final class ReaderStore: NSObject, ObservableObject {
         let totalCount = mergedSegments.count
         await MainActor.run { statusMessage = "正在合成音频 (\(totalCount) 段)..." }
 
-        let buffer = SynthesisBuffer { @Sendable [weak self] readyItems in
-            guard let self else { return }
-            let shouldPlayFirst = await buffer.markFirstPlayed()
-            if shouldPlayFirst {
-                await audioController.playQueue(readyItems)
+        var isFirstPlay = true
+        let audioRef = AudioControllerRef(audioController)
+        let buffer = SynthesisBuffer { @Sendable readyItems in
+            if isFirstPlay {
+                isFirstPlay = false
+                await audioRef.controller?.playQueue(readyItems)
             } else {
-                await audioController.appendToQueue(readyItems)
+                await audioRef.controller?.appendToQueue(readyItems)
             }
         }
 
         try? await withThrowingTaskGroup(of: (Int, TTSQueueItem).self) { group in
             for (idx, seg) in mergedSegments.enumerated() {
                 guard !Task.isCancelled else { break }
-                group.addTask { [weak self] in
-                    guard let self else { throw CancellationError() }
-                    let speaker = seg.speaker
-                    let voice = speakerVoiceMap[speaker] ?? ""
-                    let rate = TTSView.rateOffset(for: seg)
-                    let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
-                    let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
-                    let style = seg.emotion.ssmlStyle
-
+                let speaker = seg.speaker
+                let voice = speakerVoiceMap[speaker] ?? ""
+                let rate = TTSView.rateOffset(for: seg)
+                let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker)
+                let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
+                let style = seg.emotion.ssmlStyle
+                group.addTask {
                     let audioData = try await EdgeTTSService.shared.synthesize(
                         text: seg.text,
                         voice: voice.isEmpty ? nil : voice,
