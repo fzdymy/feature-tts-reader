@@ -164,7 +164,7 @@ struct CharacterRoleCard: View {
             }
         }
         .padding(10)
-        .background(Color(.systemGray6).opacity(0.5))
+        .background(Color(uiColor: .systemGray6).opacity(0.5))
         .cornerRadius(10)
 
         .alert("重命名角色", isPresented: $showRenameAlert) {
