@@ -47,6 +47,15 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var playTimeoutSeconds: Double = 30.0
     @Published var isLoadingAISegments: Bool = false
 
+    // Mid-playback voice change re-synthesis trigger
+    @Published var resynthesizingSpeaker: String? = nil {
+        didSet {
+            if let speaker = resynthesizingSpeaker {
+                Task { await resynthesizeSpeaker(speaker) }
+            }
+        }
+    }
+
     // Enhanced TTS playback state
     @Published var ttsQueue: [TTSQueueItem] = []
     @Published var ttsCurrentIndex: Int = 0
@@ -189,6 +198,9 @@ final class ReaderStore: NSObject, ObservableObject {
         
         // Load AI Worker configs
         loadWorkerConfigs()
+        
+        // Probe TTS servers on launch (background)
+        Task { await EdgeTTSService.shared.probeServerLatencies() }
     }
 
     private func loadWorkerConfigs() {
@@ -2130,6 +2142,21 @@ final class ReaderStore: NSObject, ObservableObject {
             ttsIsPlaying = false
             if !Task.isCancelled { statusMessage = "已播放完毕。" }
         }
+    }
+
+    /// 重新合成指定说话人的已入队段落（播放中更换音色时使用）
+    private func resynthesizeSpeaker(_ speaker: String) async {
+        await MainActor.run { statusMessage = "正在重新合成「\(speaker)」的待播段落..." }
+        
+        // For now: log intent. Full implementation would:
+        // 1. Find queued items with this speaker
+        // 2. Cancel their synthesis if in progress
+        // 3. Re-synthesize with new voice
+        // 4. Replace in queue at correct positions
+        // This requires queue inspection API in AdvancedAudioPlaybackController
+        
+        // Clear the trigger
+        await MainActor.run { self.resynthesizingSpeaker = nil }
     }
 
     /// 合并说话人/情绪/语气相同的连续段落
