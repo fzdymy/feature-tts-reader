@@ -548,7 +548,7 @@ let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
                                 aliases: aliases,
                                 segmentCount: segmentCount,
                                 emotionSummary: emotionSummary.isEmpty ? nil : emotionSummary,
-                                gender: resolvedGender,
+                                gender: genderForVoice,
                                 autoMatchedVoiceID: autoVoiceID,
                                 voiceSelection: Binding(
                                     get: { voiceForSpeaker(speaker) },
