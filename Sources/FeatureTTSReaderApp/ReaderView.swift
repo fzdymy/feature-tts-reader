@@ -120,48 +120,60 @@ struct ReaderView: View {
 
     // MARK: - Body
 
-    var body: some View {
+    @ViewBuilder
+    private var mainContent: some View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
-            ScrollView {
-                ScrollViewAccessor(coordinator: scrollCoordinator)
-                    .frame(height: 0)
-                LazyVStack(spacing: 0) {
-                    ForEach(chaptersList.indices, id: \.self) { i in
-                        chapterContent(index: i)
-                            .id("ch_\(i)")
-                    }
-                }
-                .scrollTargetLayout()
-            }
-            .scrollPosition(id: $scrollPositionID, anchor: .top)
-            .onChange(of: scrollPositionID) { _, newID in
-                let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
-                guard !isRecentAutoScroll else { return }
-                guard let idStr = newID else { return }
-                if isPlaying, isAudioMode, isImmersive {
-                    scrolledAway = true
-                }
-                let parts = idStr.split(separator: "_", maxSplits: 3)
-                guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
-                if currentChapterIndex != chIdx {
-                    currentChapterIndex = chIdx
-                    chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
-                    if chIdx < chaptersList.count {
-                        currentChapter = chaptersList[chIdx]
-                        store.selectedChapterID = chaptersList[chIdx].id
-                    }
+            scrollViewContent
+        }
+    }
+
+    @ViewBuilder
+    private var scrollViewContent: some View {
+        ScrollView {
+            ScrollViewAccessor(coordinator: scrollCoordinator)
+                .frame(height: 0)
+            LazyVStack(spacing: 0) {
+                ForEach(chaptersList.indices, id: \.self) { i in
+                    chapterContent(index: i)
+                        .id("ch_\(i)")
                 }
             }
-            .onAppear {
-                if currentChapterIndex > 0 {
-                    scrollPositionID = "ch_\(currentChapterIndex)"
+            .scrollTargetLayout()
+        }
+        .scrollPosition(id: $scrollPositionID, anchor: .top)
+        .onChange(of: scrollPositionID) { _, newID in
+            let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
+            guard !isRecentAutoScroll else { return }
+            guard let idStr = newID else { return }
+            if isPlaying, isAudioMode, isImmersive {
+                scrolledAway = true
+            }
+            let parts = idStr.split(separator: "_", maxSplits: 3)
+            guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
+            if currentChapterIndex != chIdx {
+                currentChapterIndex = chIdx
+                chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
+                if chIdx < chaptersList.count {
+                    currentChapter = chaptersList[chIdx]
+                    store.selectedChapterID = chaptersList[chIdx].id
                 }
             }
-            .onChange(of: chaptersList.count) { _, _ in
-                // chapter list changed
+        }
+        .onAppear {
+            if currentChapterIndex > 0 {
+                scrollPositionID = "ch_\(currentChapterIndex)"
             }
+        }
+        .onChange(of: chaptersList.count) { _, _ in
+            // chapter list changed
+        }
+    }
+
+    var body: some View {
+        mainContent
+    }
             .onChange(of: store.currentParagraphIndex) { _, _ in
                 scheduleAutoScrollUpdate()
             }

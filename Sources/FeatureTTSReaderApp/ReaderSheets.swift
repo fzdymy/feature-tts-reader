@@ -69,13 +69,14 @@ struct ReaderSheets: ViewModifier {
                 .environmentObject(store)
             }
             .sheet(isPresented: $showCharacterList) {
+                let currentStore = store
                 CharacterListView(
                     bookID: bookID,
                     characters: Binding(
-                        get: { store.characters },
-                        set: { store.characters = $0 }
+                        get: { currentStore.characters },
+                        set: { currentStore.characters = $0 }
                     ),
-                    availableVoices: store.voices.map { v in
+                    availableVoices: currentStore.voices.map { v in
                         EdgeVoiceInfo(
                             id: v.id,
                             name: v.name,
@@ -84,10 +85,13 @@ struct ReaderSheets: ViewModifier {
                             styles: v.styleList
                         )
                     },
-                    resynthesizingSpeaker: $store.resynthesizingSpeaker,
+                    resynthesizingSpeaker: Binding(
+                        get: { currentStore.resynthesizingSpeaker },
+                        set: { currentStore.resynthesizingSpeaker = $0 }
+                    ),
                     aiCacheAvailable: .constant(false),
                     onDismiss: { showCharacterList = false }
-                ).environmentObject(store)
+                ).environmentObject(currentStore)
             }
     }
 }
