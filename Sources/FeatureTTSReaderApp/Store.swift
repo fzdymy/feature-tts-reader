@@ -1750,7 +1750,7 @@ final class ReaderStore: NSObject, ObservableObject {
             guard let workerConfig else {
                 // All workers unavailable — fallback to local parsing
                 await MainActor.run { statusMessage = "无可用 AI Worker，回退本地解析..." }
-                await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
+                try? await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
                 return
             }
 
@@ -1778,7 +1778,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 await workerRotator.markFailure(workerConfig.id)
                 // Fallback: try local parsing
                 await MainActor.run { statusMessage = "AI 解析失败，回退本地解析..." }
-                await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
+                try? await playChapterStreaming(chapter: chapter, fromParagraphIndex: fromParagraphIndex, fromSentenceIndex: nil)
                 return
             }
 
