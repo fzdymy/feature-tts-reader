@@ -1797,11 +1797,14 @@ final class ReaderStore: NSObject, ObservableObject {
                 UserDefaults.standard.string(forKey: "readerNarratorVoice") ?? "zh-CN-XiaoxiaoNeural"
             }
 
+            // Use fastest TTS server for speculative synthesis
+            let speculativeServerID = await EdgeTTSService.shared.fastestServer()?.id
+
             do {
                 let audioData = try await EdgeTTSService.shared.synthesize(
                     text: firstPara, voice: narratorVoice,
                     rate: 0, pitch: 0, style: "neutral", volume: "default",
-                    serverID: nil
+                    serverID: speculativeServerID
                 )
                 let scriptSeg = ScriptSegment(
                     id: UUID(), characterName: "旁白", voice: narratorVoice,
@@ -1897,6 +1900,9 @@ final class ReaderStore: NSObject, ObservableObject {
                     segmentOffset = 0
                 }
 
+                // Get fastest TTS server for this slice
+                let sliceServerID = await EdgeTTSService.shared.fastestServer()?.id
+
                 // Capture base index for this slice before task group (nonisolated let)
                 let baseIndex = totalSynthesizedCount
                 let sliceTotal = merged.count
@@ -1930,7 +1936,8 @@ final class ReaderStore: NSObject, ObservableObject {
                             let audioData = try await EdgeTTSService.shared.synthesize(
                                 text: seg.text, voice: voice.isEmpty ? nil : voice,
                                 rate: Double(rate), pitch: Double(pitch),
-                                style: style, volume: volume
+                                style: style, volume: volume,
+                                serverID: sliceServerID
                             )
                             let scriptSeg = ScriptSegment(
                                 id: UUID(), characterName: speaker, voice: voice,
@@ -1977,6 +1984,18 @@ final class ReaderStore: NSObject, ObservableObject {
                     "merged_segments": merged.count,
                     "total_synthesized": totalSynthesizedCount,
                 ])
+
+                // Speculative → Real replacement after first slice arrives
+                if isFirstSlice, await speculativePlayer.isSpeculative {
+                    let _ = await speculativePlayer.realSegmentsArrived()
+                    // If speculative item is still in queue (not yet playing), remove it
+                    // If already playing, it will finish naturally and real segments are already queued
+                    await MainActor.run {
+                        // The real segments for this slice (after dropping first) are already queued
+                        // Just ensure we don't double-queue the first real segment
+                        // (already handled by dropping first segment in segmentsToSynthesize)
+                    }
+                }
             }
 
             await workerRotator.markSuccess(workerConfig.id)
