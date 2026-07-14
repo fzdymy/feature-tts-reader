@@ -206,4 +206,5 @@ struct AIWorkerRequest: Codable {
     let sliceIndex: Int
     let totalSlices: Int
     let context: String?
+    let focusFromParagraph: Int?
 }

@@ -1849,7 +1849,13 @@ final class ReaderStore: NSObject, ObservableObject {
                     statusMessage = "正在解析第 \(sliceIdx + 1)/\(totalSlices) 片..."
                 }
 
-                let request = AIWorkerRequest(text: slice, sliceIndex: sliceIdx, totalSlices: totalSlices, context: context)
+                let request = AIWorkerRequest(
+                    text: slice,
+                    sliceIndex: sliceIdx,
+                    totalSlices: totalSlices,
+                    context: context,
+                    focusFromParagraph: sliceIdx == 0 ? fromParagraphIndex : nil
+                )
                 let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
                 let rawSegments = response.segments
                 let segments = rawSegments.map { seg -> AISegment in
