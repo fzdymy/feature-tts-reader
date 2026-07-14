@@ -173,7 +173,7 @@ final class ReaderStore: NSObject, ObservableObject {
     private let speechSynthesizer = AVSpeechSynthesizer()
     private lazy var speechDelegate = SpeechSynthesizerDelegateProxy(owner: self)
     private var autoSaveTimer: Timer?
-    private let aiParseCache = AIParseCache()
+    let aiParseCache = AIParseCache()
     private var workerRotator = WorkerRotator()
     private let speculativePlayer = SpeculativePlayer()
 
@@ -201,6 +201,7 @@ final class ReaderStore: NSObject, ObservableObject {
         
         // Probe TTS servers on launch (background)
         Task { await EdgeTTSService.shared.probeServerLatencies() }
+        Task { await EdgeTTSService.shared.autoConfigureIfNeeded() }
     }
 
     private func loadWorkerConfigs() {
@@ -1893,7 +1894,7 @@ final class ReaderStore: NSObject, ObservableObject {
                             case Gender.unknown: return .unknown
                             }
                         }()
-                        voiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
+                        voiceMap[seg.speaker] = VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
                     }
                 }
 
@@ -2114,7 +2115,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 case Gender.unknown: return .unknown
                 }
             }()
-            speakerVoiceMap[seg.speaker] = TTSView.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
+            speakerVoiceMap[seg.speaker] = VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: availableVoices)
         }
 
         let mergedSegments = mergeConsecutiveAISegments(segments)

@@ -127,24 +127,6 @@ private struct ServerConfigResponse: Decodable {
     var voices: [EdgeVoiceInfo]
 }
 
-struct EdgeTTSServerConfig: Codable, Equatable, Sendable, Identifiable {
-    var id: UUID
-    var name: String
-    var url: String
-    var apiKey: String
-    var lastLatencyMs: Double?
-    var lastChecked: Date?
-
-    init(id: UUID = UUID(), name: String = "默认", url: String, apiKey: String = "", lastLatencyMs: Double? = nil, lastChecked: Date? = nil) {
-        self.id = id
-        self.name = name
-        self.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.lastLatencyMs = lastLatencyMs
-        self.lastChecked = lastChecked
-    }
-}
-
 enum EdgeTTSError: LocalizedError {
     case missingServerURL
     case invalidServerURL
@@ -530,6 +512,50 @@ actor EdgeTTSService {
                 updateServerLatency(id: server.id, latencyMs: latency)
             } catch {
                 updateServerLatency(id: server.id, latencyMs: nil)
+            }
+        }
+    }
+
+    /// Auto-discover Edge TTS servers on common local addresses
+    /// Returns list of discovered server URLs that respond to health check
+    nonisolated static func autoDiscoverServers() async -> [String] {
+        let commonHosts = ["localhost", "127.0.0.1", "192.168.1.100", "192.168.1.101", "192.168.0.100", "10.0.0.100"]
+        let commonPorts = [5000, 5002, 5003, 8080, 8081, 9880]
+        var discovered: [String] = []
+
+        await withTaskGroup(of: String?.self) { group in
+            for host in commonHosts {
+                for port in commonPorts {
+                    let url = "http://\(host):\(port)"
+                    group.addTask {
+                        let url = URL(string: url)!
+                        var request = URLRequest(url: url)
+                        request.timeoutInterval = 2
+                        do {
+                            _ = try await URLSession.shared.data(for: request)
+                            return url.absoluteString
+                        } catch {
+                            return nil
+                        }
+                    }
+                }
+            }
+            for await result in group {
+                if let url = result { discovered.append(url) }
+            }
+        }
+        return discovered
+    }
+
+    /// Auto-configure TTS server on first launch if no servers configured
+    func autoConfigureIfNeeded() async {
+        let currentServers = configuredServers
+        if currentServers.isEmpty {
+            let discovered = await Self.autoDiscoverServers()
+            if let first = discovered.first {
+                let config = EdgeTTSServerConfig(name: "Auto-discovered", url: first, apiKey: "")
+                setServers([config])
+                DebugLogger.log(flow: "edge_tts", step: "auto_configure", details: ["discovered": discovered, "selected": first])
             }
         }
     }

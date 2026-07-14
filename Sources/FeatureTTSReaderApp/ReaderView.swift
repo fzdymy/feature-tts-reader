@@ -232,7 +232,10 @@ struct ReaderView: View {
                 },
                 onDismiss: { showCharacterList = false },
                 resynthesizingSpeaker: $store.resynthesizingSpeaker,
-                aiCacheAvailable: .constant(false)
+                aiCacheAvailable: Binding(
+                    get: { await store.aiParseCache.hasCachedSegments(for: store.chapters.first(where: { $0.id == store.selectedChapterID }) ?? BookChapter(id: UUID(), title: "", text: "")) },
+                    set: { _ in }
+                )
             )
             .environmentObject(store)
             .presentationDetents([.medium, .large])

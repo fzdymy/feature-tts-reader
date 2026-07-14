@@ -3,7 +3,7 @@ import Foundation
 /// Standalone utility for matching character voices based on gender and availability.
 enum VoiceMatchUtility {
     /// Automatically match a voice for a speaker based on gender.
-    static func autoMatchVoice(for speaker: String, gender: Gender, availableVoices: [EdgeVoiceInfo]) -> String {
+    static func autoMatchVoice(for speaker: String, gender: CharacterGender, availableVoices: [EdgeVoiceInfo]) -> String {
         let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
         let defaultVoices: [EdgeVoiceInfo] = [
             EdgeVoiceInfo(id: "zh-CN-XiaoxiaoNeural", name: "小晓", gender: "Female", locale: "zh-CN"),
@@ -11,8 +11,9 @@ enum VoiceMatchUtility {
         ]
         let voices = zhVoices.isEmpty ? defaultVoices : zhVoices
 
-        let resolved: Gender = {
+        let resolved: CharacterGender = {
             if gender != .unknown { return gender }
+            // Fallback: resolve gender from speaker name
             return resolveGenderFromName(speaker)
         }()
 
@@ -29,9 +30,9 @@ enum VoiceMatchUtility {
     }
 
     /// Resolve gender from speaker name using common Chinese name patterns.
-    static func resolveGenderFromName(_ name: String) -> Gender {
-        let femaleKeywords = ["女", "小姐", "姑娘", "她", "姐", "娘", "妈", "婆", "奶", "妹", "嫂", "婶", "女士", "太太", "夫人"]
-        let maleKeywords = ["公", "哥", "爷", "兄", "他", "叔", "爸", "父", "先生", "少爷", "公子", "郎", "伯", "舅"]
+    static func resolveGenderFromName(_ name: String) -> CharacterGender {
+        let femaleKeywords = ["女", "小姐", "姑娘", "她", "姐", "妹", "妈", "妻", "媳妇", "公主", "阿姨", "奶奶"]
+        let maleKeywords = ["男", "先生", "哥", "弟", "爸", "父", "丈夫", "老公", "王子", "公子"]
 
         for kw in femaleKeywords { if name.contains(kw) { return .female } }
         for kw in maleKeywords { if name.contains(kw) { return .male } }

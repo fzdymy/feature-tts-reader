@@ -1167,27 +1167,6 @@ private actor StatusTracker {
         return map[base] ?? base
     }
 
-    /// 根据说话人自动匹配音色（基于性别，优先从 zh-CN 女声/男声中选择）
-    /// - Note: Deprecated — use `VoiceMatchUtility.autoMatchVoice` instead.
-    static nonisolated func autoMatchVoice(for speaker: String, gender: CharacterGender, availableVoices: [EdgeVoiceInfo]) -> String {
-        let zhVoices = availableVoices.filter { $0.locale.hasPrefix("zh-CN") }
-        let voices = zhVoices.isEmpty ? defaultChineseVoices : zhVoices
-        let resolved: CharacterGender = {
-            if gender != .unknown { return gender }
-            return TTSView.resolveGender(speaker: speaker, aiGender: nil)
-        }()
-        switch resolved {
-        case .female:
-            let f = voices.filter { $0.gender == "Female" }
-            return f.first?.id ?? voices.first?.id ?? "zh-CN-XiaoxiaoNeural"
-        case .male:
-            let m = voices.filter { $0.gender == "Male" }
-            return m.first?.id ?? voices.first?.id ?? "zh-CN-YunxiNeural"
-        case .unknown:
-            return voices.first?.id ?? "zh-CN-XiaoxiaoNeural"
-        }
-    }
-
     /// 解析别名 → 主名（最多 5 层，防循环）
     private func resolveAlias(_ name: String) -> String {
         var current = name
@@ -1421,7 +1400,7 @@ private actor StatusTracker {
                     case .unknown: return CharacterGender.unknown
                     }
                 }()
-                return raw.isEmpty ? Self.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
+                return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
             }
             let audioRef = SendableStoreRef(store.audioController)
 

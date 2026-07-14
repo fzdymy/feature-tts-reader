@@ -108,4 +108,12 @@ actor AIParseCache {
             }
         }
     }
+    }
+
+    /// 检查指定章节是否有缓存
+    func hasCachedSegments(for chapter: BookChapter) -> Bool {
+        let key = cacheKey(for: chapter)
+        let url = cacheDir.appendingPathComponent("\(key).json")
+        return FileManager.default.fileExists(atPath: url.path)
+    }
 }
