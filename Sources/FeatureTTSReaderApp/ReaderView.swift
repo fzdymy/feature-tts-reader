@@ -76,14 +76,7 @@ struct ReaderView: View {
         }
         var t = Transaction()
         t.disablesAnimations = true
-        withTransaction(t) { scrollPositionID = "ch_\(safeTarget)" }
-        // After layout: scroll to first paragraph for precise positioning
-        // (ch_N forces LazyVStack to create the chapter view; ch_N_p_0 uses actual layout)
-        DispatchQueue.main.async {
-            var t2 = Transaction()
-            t2.disablesAnimations = true
-            withTransaction(t2) { self.scrollPositionID = "ch_\(safeTarget)_p_0" }
-        }
+        withTransaction(t) { scrollPositionID = "ch_\(safeTarget)_p_0" }
     }
 
     private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()

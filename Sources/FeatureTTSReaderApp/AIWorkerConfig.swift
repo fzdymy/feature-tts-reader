@@ -5,13 +5,31 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var baseURL: String
-    var authKey: String
+    private var _authKey: String = ""
     var model: String
     var sliceCharLimit: Int
     var timeout: TimeInterval
     var isDefault: Bool
     var isEnabled: Bool
     var priority: Int
+
+    var authKey: String {
+        get {
+            do {
+                return try KeychainUtility.loadString(key: KeychainUtility.accountKey(for: id, suffix: "authKey"))
+            } catch {
+                return _authKey // fallback for migration
+            }
+        }
+        set {
+            _authKey = newValue
+            try? KeychainUtility.saveString(key: KeychainUtility.accountKey(for: id, suffix: "authKey"), value: newValue)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, baseURL, model, sliceCharLimit, timeout, isDefault, isEnabled, priority
+    }
 
     init(
         id: UUID = UUID(),
@@ -28,13 +46,40 @@ struct AIWorkerConfig: Identifiable, Codable, Hashable {
         self.id = id
         self.name = name
         self.baseURL = baseURL
-        self.authKey = authKey
         self.model = model
         self.sliceCharLimit = sliceCharLimit
         self.timeout = timeout
         self.isDefault = isDefault
         self.isEnabled = isEnabled
         self.priority = priority
+        self.authKey = authKey
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        baseURL = try c.decode(String.self, forKey: .baseURL)
+        model = try c.decode(String.self, forKey: .model)
+        sliceCharLimit = try c.decode(Int.self, forKey: .sliceCharLimit)
+        timeout = try c.decode(TimeInterval.self, forKey: .timeout)
+        isDefault = try c.decode(Bool.self, forKey: .isDefault)
+        isEnabled = try c.decode(Bool.self, forKey: .isEnabled)
+        priority = try c.decode(Int.self, forKey: .priority)
+        _authKey = ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(baseURL, forKey: .baseURL)
+        try c.encode(model, forKey: .model)
+        try c.encode(sliceCharLimit, forKey: .sliceCharLimit)
+        try c.encode(timeout, forKey: .timeout)
+        try c.encode(isDefault, forKey: .isDefault)
+        try c.encode(isEnabled, forKey: .isEnabled)
+        try c.encode(priority, forKey: .priority)
     }
 }
 

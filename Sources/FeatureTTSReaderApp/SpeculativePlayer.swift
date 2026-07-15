@@ -20,11 +20,13 @@ actor SpeculativePlayer {
     }
 
     /// Called when real AI segments arrive. Returns the paragraph index that was speculatively played.
-    func realSegmentsArrived() -> Int? {
+    /// Also returns whether speculative item is still in queue (not yet played)
+    func realSegmentsArrived() -> (index: Int?, wasPlaying: Bool) {
         let idx = speculativeParagraphIndex
+        let wasPlaying = isSpeculative
         state = .realArrived
         speculativeParagraphIndex = nil
-        return idx
+        return (idx, wasPlaying)
     }
 
     /// Whether we're still in speculative mode (first segment still playing)

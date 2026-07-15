@@ -158,6 +158,11 @@ actor EdgeTTSService {
     private static let apiKeyKey = "edge_tts_api_key"
 
     private let session: URLSession
+    
+    // TTS Synthesis Cache with LRU eviction (max 200 entries)
+    private var ttsCache: [String: (data: Data, timestamp: Date)] = [:]
+    private let ttsCacheMaxSize = 200
+    private let ttsCacheMaxAge: TimeInterval = 7 * 24 * 3600 // 7 days
 
     var configuredServers: [EdgeTTSServerConfig] {
         if let data = UserDefaults.standard.data(forKey: Self.serverListKey),
@@ -165,7 +170,11 @@ actor EdgeTTSService {
            !decoded.isEmpty {
             let filtered = decoded.filter { !$0.url.isEmpty }
             return filtered.map { config in
-                EdgeTTSServerConfig(id: config.id, name: config.name, url: config.url, apiKey: config.apiKey)
+                var c = config
+                if let key = try? KeychainUtility.loadString(key: "server_\(config.id.uuidString)_apiKey") {
+                    c.apiKey = key
+                }
+                return c
             }
         }
 
@@ -195,10 +204,19 @@ actor EdgeTTSService {
 
     var apiKey: String {
         get {
-            UserDefaults.standard.string(forKey: Self.apiKeyKey) ?? ""
+            do {
+                return try KeychainUtility.loadString(key: "global_apiKey")
+            } catch {
+                return ""
+            }
         }
         set {
-            UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Self.apiKeyKey)
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                try? KeychainUtility.delete(key: "global_apiKey")
+            } else {
+                try? KeychainUtility.saveString(key: "global_apiKey", value: trimmed)
+            }
         }
     }
 
@@ -266,6 +284,12 @@ actor EdgeTTSService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EdgeTTSError.emptyResponse }
 
+        let cacheKey = cacheKey(text: trimmed, voice: voice, rate: rate, pitch: pitch, style: style, volume: volume)
+        if let cached = getCachedData(for: cacheKey) {
+            DebugLogger.log(flow: "edge_tts", step: "synthesize_cache_hit", details: ["key": cacheKey])
+            return cached
+        }
+
         let servers = configuredServers
         guard !servers.isEmpty else { throw EdgeTTSError.missingServerURL }
 
@@ -314,6 +338,7 @@ actor EdgeTTSService {
                 ])
                 if (200...299).contains(http.statusCode) {
                     guard !data.isEmpty else { throw EdgeTTSError.emptyResponse }
+                    setCachedData(data, for: cacheKey)
                     return data
                 }
                 lastError = EdgeTTSError.invalidResponse("HTTP \(http.statusCode)")
@@ -340,6 +365,12 @@ actor EdgeTTSService {
     func synthesizeSSML(ssml: String, serverID: UUID? = nil) async throws -> Data {
         let trimmed = ssml.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EdgeTTSError.emptyResponse }
+
+        let cacheKey = "ssml_\(trimmed.stableHash)"
+        if let cached = getCachedData(for: cacheKey) {
+            DebugLogger.log(flow: "edge_tts", step: "synthesizeSSML_cache_hit", details: ["key": cacheKey])
+            return cached
+        }
 
         let servers = configuredServers
         guard !servers.isEmpty else { throw EdgeTTSError.missingServerURL }
@@ -387,6 +418,7 @@ actor EdgeTTSService {
                 ])
                 if (200...299).contains(http.statusCode) {
                     guard !data.isEmpty else { throw EdgeTTSError.emptyResponse }
+                    setCachedData(data, for: cacheKey)
                     return data
                 }
                 lastError = EdgeTTSError.invalidResponse("HTTP \(http.statusCode)")
@@ -577,6 +609,19 @@ actor EdgeTTSService {
         if let data = try? JSONEncoder().encode(trimmed) {
             UserDefaults.standard.set(data, forKey: Self.serverListKey)
         }
+        // Persist apiKeys to Keychain
+        for server in trimmed {
+            _ = try? KeychainUtility.saveString(key: KeychainUtility.accountKey(for: server.id, suffix: "apiKey"), value: server.apiKey)
+        }
+        // Clean up orphaned keys
+        let validIDs = Set(trimmed.map { $0.id })
+        if let allKeys = try? KeychainUtility.allKeys(for: KeychainUtility.service) {
+            for key in allKeys {
+                if let uuidStr = key.split(separator: "_").first, let uuid = UUID(uuidString: String(uuidStr)), !validIDs.contains(uuid) {
+                    try? KeychainUtility.delete(key: key)
+                }
+            }
+        }
         if let first = trimmed.first {
             UserDefaults.standard.set(first.url, forKey: Self.legacyServerURLKey)
         } else {
@@ -669,6 +714,40 @@ actor EdgeTTSService {
         return result
     }
 
+    private func cacheKey(text: String, voice: String?, rate: Double, pitch: Double, style: String, volume: String) -> String {
+        "\(text)|\(voice ?? "")|\(rate)|\(pitch)|\(style)|\(volume)".stableHash
+    }
+
+    private func getCachedData(for key: String) -> Data? {
+        evictExpiredCache()
+        if let entry = ttsCache[key] {
+            ttsCache[key] = (entry.data, Date()) // Update timestamp for LRU
+            return entry.data
+        }
+        return nil
+    }
+
+    private func setCachedData(_ data: Data, for key: String) {
+        evictExpiredCache()
+        if ttsCache.count >= ttsCacheMaxSize {
+            // Remove oldest entry (LRU)
+            if let oldestKey = ttsCache.min(by: { $0.value.timestamp < $1.value.timestamp })?.key {
+                ttsCache.removeValue(forKey: oldestKey)
+            }
+        }
+        ttsCache[key] = (data, Date())
+    }
+
+    private func evictExpiredCache() {
+        let now = Date()
+        let expiredKeys = ttsCache.compactMap { key, entry in
+            now.timeIntervalSince(entry.timestamp) > ttsCacheMaxAge ? key : nil
+        }
+        for key in expiredKeys {
+            ttsCache.removeValue(forKey: key)
+        }
+    }
+
     private static func escapeXML(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;")
          .replacingOccurrences(of: "<", with: "&lt;")
@@ -684,5 +763,32 @@ actor EdgeTTSService {
         let id3Header: [UInt8] = [0x49, 0x44, 0x33]
         if data.starts(with: id3Header) { return true }
         return data[0] == 0xFF && (data[1] & 0xE0) == 0xE0
+    }
+
+    // MARK: - TTS Cache (LRU with max size and max age)
+    private func cacheKey(text: String, voice: String?, rate: Double, pitch: Double, style: String, volume: String) -> String {
+        let params = "\(text)|\(voice ?? "")|\(rate)|\(pitch)|\(style)|\(volume)"
+        return params.stableHash
+    }
+
+    private func getCachedData(for key: String) -> Data? {
+        guard let entry = ttsCache[key] else { return nil }
+        // Check age
+        if Date().timeIntervalSince(entry.timestamp) > ttsCacheMaxAge {
+            ttsCache.removeValue(forKey: key)
+            return nil
+        }
+        // Update timestamp (LRU)
+        ttsCache[key] = (entry.data, Date())
+        return entry.data
+    }
+
+    private func setCachedData(_ data: Data, for key: String) {
+        // Evict oldest if at capacity
+        if ttsCache.count >= ttsCacheMaxSize {
+            let oldestKey = ttsCache.min(by: { $0.value.timestamp < $1.value.timestamp })?.key
+            if let key = oldestKey { ttsCache.removeValue(forKey: key) }
+        }
+        ttsCache[key] = (data, Date())
     }
 }

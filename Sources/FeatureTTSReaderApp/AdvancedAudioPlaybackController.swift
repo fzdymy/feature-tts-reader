@@ -117,6 +117,18 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         return removed
     }
 
+    /// 移除队列第一项（如果匹配指定段落索引）
+    @discardableResult
+    func removeFirstQueueItemIfMatches(paragraphIndex: Int) -> Bool {
+        if let first = queue.first,
+           first.anchor?.paragraphIndex == paragraphIndex || first.paragraphIndex == paragraphIndex {
+            queue.removeFirst()
+            queueCount = queue.count
+            return true
+        }
+        return false
+    }
+
     /// 在指定位置插入项
     func insertIntoQueue(_ items: [TTSQueueItem], at index: Int) {
         let clamped = min(max(index, 0), queue.count)

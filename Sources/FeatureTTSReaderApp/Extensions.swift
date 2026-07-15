@@ -58,6 +58,31 @@ extension String {
         let upper = index(range.upperBound, offsetBy: radius, limitedBy: endIndex) ?? endIndex
         return String(self[lower..<upper])
     }
+
+    /// 稳定哈希值，用于缓存键（不依赖进程哈希种子）
+    var stableHash: String {
+        var hasher = StableHasher()
+        hasher.combine(self)
+        return String(hasher.finalize(), radix: 16, uppercase: false).leftPad(to: 16, with: "0")
+    }
+}
+
+private struct StableHasher: Hashable {
+    private var state: UInt64 = 1469598103934665603 // FNV offset basis
+    mutating func combine(_ value: String) {
+        for byte in value.utf8 {
+            state ^= UInt64(byte)
+            state &*= 1099511628211 // FNV prime
+        }
+    }
+    func finalize() -> UInt64 { state }
+}
+
+extension String {
+    func leftPad(to length: Int, with character: Character) -> String {
+        if count >= length { return self }
+        return String(repeating: character, count: length - count) + self
+    }
 }
 
 extension URL {

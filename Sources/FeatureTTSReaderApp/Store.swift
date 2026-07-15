@@ -68,11 +68,40 @@ final class ReaderStore: NSObject, ObservableObject {
     @Published var activeServerTestResult: String = ""
     @Published var isTestingServer: Bool = false
 
-    // AI Worker Configs (shared with TTSViewModel)
+// AI Worker Configs (shared with TTSViewModel)
     @Published var aiWorkerConfigs: [AIWorkerConfig] = [] {
         didSet {
             if let data = try? JSONEncoder().encode(aiWorkerConfigs) {
                 UserDefaults.standard.set(data, forKey: "aiWorkerConfigs")
+            }
+            // Persist authKeys to Keychain
+            for config in aiWorkerConfigs {
+                _ = try? KeychainUtility.saveString(key: KeychainUtility.accountKey(for: config.id, suffix: "authKey"), value: config.authKey)
+            }
+            // Clean up orphaned keys
+            let validIDs = Set(aiWorkerConfigs.map { $0.id })
+            if let allKeys = try? KeychainUtility.allKeys(for: KeychainUtility.service) {
+                for key in allKeys {
+                    if let uuidStr = key.split(separator: "_").first, let uuid = UUID(uuidString: String(uuidStr)), !validIDs.contains(uuid) {
+                        try? KeychainUtility.delete(key: key)
+                    }
+                }
+            }
+        }
+    }
+            // Persist authKeys to Keychain
+            for config in aiWorkerConfigs {
+                try? KeychainUtility.saveString(key: KeychainUtility.accountKey(for: config.id, suffix: "authKey"), value: config.authKey)
+            }
+            // Clean up orphaned keys
+            let validIDs = Set(aiWorkerConfigs.map { $0.id })
+            if let allKeys = try? KeychainUtility.allKeys(for: KeychainUtility.service) {
+                for key in allKeys where key.hasSuffix("-authKey") {
+                    let idString = key.replacingOccurrences(of: "-authKey", with: "")
+                    if let uuid = UUID(uuidString: idString), !validIDs.contains(uuid) {
+                        try? KeychainUtility.delete(key: key)
+                    }
+                }
             }
         }
     }
@@ -99,29 +128,38 @@ final class ReaderStore: NSObject, ObservableObject {
         isTestingServer = false
     }
 
-    // Chapter parse cache keyed by book ID
-    var bookChaptersCache: [UUID: [BookChapter]] = [:]
+    // Chapter parse cache keyed by book ID + content hash
+    private var bookChaptersCache: [String: [BookChapter]] = [:]
     private static let maxCachedBooks = 20
 
-    private func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID) {
+    private func cacheKey(for bookID: UUID, text: String) -> String {
+        let hash = text.stableHash
+        return "\(bookID.uuidString)_\(hash)"
+    }
+
+    private func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID, text: String) {
+        let key = cacheKey(for: bookID, text: text)
         if bookChaptersCache.count >= Self.maxCachedBooks {
             bookChaptersCache.removeValue(forKey: bookChaptersCache.keys.first!)
         }
-        bookChaptersCache[bookID] = chapters
+        bookChaptersCache[key] = chapters
     }
 
     func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
-        if let cached = bookChaptersCache[bookID] { return cached }
+        let key = cacheKey(for: bookID, text: text)
+        if let cached = bookChaptersCache[key] { return cached }
         guard !text.isEmpty else { return [] }
         let parsed = Self.extractChapters(from: text)
         if !parsed.isEmpty {
-            setCachedChapters(parsed, for: bookID)
+            setCachedChapters(parsed, for: bookID, text: text)
         }
         return parsed
     }
 
     func chaptersForBookCached(_ bookID: UUID) -> [BookChapter]? {
-        bookChaptersCache[bookID]
+        // Return most recent cached chapters for this book
+        let prefix = bookID.uuidString + "_"
+        return bookChaptersCache.first(where: { $0.key.hasPrefix(prefix) })?.value
     }
 
 // TTS Synthesis Cache with size limit
@@ -211,6 +249,12 @@ final class ReaderStore: NSObject, ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
            let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
             aiWorkerConfigs = decoded
+            // Restore authKeys from Keychain
+            for i in aiWorkerConfigs.indices {
+                if let key = try? KeychainUtility.loadString(key: KeychainUtility.accountKey(for: aiWorkerConfigs[i].id, suffix: "authKey")) {
+                    aiWorkerConfigs[i].authKey = key
+                }
+            }
             if let savedID = UserDefaults.standard.string(forKey: "selectedAIWorkerID"),
                let id = UUID(uuidString: savedID),
                aiWorkerConfigs.contains(where: { $0.id == id }) {
@@ -1885,7 +1929,9 @@ final class ReaderStore: NSObject, ObservableObject {
                        let range = parseText.range(of: lastSeg.text) {
                         let consumed = parseText[..<range.upperBound]
                         parseText = String(parseText[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                        context = "已解析：\(consumed.prefix(200))"
+                        // Use sliding window of last 5 sentences for context
+                        let consumedSentences = TTSUtility.splitBlockIntoSentences(String(consumed))
+                        context = "已解析：" + consumedSentences.suffix(5).joined(separator: " ")
                     }
                     retryCount += 1
                 }
@@ -2035,14 +2081,12 @@ final class ReaderStore: NSObject, ObservableObject {
 
                 // Speculative → Real replacement after first slice arrives
                 if isFirstSlice, await speculativePlayer.isSpeculative {
-                    let _ = await speculativePlayer.realSegmentsArrived()
+                    let (_, wasPlaying) = await speculativePlayer.realSegmentsArrived()
                     // If speculative item is still in queue (not yet playing), remove it
-                    // If already playing, it will finish naturally and real segments are already queued
-                    await MainActor.run {
-                        // The real segments for this slice (after dropping first) are already queued
-                        // Just ensure we don't double-queue the first real segment
-                        // (already handled by dropping first segment in segmentsToSynthesize)
+                    if !wasPlaying {
+                        await audioController.removeFirstQueueItemIfMatches(paragraphIndex: 0)
                     }
+                    // If already playing, it will finish naturally and real segments are already queued
                 }
             }
 
@@ -3013,10 +3057,16 @@ group.addTask {
 
     nonisolated func defaultVoice(for gender: CharacterGender, tone: String, role: String? = nil, name: String? = nil, voices: [VoiceItem]) -> String {
         if !voices.isEmpty {
-            let targetGender: VoiceGender = (gender == .male) ? .male : .female
-            let preferred = voices.first { $0.gender == targetGender }
-            if let v = preferred { return v.id }
-            return voices[0].id
+            let filtered: [VoiceItem]
+            switch gender {
+            case .male:
+                filtered = voices.filter { $0.gender == .male }
+            case .female:
+                filtered = voices.filter { $0.gender == .female }
+            case .unknown:
+                filtered = voices
+            }
+            return filtered.first?.id ?? voices[0].id
         }
         switch gender {
         case .male: return "zh-CN-YunxiNeural"
@@ -3027,8 +3077,13 @@ group.addTask {
 
     nonisolated func voiceMatchScore(_ voice: VoiceItem, for profile: CharacterProfile) -> Int {
         var score = 0
-        let targetGender: VoiceGender = (profile.gender == .male) ? .male : .female
-        if voice.gender == targetGender { score += 3 }
+        // Gender match: 3 pts if exact, 1 pt if profile gender unknown
+        switch profile.gender {
+        case .male where voice.gender == .male: score += 3
+        case .female where voice.gender == .female: score += 3
+        case .unknown: score += 1
+        default: break
+        }
         if voice.locale.hasPrefix("zh-CN") { score += 2 }
         if voice.styleList?.contains(profile.tone) == true { score += 1 }
         return score

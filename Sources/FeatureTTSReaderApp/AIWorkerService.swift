@@ -63,7 +63,7 @@ final class AIWorkerService {
 
     // MARK: - Private
 
-    /// 切分文本为段落级切片
+    /// 切分文本为段落级切片（保持句子完整性）
     nonisolated func sliceText(_ text: String, maxChars: Int) -> [String] {
         let paragraphs = text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         var slices: [String] = []
@@ -84,27 +84,46 @@ final class AIWorkerService {
             slices.append(currentSlice.trimmingCharacters(in: .whitespacesAndNewlines))
         }
 
-        // 兜底：单个段落超长时强制按字符切分
+        // 兜底：单个切片超长时按句子边界切分
         return slices.flatMap { slice in
             if slice.count <= maxChars { return [slice] }
+            // 使用句子分割器保持句子完整
+            let sentences = splitBlockIntoSentences(slice)
             var chunks: [String] = []
-            var remaining = slice
-            while remaining.count > maxChars {
-                let cutIndex = remaining.index(remaining.startIndex, offsetBy: maxChars)
-                // 尝试在句号/换行处断开
-                let searchRange = remaining.startIndex..<cutIndex
-                if let lastPunct = remaining[searchRange].lastIndex(where: { "。！？\n".contains($0) }) {
-                    let end = remaining.index(after: lastPunct)
-                    chunks.append(String(remaining[..<end]))
-                    remaining = String(remaining[end...])
+            var currentChunk = ""
+            for sentence in sentences {
+                if currentChunk.count + sentence.count > maxChars && !currentChunk.isEmpty {
+                    chunks.append(currentChunk.trimmingCharacters(in: .whitespacesAndNewlines))
+                    currentChunk = sentence
                 } else {
-                    chunks.append(String(remaining[..<cutIndex]))
-                    remaining = String(remaining[cutIndex...])
+                    if !currentChunk.isEmpty { currentChunk += " " }
+                    currentChunk += sentence
                 }
             }
-            if !remaining.isEmpty { chunks.append(remaining) }
-            return chunks
+            if !currentChunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                chunks.append(currentChunk.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return chunks.isEmpty ? [slice] : chunks
         }
+    }
+
+    /// 按中文/英文句号、问号、感叹号分割句子（保持与 Store.splitBlockIntoSentences 一致）
+    private nonisolated func splitBlockIntoSentences(_ text: String) -> [String] {
+        let terminators = "。！？.!?"
+        let nonIndentWs = CharacterSet.whitespacesAndNewlines.subtracting(CharacterSet(charactersIn: "\u{3000}"))
+        var sentences: [String] = []
+        var current = ""
+        for ch in text {
+            current.append(ch)
+            if terminators.contains(ch) {
+                let trimmed = current.trimmingCharacters(in: nonIndentWs)
+                if !trimmed.isEmpty { sentences.append(trimmed) }
+                current = ""
+            }
+        }
+        let trimmed = current.trimmingCharacters(in: nonIndentWs)
+        if !trimmed.isEmpty { sentences.append(trimmed) }
+        return sentences.isEmpty ? [text] : sentences
     }
 
     /// 发送单次 AI Worker 请求
