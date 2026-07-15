@@ -255,16 +255,22 @@ struct BookshelfView: View {
 }
 
 func loadChapterCount(for book: Book, store: ReaderStore, chapterCount: Binding<Int>) async {
-    var text: String = ""
     await MainActor.run {
-        if let cached = store.bookChaptersCache[book.id] {
+        if let cached = store.chaptersForBookCached(book.id) {
             chapterCount.wrappedValue = cached.count
             return
         }
+        // For async extraction, we'll use a detached task
+    }
+    // If no cache, extract chapters in background
+    let text: String
+    await MainActor.run {
         if !book.text.isEmpty {
             text = book.text
         } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
             text = store.bookText
+        } else {
+            text = store.loadBookTextFromFile(bookID: book.id) ?? ""
         }
     }
     guard !text.isEmpty else { return }
@@ -272,7 +278,7 @@ func loadChapterCount(for book: Book, store: ReaderStore, chapterCount: Binding<
         ReaderStore.extractChapters(from: text)
     }.value
     await MainActor.run {
-        store.bookChaptersCache[book.id] = parsed
+        store.setCachedChapters(parsed, for: book.id, text: text)
         chapterCount.wrappedValue = parsed.count
     }
 }

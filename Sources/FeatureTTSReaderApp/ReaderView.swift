@@ -626,7 +626,7 @@ struct ReaderView: View {
                 parseChapters(text: text)
             }.value
             if !parsed.isEmpty {
-                store.bookChaptersCache[bookID] = parsed
+                store.setCachedChapters(parsed, for: bookID, text: text)
                 chaptersList = parsed
             } else {
                 chaptersList = store.chaptersForBook(bookID, text: text)

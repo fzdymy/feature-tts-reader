@@ -7,7 +7,8 @@ struct BookListRow: View {
 
     private var progressValue: Double {
         if chapterCount == 0 { return 0 }
-        let sum = store.bookChaptersCache[book.id]?.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) } ?? 0
+        let cached = store.cachedChapters(for: book.id)
+        let sum = cached?.reduce(0.0) { $0 + (store.bookProgressByChapter[$1.id] ?? 0) } ?? 0
         return chapterCount > 0 ? sum / Double(chapterCount) : 0
     }
 

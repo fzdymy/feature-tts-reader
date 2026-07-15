@@ -95,7 +95,7 @@ struct BookDetailView: View {
                         isDeleting = true
                         let targetID = book.id
                         store.books.removeAll { $0.id == targetID }
-                        store.bookChaptersCache[targetID] = nil
+                        store.clearCachedChapters(for: targetID)
                         store.saveState()
                         dismiss()
                     } label: {
@@ -127,7 +127,7 @@ struct BookDetailView: View {
 
     private func loadChapters() async {
         refreshChapterCount()
-        if let cached = store.bookChaptersCache[book.id], !cached.isEmpty {
+        if let cached = store.chaptersForBookCached(book.id), !cached.isEmpty {
             chapterCount = cached.count
             isLoadingChapters = false
             loadError = false
@@ -149,7 +149,7 @@ struct BookDetailView: View {
         let parsed = await Task(priority: .userInitiated) { ReaderStore.extractChapters(from: text) }.value
         guard !Task.isCancelled else { return }
         await MainActor.run {
-            store.bookChaptersCache[book.id] = parsed
+            store.setCachedChapters(parsed, for: book.id, text: text)
             chapterCount = parsed.count
             isLoadingChapters = false
             loadError = parsed.isEmpty
@@ -169,7 +169,7 @@ struct BookDetailView: View {
     }
 
     private func refreshChapterCount() {
-        chapterCount = store.bookChaptersCache[book.id]?.count ?? 0
+        chapterCount = store.chaptersForBookCached(book.id)?.count ?? 0
         let fallbackText: String
         if !book.text.isEmpty {
             fallbackText = book.text
@@ -187,7 +187,7 @@ struct BookDetailView: View {
 
     private func openReader() {
         let fallbackText = book.text.isEmpty ? (store.currentBookID == book.id.uuidString ? store.bookText : store.loadBookTextFromFile(bookID: book.id) ?? "") : book.text
-        let chaps = store.bookChaptersCache[book.id] ?? (fallbackText.isEmpty ? nil : store.chaptersForBook(book.id, text: fallbackText))
+        let chaps = store.chaptersForBookCached(book.id) ?? (fallbackText.isEmpty ? nil : store.chaptersForBook(book.id, text: fallbackText))
         guard let chapters = chaps, !chapters.isEmpty else {
             ReaderStore.debugLog("[OPEN-READER-FAIL] no cache for \(book.id.uuidString)")
             loadError = true

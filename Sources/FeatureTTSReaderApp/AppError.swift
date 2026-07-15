@@ -1,11 +1,10 @@
 import Foundation
 
 /// 分类错误并提供可操作的用户友好提示
-struct AppError: Error, Equatable {
+struct AppError: Error {
     let category: Category
     let message: String
     let recoverySuggestion: String?
-    let underlyingError: Error?
 
     enum Category: Equatable {
         case network          // 网络/连接问题
@@ -18,17 +17,14 @@ struct AppError: Error, Equatable {
         case unknown          // 未分类
     }
 
-    init(category: Category, message: String, recoverySuggestion: String? = nil, underlyingError: Error? = nil) {
+    init(category: Category, message: String, recoverySuggestion: String? = nil) {
         self.category = category
         self.message = message
         self.recoverySuggestion = recoverySuggestion
-        self.underlyingError = underlyingError
     }
 
     /// 将通用 Error 转换为 AppError
     static func from(_ error: Error) -> AppError {
-        if let appError = error as? AppError { return appError }
-
         let nsError = error as NSError
 
         switch nsError.domain {
@@ -98,18 +94,16 @@ extension AIWorkerError {
         switch self {
         case .invalidURL:
             return AppError(category: .validation, message: "AI Worker 地址无效", recoverySuggestion: "请检查 Worker URL 格式，应为 https://your-worker.workers.dev")
+        case .invalidResponse:
+            return AppError(category: .server, message: "服务器响应格式错误", recoverySuggestion: "请检查服务器是否正常运行，或尝试其他服务器")
         case .unauthorized:
             return AppError(category: .auth, message: "AI Worker 认证失败", recoverySuggestion: "请检查 Auth Key 是否正确，或在 Worker 设置中更新密钥")
         case .rateLimited:
             return AppError(category: .server, message: "AI Worker 请求过于频繁", recoverySuggestion: "请稍等片刻再试，或增加 Worker 配额")
         case .serverError(let code, let msg):
             return AppError(category: .server, message: "AI Worker 错误 (HTTP \(code))", recoverySuggestion: "服务端异常: \(msg)\n请稍后重试或联系管理员")
-        case .decodingFailed(let err):
-            return AppError(category: .parsing, message: "AI 返回格式解析失败", recoverySuggestion: "AI 返回数据异常: \(err.localizedDescription)\n请重试或检查 Worker 版本")
-        case .timeout:
-            return AppError(category: .network, message: "AI Worker 请求超时", recoverySuggestion: "网络较慢或 Worker 处理耗时过长，请增加超时时间或重试")
-        case .cancelled:
-            return AppError(category: .unknown, message: "请求已取消", recoverySuggestion: nil)
+        case .decodingFailed(let e):
+            return AppError(category: .parsing, message: "AI 返回格式解析失败", recoverySuggestion: "AI 返回数据异常: \(e.localizedDescription)\n请重试或检查 Worker 版本")
         }
     }
 }

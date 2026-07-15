@@ -149,6 +149,24 @@ final class ReaderStore: NSObject, ObservableObject {
         bookChaptersCache[bookID]
     }
 
+    /// 供外部视图读取章节缓存（用于进度计算等）
+    func cachedChapters(for bookID: UUID) -> [BookChapter]? {
+        bookChaptersCache[bookID]
+    }
+
+    /// 供外部视图写入章节缓存（用于导入时初始化）
+    func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID) {
+        bookChaptersCache[bookID] = chapters
+        // No hash available, use legacy marker
+        bookChaptersCacheHash[bookID] = "legacy"
+    }
+
+    /// 清除指定书籍的章节缓存
+    func clearCachedChapters(for bookID: UUID) {
+        bookChaptersCache.removeValue(forKey: bookID)
+        bookChaptersCacheHash.removeValue(forKey: bookID)
+    }
+
 // TTS Synthesis Cache with size limit
     private var ttsCache: [String: URL] = [:]
     private let ttsCacheMaxSize = 200
@@ -387,10 +405,9 @@ final class ReaderStore: NSObject, ObservableObject {
             }
             chapters = state.chapters
             if let bid = UUID(uuidString: state.currentBookID) {
-                // Restore chapters cache with proper key (we don't have text here, so use UUID as fallback)
-                let key = "\(bid.uuidString)_legacy"
-                bookChaptersCache[key] = state.chapters
-                bookChaptersCacheHash[bid] = cacheHash(for: state.chapters.joined(separator: "\n"))
+                // Restore chapters cache with proper key (we don't have text here, so use UUID directly)
+                bookChaptersCache[bid] = state.chapters
+                bookChaptersCacheHash[bid] = cacheHash(for: state.chapters.map { $0.text }.joined(separator: "\n"))
             }
             bookIDForChapters = UUID(uuidString: state.currentBookID)
             selectedChapterID = state.selectedChapterID
@@ -492,7 +509,7 @@ final class ReaderStore: NSObject, ObservableObject {
         chapters = state.chapters
         if let bid = UUID(uuidString: state.currentBookID) {
             // Restore cache with full book text for validation
-            let fullText = state.books.first(where: { $0.id == bid })?.text ?? state.chapters.joined(separator: "\n")
+            let fullText = state.books.first(where: { $0.id == bid })?.text ?? state.chapters.map { $0.text }.joined(separator: "\n")
             setCachedChapters(state.chapters, for: bid, text: fullText)
         }
         characters = state.characters
@@ -1078,7 +1095,7 @@ final class ReaderStore: NSObject, ObservableObject {
             scriptSegments = []
             recommendations = []
         }
-        bookChaptersCache = bookChaptersCache.filter { !$0.key.hasPrefix(bookID.uuidString + "_") }
+        bookChaptersCache = bookChaptersCache.filter { !$0.key.uuidString.hasPrefix(bookID.uuidString + "_") }
         let oldLen = text.count.formatted()
         let newLen = normalized.count.formatted()
         saveState()
@@ -1233,9 +1250,11 @@ final class ReaderStore: NSObject, ObservableObject {
             targetText = bookText
         } else if let bookID = UUID(uuidString: currentBookID) {
             // Find cached chapters for this book (any cache key with this book's UUID prefix)
-            let cachedChapters = bookChaptersCache.first(where: { $0.key.hasPrefix(bookID.uuidString + "_") })?.value
-            let chapter = (cachedChapters ?? chapters).first(where: { $0.id == selectedChapterID }) {
+            let cachedChapters = bookChaptersCache.first(where: { $0.key.uuidString.hasPrefix(bookID.uuidString + "_") })?.value
+            if let chapter = (cachedChapters ?? chapters).first(where: { $0.id == selectedChapterID }) {
                 targetText = chapter.text
+            } else {
+                targetText = bookText
             }
         } else {
             targetText = bookText
