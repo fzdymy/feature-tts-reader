@@ -2150,11 +2150,8 @@ final class ReaderStore: NSObject, ObservableObject {
                 // Speculative-aware: synthesize all segments; speculative item will be removed
                 // if still active, so we need merged[0] synthesized with the correct voice
                 let isFirstSlice = (sliceIdx == 0)
-                let segmentsToSynthesize: [AISegment]
-                let segmentOffset: Int
-                let hasSpeculative = isFirstSlice && await speculativePlayer.isSpeculative
+                let isSpeculativeActive = isFirstSlice ? await speculativePlayer.isSpeculative : false
                 segmentsToSynthesize = merged
-                segmentOffset = hasSpeculative ? 0 : 0
 
                 // Get fastest TTS server for this slice
                 let sliceServerID = await EdgeTTSService.shared.fastestServer()?.id
@@ -2194,7 +2191,7 @@ final class ReaderStore: NSObject, ObservableObject {
                         let pitch = TTSUtility.pitchOffset(for: seg, speakerName: speaker, preferredPitch: prefPitch)
                         let volume = TTSUtility.resolvedVolume(tone: seg.tone, globalOffset: 0)
                         let style = seg.emotion.ssmlStyle
-                        let paragraphIndex = baseIndex + segmentOffset + segIdx
+                        let paragraphIndex = baseIndex + segIdx
                         group.addTask {
                             let audioData = try await EdgeTTSService.shared.synthesize(
                                 text: seg.text, voice: voice.isEmpty ? nil : voice,
