@@ -1,0 +1,82 @@
+                        .font(.system(size: 44))
+                        .foregroundColor(.blue)
+                        .background(Circle().fill(bgColor).shadow(radius: 4))
+                }
+                .buttonStyle(.borderless)
+                .padding(.trailing, 20)
+                .padding(.bottom, 100)
+            }
+        }
+    }
+
+    // MARK: - Bookmark Panel
+
+    private var bookmarkPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("书签 (\(chapterBookmarks.count))").font(.headline).foregroundColor(textColor)
+                Spacer()
+                Button("关闭") { showBookmarks = false }.font(.caption)
+            }
+            .padding(.horizontal).padding(.top, 8)
+            if chapterBookmarks.isEmpty {
+                Text("暂无书签").foregroundColor(textColor.opacity(0.5)).padding()
+            } else {
+                List {
+                    ForEach(chapterBookmarks) { bm in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(bm.note.isEmpty ? "\(Int(bm.percent * 100))%" : bm.note)
+                                    .font(.caption).foregroundColor(textColor)
+                                Text(bm.createdAt.formatted(date: .omitted, time: .shortened))
+                                    .font(.caption2).foregroundColor(textColor.opacity(0.6))
+                            }
+                            Spacer()
+                            Button(action: { store.removeBookmark(bm.id) }) {
+                                Image(systemName: "trash").foregroundColor(.red)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        }
+                        .listRowBackground(bgColor)
+                    }
+                }
+                .listStyle(.plain).frame(maxHeight: 180)
+            }
+        }
+        .background(bgColor)
+    }
+
+    // MARK: - Status Bar (immersive)
+
+    private var readerStatusBar: some View {
+        HStack(spacing: 8) {
+            if store.showProgressBar {
+                Text(progressText)
+                    .font(.caption2).foregroundColor(textColor.opacity(0.6)).monospacedDigit()
+            }
+            if store.showPageNumber {
+                let pct = chaptersList.isEmpty ? 0
+                    : min(Double(currentChapterIndex + 1) / Double(max(chaptersList.count, 1)), 1)
+                Text("\(Int(pct * 100))%")
+                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
+            }
+            Spacer()
+            if store.showTime {
+                Text(currentTime, style: .time)
+                    .font(.caption2).foregroundColor(textColor.opacity(0.5))
+            }
+            if store.showBattery, batteryLevel >= 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: batteryIcon)
+                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
+                    Text("\(batteryLevel)%")
+                        .font(.caption2).foregroundColor(textColor.opacity(0.5))
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .background(bgColor.opacity(0.9))
+    }
+}
+
+

@@ -61,7 +61,6 @@ struct ReaderView: View {
     @State private var cachedParagraphs: [UUID: [String]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
     @State private var aiCacheAvailable = false
-    @State private var showAdvancedControls = false
 
     private func navigateToChapter(_ target: Int) {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
@@ -1365,13 +1364,10 @@ private struct ReaderOverlayView: View {
                 Spacer()
 
                 // Advanced controls popover
-                Button(action: { showAdvancedControls.toggle() }) {
                     Image(systemName: "ellipsis.circle.fill")
                         .font(.system(size: 22))
                         .foregroundColor(textColor.opacity(0.8))
                 }
-                .popover(isPresented: $showAdvancedControls, arrowEdge: .bottom) {
-                    advancedControlsPopover
                         .presentationCompactAdaptation(.popover)
                 }
             }
@@ -1397,7 +1393,6 @@ private struct ReaderOverlayView: View {
         .background(.ultraThinMaterial)
     }
 
-    private var advancedControlsPopover: some View {
         VStack(spacing: 16) {
             // Speed
             VStack(alignment: .leading, spacing: 8) {

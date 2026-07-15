@@ -1,0 +1,500 @@
+import SwiftUI
+import Combine
+import UIKit
+
+enum TextAlign: Int, CaseIterable, Identifiable {
+    case leading = 0, center = 1, trailing = 2, justified = 3
+    var id: Self { self }
+    var displayName: String {
+        switch self {
+        case .leading: return "左对齐"
+        case .center: return "居中对齐"
+        case .trailing: return "右对齐"
+        case .justified: return "两端对齐"
+        }
+    }
+}
+
+// MARK: - ReaderView
+
+struct ReaderView: View {
+    @EnvironmentObject private var store: ReaderStore
+    @Environment(\.dismiss) private var dismiss
+    let book: Book
+    let bookID: UUID
+
+    @State private var currentChapter: BookChapter
+    @State private var currentChapterIndex: Int
+    @State private var chaptersList: [BookChapter] = []
+
+    @State private var showBookmarks = false
+    @State private var showSettings = false
+    @State private var showFontPicker = false
+    @State private var showTOC = false
+    @State private var isImmersive = false
+
+    @State private var isAudioMode = false
+    @State private var isPlaying = false
+    @State private var playbackSpeed: Double = 1.0
+    @State private var playbackProgress: Double = 0
+
+    @State private var showCharacterPanel = false
+    @State private var showCharacterList = false
+    @State private var editingCharacter: CharacterProfile?
+    @State private var showAddCharacter = false
+    @State private var showAllRecommendations = false
+    @State private var selectedTextForCharacter = ""
+    @State private var showCharacterFromText = false
+
+    @State private var currentTime = Date()
+    @State private var batteryLevel: Int = 100
+    @State private var screenBrightness: CGFloat = UIScreen.main.brightness
+    @State private var useSystemBrightness = true
+
+    @State private var chapterProgress: Double = 0
+    @State private var scrollPositionID: String?
+    @State private var immersiveBeforeAudioMode = false
+    @State private var autoScrollWorkItem: DispatchWorkItem?
+    @State private var scrolledAway = false
+    @State private var lastAutoScrollTime: Date = .distantPast
+    @State private var startPlaybackID: String?
+    @State private var cachedParagraphs: [UUID: [String]] = [:]
+    @StateObject private var scrollCoordinator = ScrollCoordinator()
+    @State private var aiCacheAvailable = false
+    @State private var showAdvancedControls = false
+
+    private func navigateToChapter(_ target: Int) {
+        let safeTarget = min(max(0, target), chaptersList.count - 1)
+        guard safeTarget >= 0, safeTarget < chaptersList.count else { return }
+        if isPlaying { store.stopPlayback(); isPlaying = false }
+        ReaderStore.saveLastChapterIndex(safeTarget, for: bookID)
+        ReaderStore.debugLog("[NAV] idx=\(safeTarget)")
+        currentChapterIndex = safeTarget
+        chapterProgress = chaptersList.isEmpty ? 0 : Double(safeTarget) / Double(chaptersList.count)
+        if safeTarget < chaptersList.count {
+            currentChapter = chaptersList[safeTarget]
+            store.selectedChapterID = chaptersList[safeTarget].id
+        }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { scrollPositionID = "ch_\(safeTarget)_p_0" }
+    }
+
+    private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+
+    init(book: Book, chapter: BookChapter, bookID: UUID, chapterIndex: Int) {
+        self.book = book
+        self.bookID = bookID
+        ReaderStore.debugLog("[RVIEW-INIT] bookID=\(bookID.uuidString) chapterIndex=\(chapterIndex)")
+        _currentChapter = State(initialValue: chapter)
+        _currentChapterIndex = State(initialValue: chapterIndex)
+    }
+
+    // MARK: - Computed Properties
+
+    private var textColor: Color {
+        switch store.readerTheme {
+        case .dark: return .white
+        case .light: return Color(red: 0.1, green: 0.1, blue: 0.1)
+        case .sepia: return Color(red: 0.2, green: 0.18, blue: 0.15)
+        }
+    }
+
+    private var bgColor: Color {
+        if store.customBackgroundImage != nil { return Color.clear }
+        switch store.readerTheme {
+        case .dark: return .black
+        case .light: return .white
+        case .sepia: return Color(red: 0.98, green: 0.93, blue: 0.82)
+        }
+    }
+
+
+    // MARK: - Body
+
+    var body: some View {
+        rootStack
+            .gesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        handleZoneTap(at: value.location)
+                    }
+            )
+            .sheet(isPresented: $showCharacterPanel) {
+                characterPanelSheet
+                    .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showCharacterList) {
+                CharacterListView(
+                    bookID: book.id,
+                    characters: $store.characters,
+                    availableVoices: store.voices.map { v in
+                        EdgeVoiceInfo(
+                            id: v.id,
+                            name: v.name,
+                            gender: v.gender.rawValue,
+                            locale: v.locale,
+                            styles: v.styleList
+                        )
+                    },
+                    onDismiss: { showCharacterList = false },
+                    resynthesizingSpeaker: $store.resynthesizingSpeaker,
+                    aiCacheAvailable: $aiCacheAvailable
+                )
+                .environmentObject(store)
+                .presentationDetents([.medium, .large])
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(true)
+            .statusBarHidden(isImmersive || (isAudioMode && store.ttsIsPlaying))
+            .onReceive(timer) { _ in
+                currentTime = Date()
+                if UIDevice.current.isBatteryMonitoringEnabled {
+                    batteryLevel = UIDevice.current.batteryLevel >= 0
+                        ? Int(UIDevice.current.batteryLevel * 100) : -1
+                } else {
+                    UIDevice.current.isBatteryMonitoringEnabled = true
+                }
+            }
+            .onAppear(perform: onAppearSetup)
+            .onDisappear(perform: onDisappearCleanup)
+            .onChange(of: store.externalChapterNavigate) { _, newValue in
+                handleExternalNavigate(nav: newValue)
+            }
+            .modifier(ReaderSheets(
+                showSettings: $showSettings,
+                showFontPicker: $showFontPicker,
+                showTOC: $showTOC,
+                editingCharacter: $editingCharacter,
+                showAddCharacter: $showAddCharacter,
+                showAllRecommendations: $showAllRecommendations,
+                showCharacterFromText: $showCharacterFromText,
+                showCharacterList: $showCharacterList,
+                selectedTextForCharacter: selectedTextForCharacter,
+                bookID: book.id,
+                currentChapterID: currentChapter.id,
+                currentChapterIndex: currentChapterIndex,
+                chaptersList: chaptersList,
+                onTOCSelect: { index in
+                    if !chaptersList.isEmpty {
+                        store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
+                    }
+                    navigateToChapter(index)
+                },
+                onCharacterEdit: { updated in
+                    if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
+                        store.characters[idx] = updated
+                        store.updateRecommendations()
+                        store.saveState()
+                    }
+                },
+                store: store,
+                aiCacheAvailable: $aiCacheAvailable
+            ))
+    }
+
+    @ViewBuilder private var rootStack: some View {
+        ZStack {
+            backgroundContent.ignoresSafeArea()
+
+            ScrollView {
+                ScrollViewAccessor(coordinator: scrollCoordinator)
+                    .frame(height: 0)
+                LazyVStack(spacing: 0) {
+                    ForEach(chaptersList.indices, id: \.self) { i in
+                        chapterContent(index: i)
+                            .id("ch_\(i)")
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollPosition(id: $scrollPositionID, anchor: .top)
+            .onChange(of: scrollPositionID) { _, newID in
+                let isRecentAutoScroll = Date().timeIntervalSince(lastAutoScrollTime) < 0.4
+                guard !isRecentAutoScroll else { return }
+                guard let idStr = newID else { return }
+                if isPlaying, isAudioMode, isImmersive {
+                    scrolledAway = true
+                }
+                let parts = idStr.split(separator: "_", maxSplits: 3)
+                guard parts.count >= 2, parts[0] == "ch", let chIdx = Int(parts[1]) else { return }
+                if currentChapterIndex != chIdx {
+                    currentChapterIndex = chIdx
+                    chapterProgress = chaptersList.isEmpty ? 0 : Double(chIdx) / Double(chaptersList.count)
+                    if chIdx < chaptersList.count {
+                        currentChapter = chaptersList[chIdx]
+                        store.selectedChapterID = chaptersList[chIdx].id
+                    }
+                }
+            }
+            .onAppear {
+                if currentChapterIndex > 0 {
+                    scrollPositionID = "ch_\(currentChapterIndex)"
+                }
+            }
+            .onChange(of: chaptersList.count) { _, _ in }
+            .onChange(of: store.currentParagraphIndex) { _, _ in
+                scheduleAutoScrollUpdate()
+            }
+            .onChange(of: store.currentSentenceIndex) { _, _ in
+                scheduleAutoScrollUpdate()
+            }
+            .onChange(of: store.ttsIsPlaying) { _, newValue in
+                isPlaying = newValue
+                scheduleAutoScrollUpdate()
+            }
+            .onChange(of: store.selectedChapterID) { _, newID in
+                guard let idx = chaptersList.firstIndex(where: { $0.id == newID }),
+                      idx != currentChapterIndex else { return }
+                currentChapterIndex = idx
+                currentChapter = chaptersList[idx]
+            }
+
+            ReaderOverlayView(
+                isImmersive: $isImmersive,
+                isAudioMode: $isAudioMode,
+                isPlaying: $isPlaying,
+                showBookmarks: $showBookmarks,
+                showCharacterPanel: $showCharacterPanel,
+                showCharacterList: $showCharacterList,
+                showTOC: $showTOC,
+                showSettings: $showSettings,
+                showFontPicker: $showFontPicker,
+                scrolledAway: $scrolledAway,
+                immersiveBeforeAudioMode: $immersiveBeforeAudioMode,
+                currentScrollID: scrollPositionID,
+                startPlaybackID: startPlaybackID,
+                chaptersList: chaptersList,
+                currentChapterIndex: currentChapterIndex,
+                currentTime: currentTime,
+                batteryLevel: batteryLevel,
+                textColor: textColor,
+                bgColor: bgColor,
+                bookID: bookID,
+                navigateToChapter: navigateToChapter,
+                startPlayback: { paraIndex in
+                    startPlaybackID = scrollPositionID
+                    await startPlayback(fromParagraphIndex: paraIndex)
+                },
+                onScrollToID: { newID in
+                    scrollPositionID = newID
+                }
+            )
+        }
+        .task {
+            if let chID = store.selectedChapterID,
+               let ch = store.chapters.first(where: { $0.id == chID }) {
+                aiCacheAvailable = await store.aiParseCache.hasCachedSegments(for: ch)
+            }
+        }
+    }
+
+
+    @ViewBuilder private var backgroundContent: some View {
+        if let data = store.customBackgroundImage, let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable().scaledToFill()
+        } else {
+            bgColor
+        }
+    }
+
+    // MARK: - Chapter Content
+
+    @ViewBuilder
+    private func chapterContent(index: Int) -> some View {
+        let ch = chaptersList[index]
+        let isCurrentChapter = index == currentChapterIndex && (store.ttsIsPlaying || store.currentSentenceText != nil)
+        let paras = paragraphCache(for: ch)
+        ChapterContentView(
+            index: index,
+            chapter: ch,
+            paragraphs: paras,
+            isCurrentChapter: isCurrentChapter,
+            playbackParagraphIndex: isCurrentChapter ? store.currentParagraphIndex : nil,
+            playbackSentenceIndex: isCurrentChapter ? store.currentSentenceIndex : nil,
+            isPlaybackActive: store.ttsIsPlaying || store.currentSentenceText != nil,
+            readerFontName: store.readerFontName,
+            readerFontSize: store.readerFontSize,
+            readerLineSpacing: store.readerLineSpacing,
+            readerFirstLineIndent: store.readerFirstLineIndent,
+            textColor: textColor,
+            onSentenceTap: { pi, si, sentenceText in
+                selectSentence(paragraphIndex: pi, sentenceIndex: si, sentenceText: sentenceText)
+                if !store.ttsIsPlaying {
+                    Task {
+                        let chapter = chaptersList[currentChapterIndex]
+                        await store.immediateInterruptAndSeek(chapter: chapter, fromParagraphIndex: pi, sentenceIndex: si)
+                    }
+                }
+            },
+            onAddCharacter: { name in
+                selectedTextForCharacter = name
+                showCharacterFromText = true
+            }
+        )
+        .equatable()
+    }
+
+
+
+    // MARK: - Character Panel
+
+    private var characterPanelContent: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                voiceCatalogRow
+                automationRow
+                if !store.recommendations.isEmpty {
+                    recommendationSection
+                }
+                if !store.characters.isEmpty {
+                    characterListSection
+                } else {
+                    emptyStateHint
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var characterPanelSheet: some View {
+        CharacterListView(
+            bookID: book.id,
+            characters: $store.characters,
+            availableVoices: store.voices.map { v in
+                EdgeVoiceInfo(
+                    id: v.id,
+                    name: v.name,
+                    gender: v.gender.rawValue,
+                    locale: v.locale,
+                    styles: v.styleList
+                )
+            },
+            onDismiss: { showCharacterPanel = false },
+            resynthesizingSpeaker: $store.resynthesizingSpeaker,
+            aiCacheAvailable: .constant(false)
+        )
+        .environmentObject(store)
+    }
+
+    // MARK: - Character Panel Components
+
+    private var voiceCatalogRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "waveform.circle")
+                .foregroundColor(.accentColor)
+            Text("音色配置")
+                .font(.subheadline)
+                .foregroundColor(textColor)
+            Spacer()
+            Text("\(store.characters.count) 个角色")
+                .font(.caption2).foregroundColor(.secondary)
+        }
+    }
+
+    private var automationRow: some View {
+        HStack(spacing: 8) {
+            Button(action: { Task { await store.scanCharacters() } }) {
+                Label("扫描角色", systemImage: "person.badge.plus")
+                    .font(.caption).padding(.horizontal, 8).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue.opacity(0.15))
+                    .cornerRadius(8)
+            }
+            .buttonStyle(.borderless)
+            Button(action: { Task { await store.buildScript(for: true) } }) {
+                Label("生成脚本", systemImage: "doc.richtext")
+                    .font(.caption).padding(.horizontal, 8).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.green.opacity(0.15))
+                    .cornerRadius(8)
+            }
+            .buttonStyle(.borderless)
+            Button(action: {
+                store.autoApplyRecommendedToAll()
+                Task { await store.buildScript(for: true) }
+            }) {
+                Label("一键配音", systemImage: "wand.and.stars")
+                    .font(.caption).padding(.horizontal, 8).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange.opacity(0.15))
+                    .cornerRadius(8)
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private var recommendationSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("推荐音色")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(textColor)
+                Spacer()
+                Button("应用到未映射") { store.applyRecommendationsToUnmapped() }
+                    .font(.caption).buttonStyle(.borderless)
+                Button("全部应用") { store.autoApplyRecommendedToAll() }
+                    .font(.caption).buttonStyle(.borderless)
+            }
+            ForEach(store.recommendations.prefix(3)) { rec in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(rec.profile.name)
+                            .font(.caption).fontWeight(.medium)
+                            .foregroundColor(textColor)
+                        Text("x\(rec.count)")
+                            .font(.caption2).foregroundColor(.secondary)
+                        Spacer()
+                        if let v = rec.suggestedVoices.first {
+                            Text(v.name)
+                                .font(.caption2).foregroundColor(.blue)
+                        }
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(rec.suggestedVoices.prefix(4)) { voice in
+                                Text(voice.name)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(6)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                }
+                .padding(8)
+                .background(textColor.opacity(0.05))
+                .cornerRadius(8)
+            }
+            if store.recommendations.count > 3 {
+                Button("查看全部 \(store.recommendations.count) 个推荐") {
+                    showAllRecommendations = true
+                }
+                .font(.caption).foregroundColor(.secondary)
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private var characterListSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("角色列表")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(textColor)
+                Spacer()
+                Button(action: { store.sortCharactersByAppearance() }) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.secondary)
+                Button(action: { showAddCharacter = true }) {
+                    Image(systemName: "plus.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)

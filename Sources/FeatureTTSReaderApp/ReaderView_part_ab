@@ -1,0 +1,500 @@
+                .foregroundColor(.blue)
+            }
+            ForEach(store.characters) { character in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(character.name)
+                                .font(.caption).fontWeight(.medium)
+                                .foregroundColor(textColor)
+                            if character.isNarrator {
+                                Text("旁白")
+                                    .font(.caption2).foregroundColor(.orange)
+                                    .padding(.horizontal, 4).padding(.vertical, 1)
+                                    .background(Color.orange.opacity(0.15))
+                                    .cornerRadius(4)
+                            }
+                        }
+                        Text(character.voiceID)
+                            .font(.caption2).foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button(action: { Task { await store.previewVoice(for: character) } }) {
+                        Image(systemName: "play.circle")
+                            .foregroundColor(.green)
+                    }
+                    .buttonStyle(.borderless)
+                    Button(action: { editingCharacter = character }) {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(.borderless)
+                    Button(action: { store.deleteCharacter(at: character.id) }) {
+                        Image(systemName: "trash")
+                            .font(.caption)
+                            .foregroundColor(.red.opacity(0.6))
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background(textColor.opacity(0.05))
+                .cornerRadius(6)
+            }
+        }
+    }
+
+    private var emptyStateHint: some View {
+        HStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "person.3")
+                    .font(.title2).foregroundColor(.secondary)
+                Text("选中文本中的人名即可快速添加为角色")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+            .padding(.vertical, 16)
+            Spacer()
+        }
+    }
+
+    // MARK: - Lifecycle
+
+    private func onAppearSetup() {
+        if !UIDevice.current.isBatteryMonitoringEnabled {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+        }
+        batteryLevel = UIDevice.current.batteryLevel >= 0
+            ? Int(UIDevice.current.batteryLevel * 100) : -1
+        store.selectedChapterID = currentChapter.id
+        UIApplication.shared.isIdleTimerDisabled = store.keepScreenOn
+        ensureChaptersLoaded()
+        if let brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat {
+            screenBrightness = brightness
+            useSystemBrightness = false
+            UIScreen.main.brightness = brightness
+        }
+        ReaderStore.debugLog("[RVIEW-APPEAR] idx=\(currentChapterIndex) chaptersList.count=\(chaptersList.count)")
+    }
+
+    private func onDisappearCleanup() {
+        UIApplication.shared.isIdleTimerDisabled = false
+        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+        ReaderStore.debugLog("[POS-SAVE] onDisappear idx=\(currentChapterIndex) bookID=\(bookID.uuidString)")
+        if currentChapterIndex < chaptersList.count {
+            let total = paragraphCache(for: chaptersList[currentChapterIndex]).count
+            let cur = currentParaIndexFromID
+            let progress = total > 0 ? Double(min(cur, total)) / Double(total) : 0
+            store.setChapterProgress(chaptersList[currentChapterIndex].id, percent: max(0.0, min(1.0, progress)))
+        }
+        store.saveState()
+        if !useSystemBrightness {
+            UIScreen.main.brightness = UserDefaults.standard.object(forKey: "readerBrightness") as? CGFloat ?? 0.5
+        }
+    }
+
+    private func ensureChaptersLoaded() {
+        guard chaptersList.isEmpty else { return }
+        if let cached = store.chaptersForBookCached(bookID) {
+            chaptersList = cached
+            return
+        }
+        Task {
+            let text: String
+            if store.bookText.isEmpty || store.currentBookID != bookID.uuidString {
+                if !book.text.isEmpty {
+                    text = book.text
+                } else {
+                    let bookID = bookID
+                    text = await Task.detached(priority: .userInitiated) {
+                        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+                        let url = docs.appendingPathComponent("book_texts/\(bookID.uuidString).txt")
+                        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+                    }.value
+                }
+                store.bookText = text
+                store.currentBookID = bookID.uuidString
+            } else {
+                text = store.bookText
+            }
+            guard !text.isEmpty else {
+                chaptersList = [currentChapter]
+                DispatchQueue.main.async { scrollPositionID = "ch_\(currentChapterIndex)" }
+                return
+            }
+            let parsed = await Task.detached(priority: .userInitiated) {
+                parseChapters(text: text)
+            }.value
+            if !parsed.isEmpty {
+                store.setCachedChapters(parsed, for: bookID, text: text)
+                chaptersList = parsed
+            } else {
+                chaptersList = store.chaptersForBook(bookID, text: text)
+            }
+            if chaptersList.isEmpty { chaptersList = [currentChapter] }
+            DispatchQueue.main.async { scrollPositionID = "ch_\(currentChapterIndex)" }
+        }
+    }
+
+    private func handleExternalNavigate(nav: ChapterNavigate?) {
+        guard let nav, nav.bookID == bookID, nav.chapterIndex < chaptersList.count else { return }
+        store.externalChapterNavigate = nil
+        navigateToChapter(nav.chapterIndex)
+    }
+
+    // MARK: - Navigation
+
+
+    private func scrollToSentenceCenter(paragraphIndex: Int, sentenceIndex: Int?) {
+        scrollPositionID = "ch_\(currentChapterIndex)_p_\(paragraphIndex)"
+        lastAutoScrollTime = Date()
+        scrolledAway = false
+    }
+
+    private func selectSentence(paragraphIndex: Int, sentenceIndex: Int, sentenceText: String) {
+        store.currentParagraphIndex = paragraphIndex
+        store.currentSentenceIndex = sentenceIndex
+        store.currentSentenceText = sentenceText
+        if store.ttsIsPlaying {
+            store.audioController.skipToSegment(at: paragraphIndex)
+        }
+        scrollToSentenceCenter(paragraphIndex: paragraphIndex, sentenceIndex: sentenceIndex)
+    }
+
+    private func handleZoneTap(at location: CGPoint) {
+        let screenH = UIScreen.main.bounds.height
+        let yRatio = location.y / screenH
+        if yRatio < 0.25 {
+            scrollPageUp()
+        } else if yRatio > 0.75 {
+            scrollPageDown()
+        } else {
+            toggleImmersiveMode()
+        }
+    }
+
+    private func scrollPageDown() {
+        let screenH = UIScreen.main.bounds.height
+        let currentOffset = scrollCoordinator.scrollView?.contentOffset.y ?? 0
+        let maxOffset = max(0, (scrollCoordinator.scrollView?.contentSize.height ?? 0) - screenH)
+        let target = min(currentOffset + screenH * 5 / 6, maxOffset)
+        scrollCoordinator.scrollTo(offset: target, animated: true)
+    }
+
+    private func scrollPageUp() {
+        let screenH = UIScreen.main.bounds.height
+        let currentOffset = scrollCoordinator.scrollView?.contentOffset.y ?? 0
+        let target = max(0, currentOffset - screenH * 5 / 6)
+        scrollCoordinator.scrollTo(offset: target, animated: true)
+    }
+
+    private func toggleImmersiveMode() {
+        withAnimation(.easeInOut(duration: 0.08)) {
+            isImmersive.toggle()
+        }
+    }
+
+    private func scheduleAutoScrollUpdate() {
+        autoScrollWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            updateAutoScrollForCurrentPlayback()
+        }
+        autoScrollWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: workItem)
+    }
+
+    private func updateAutoScrollForCurrentPlayback() {
+        guard store.ttsIsPlaying || store.currentParagraphIndex != nil else { return }
+        if !scrolledAway, let paragraphIndex = store.currentParagraphIndex {
+            scrollPositionID = "ch_\(currentChapterIndex)_p_\(paragraphIndex)"
+            lastAutoScrollTime = Date()
+            scrolledAway = false
+        }
+        withAnimation { isPlaying = store.ttsIsPlaying }
+    }
+
+    private func startPlayback(fromParagraphIndex: Int? = nil) async {
+        guard currentChapterIndex < chaptersList.count else { return }
+        guard !store.bookText.isEmpty else {
+            await MainActor.run { store.statusMessage = "文本尚未加载，请稍后再试。" }
+            isPlaying = false
+            return
+        }
+        let chapter = chaptersList[currentChapterIndex]
+        store.audioController.playbackRate = Float(playbackSpeed)
+        if store.characters.isEmpty {
+            await MainActor.run { store.statusMessage = "未检测到角色，正在自动扫描..." }
+            await store.scanCharacters()
+        }
+        if store.scriptSegments.isEmpty || store.lastScannedBookText != store.bookText {
+            await store.buildScript(for: false)
+        }
+        await store.startPlaybackTask(chapter: chapter, fromParagraphIndex: fromParagraphIndex)
+    }
+
+    private var currentParaIndexFromID: Int {
+        guard let id = scrollPositionID else { return 0 }
+        let parts = id.split(separator: "_")
+        if parts.count == 4, parts[0] == "ch", parts[2] == "p", let pi = Int(parts[3]) {
+            return pi
+        }
+        return 0
+    }
+
+    private func paragraphCache(for chapter: BookChapter) -> [String] {
+        if let cached = cachedParagraphs[chapter.id] { return cached }
+        let result = chapter.text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
+        cachedParagraphs[chapter.id] = result
+        return result
+    }
+}
+
+// MARK: - ChapterContentView (Equatable, isolated re-render)
+
+@MainActor struct ChapterContentView: View, Equatable {
+    let index: Int
+    let chapter: BookChapter
+    let paragraphs: [String]
+    let isCurrentChapter: Bool
+    let playbackParagraphIndex: Int?
+    let playbackSentenceIndex: Int?
+    let isPlaybackActive: Bool
+    let readerFontName: String
+    let readerFontSize: Double
+    let readerLineSpacing: Double
+    let readerFirstLineIndent: Double
+    let textColor: Color
+    let onSentenceTap: (Int, Int, String) -> Void
+    let onAddCharacter: (String) -> Void
+
+    nonisolated static func == (lhs: ChapterContentView, rhs: ChapterContentView) -> Bool {
+        lhs.index == rhs.index &&
+        lhs.isCurrentChapter == rhs.isCurrentChapter &&
+        lhs.playbackParagraphIndex == rhs.playbackParagraphIndex &&
+        lhs.playbackSentenceIndex == rhs.playbackSentenceIndex &&
+        lhs.isPlaybackActive == rhs.isPlaybackActive &&
+        lhs.readerFontSize == rhs.readerFontSize &&
+        lhs.readerLineSpacing == rhs.readerLineSpacing &&
+        lhs.readerFirstLineIndent == rhs.readerFirstLineIndent
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(chapter.title)
+                    .font(.title2).fontWeight(.bold)
+                    .foregroundColor(textColor)
+            }
+            .padding(.top, 24)
+            .padding(.bottom, 12)
+
+            ForEach(paragraphs.indices, id: \.self) { pi in
+                paragraphRow(pi: pi)
+                    .id("ch_\(index)_p_\(pi)")
+            }
+
+            Divider()
+                .foregroundColor(textColor.opacity(0.2))
+                .padding(.vertical, 16)
+        }
+        .padding(.horizontal, 8)
+    }
+
+    @ViewBuilder
+    private func paragraphRow(pi: Int) -> some View {
+        let paraText = paragraphs[pi]
+        let isActiveParagraph = isCurrentChapter && isPlaybackActive && playbackParagraphIndex == pi
+        VStack(alignment: .leading, spacing: 0) {
+            if isActiveParagraph {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.accentColor).frame(width: 6, height: 6)
+                    Text("当前段落")
+                        .font(.caption2)
+                        .foregroundColor(.accentColor)
+                }
+                .padding(.bottom, 4)
+            }
+            paragraphView(pi: pi, paraText: paraText)
+        }
+    }
+
+    @ViewBuilder
+    private func paragraphView(pi: Int, paraText: String) -> some View {
+        let isReading = isCurrentChapter && isPlaybackActive &&
+            playbackParagraphIndex == pi
+        let indentStr = readerFirstLineIndent > 0 && !paraText.isEmpty
+            ? String(repeating: "\u{3000}", count: Int(readerFirstLineIndent))
+            : ""
+        if isReading {
+            let sentences = ReaderStore.splitBlockIntoSentences(paraText)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(sentences.indices, id: \.self) { si in
+                    let isActiveSentence = playbackSentenceIndex == si
+                    let prefix = si == 0 ? indentStr : ""
+                    Text(prefix + sentences[si])
+                        .font(Font.custom(readerFontName, size: readerFontSize))
+                        .foregroundColor(textColor)
+                        .lineSpacing(readerLineSpacing + 2)
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, 4)
+                        .background(isActiveSentence ? Color.accentColor.opacity(0.30) : Color.clear)
+                        .cornerRadius(4)
+                }
+            }
+            .textSelection(.enabled)
+            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
+            }
+        } else {
+            Text(indentStr + paraText)
+                .font(Font.custom(readerFontName, size: readerFontSize))
+                .foregroundColor(textColor)
+                .lineSpacing(readerLineSpacing + 2)
+                .textSelection(.enabled)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+                .background(isReading ? Color.accentColor.opacity(0.18) : Color.clear)
+                .cornerRadius(6)
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contextMenu {
+                    ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
+            }
+        }
+    }
+}
+
+// MARK: - ContextMenuContent (lazy candidate extraction)
+
+private struct ContextMenuContent: View {
+    let paraText: String
+    let onAddCharacter: (String) -> Void
+    @State private var names: [String] = []
+    @State private var loaded = false
+
+    var body: some View {
+        Group {
+            if !loaded {
+                ProgressView().onAppear {
+                    Task.detached(priority: .userInitiated) {
+                        let result = Self.extractCandidateNamesStatic(from: paraText)
+                        await MainActor.run { names = result; loaded = true }
+                    }
+                }
+            } else {
+                if !names.isEmpty {
+                    Text("添加为角色").font(.caption).foregroundColor(.secondary)
+                    ForEach(names, id: \.self) { name in
+                        Button(name) { onAddCharacter(name) }
+                    }
+                }
+                Button("复制段落") {
+                    UIPasteboard.general.string = paraText
+                }
+            }
+        }
+    }
+
+    nonisolated private static func extractCandidateNamesStatic(from text: String) -> [String] {
+        var nameCounts: [String: Int] = [:]
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        let runPattern = try? NSRegularExpression(pattern: "[\\p{Han}]+")
+        runPattern?.enumerateMatches(in: text, range: nsRange) { match, _, _ in
+            guard let m = match, let r = Range(m.range, in: text) else { return }
+            let run = text[r]
+            let chars = Array(run)
+            for start in 0..<chars.count {
+                for length in [2, 3, 4] where start + length <= chars.count {
+                    let candidate = String(chars[start..<start+length])
+                    if CharacterAnalyzer.isStopWord(candidate) { continue }
+                    if candidate.count == 2 && !CharacterAnalyzer.looksLikeRealName(candidate) { continue }
+                    nameCounts[candidate, default: 0] += 1
+                }
+            }
+        }
+        return nameCounts.sorted { a, b in
+            a.value > b.value || (a.value == b.value && a.key < b.key)
+        }.prefix(15).map(\.key)
+    }
+}
+
+// MARK: - ReaderOverlayView
+
+private struct ReaderOverlayView: View {
+    @EnvironmentObject private var store: ReaderStore
+    @Environment(\.dismiss) private var dismiss
+
+    @Binding var isImmersive: Bool
+    @Binding var isAudioMode: Bool
+    @Binding var isPlaying: Bool
+    @Binding var showBookmarks: Bool
+    @Binding var showCharacterPanel: Bool
+    @Binding var showCharacterList: Bool
+    @Binding var showTOC: Bool
+    @Binding var showSettings: Bool
+    @Binding var showFontPicker: Bool
+    @Binding var scrolledAway: Bool
+    @Binding var immersiveBeforeAudioMode: Bool
+
+    let currentScrollID: String?
+    let startPlaybackID: String?
+    let chaptersList: [BookChapter]
+    let currentChapterIndex: Int
+    let currentTime: Date
+    let batteryLevel: Int
+    let textColor: Color
+    let bgColor: Color
+    let bookID: UUID
+
+    let navigateToChapter: (Int) -> Void
+    let startPlayback: (Int?) async -> Void
+    let onScrollToID: (String) -> Void
+
+    var body: some View {
+        ZStack {
+            VStack {
+                if !isImmersive { readerHeader }
+                Spacer()
+                if isAudioMode && isImmersive {
+                    immersiveAudioBottomBar
+                } else if isImmersive && (store.showProgressBar || store.showPageNumber || store.showTime || store.showBattery) {
+                    readerStatusBar
+                } else if !isImmersive {
+                    if isAudioMode { audioBottomBar } else { silentBottomBar }
+                }
+            }
+
+            if !chaptersList.isEmpty {
+                if isAudioMode {
+                    floatingAudioControls
+                } else if !isImmersive {
+                    floatingPlayButton
+                }
+            }
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    private var displayedChapterTitle: String {
+        guard currentChapterIndex < chaptersList.count else { return chaptersList.first?.title ?? "" }
+        return chaptersList[currentChapterIndex].title
+    }
+
+    private var currentPlaybackInfoText: String {
+        if let sentence = store.currentSentenceText, !sentence.isEmpty {
+            return sentence
+        }
+        if store.ttsIsPlaying {
+            return store.ttsSegmentTitle.isEmpty ? "正在朗读..." : store.ttsSegmentTitle
+        }
+        return ""
+    }
+
+    private var chapterBookmarks: [BookBookmark] {
+        guard currentChapterIndex >= 0, currentChapterIndex < chaptersList.count else { return [] }
+        return store.bookmarks.filter { $0.chapterID == chaptersList[currentChapterIndex].id }
+    }

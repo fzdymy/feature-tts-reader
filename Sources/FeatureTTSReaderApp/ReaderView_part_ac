@@ -1,0 +1,500 @@
+
+    private var progressText: String {
+        guard !chaptersList.isEmpty else { return "\u{2014}" }
+        return "\(currentChapterIndex + 1)/\(chaptersList.count)"
+    }
+
+    private var batteryIcon: String {
+        batteryLevel > 90 ? "battery.100" :
+        batteryLevel > 60 ? "battery.75" :
+        batteryLevel > 30 ? "battery.50" :
+        "battery.0"
+    }
+
+    private func nextTheme(_ t: ReaderTheme) -> ReaderTheme {
+        switch t {
+        case .light: return .sepia
+        case .sepia: return .dark
+        case .dark: return .light
+        }
+    }
+
+    private func themeIcon(_ t: ReaderTheme) -> String {
+        switch t {
+        case .light: return "sun.max"
+        case .sepia: return "circle.lefthalf.filled"
+        case .dark: return "moon.fill"
+        }
+    }
+
+    private var currentParaIndex: Int {
+        guard let id = currentScrollID else { return 0 }
+        let parts = id.split(separator: "_")
+        if parts.count == 4, parts[0] == "ch", parts[2] == "p", let pi = Int(parts[3]) {
+            return pi
+        }
+        return 0  // anchor → top of chapter
+    }
+
+    private var totalParasInCurrentChapter: Int {
+        guard currentChapterIndex < chaptersList.count else { return 1 }
+        let text = chaptersList[currentChapterIndex].text
+        return text.components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: TextNormalizer.nonIndentWhitespace).isEmpty }
+            .count
+    }
+
+    private var sliderProgress: Double {
+        let total = totalParasInCurrentChapter
+        guard total > 0 else { return 0 }
+        return min(1, max(0, Double(currentParaIndex) / Double(total)))
+    }
+
+    // MARK: - Header
+
+    private var readerHeader: some View {
+        HStack {
+            if isAudioMode {
+                Button(action: {
+                    isAudioMode = false
+                    isPlaying = false
+                    isImmersive = immersiveBeforeAudioMode
+                    store.stopPlayback()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.title3)
+                        Text("退出朗读")
+                            .font(.subheadline)
+                    }
+                    .foregroundColor(textColor.opacity(0.7))
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Button(action: {
+                        ReaderStore.saveLastChapterIndex(currentChapterIndex, for: bookID)
+                        store.saveState()
+                        dismiss()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(textColor.opacity(0.7))
+                    }
+                    Button(action: { isImmersive.toggle() }) {
+                        Image(systemName: isImmersive ? "rectangle" : "rectangle.split.2x1")
+                            .font(.title3)
+                            .foregroundColor(textColor.opacity(0.7))
+                    }
+                }
+            }
+
+            Text(displayedChapterTitle)
+                .font(.headline).lineLimit(1)
+                .foregroundColor(textColor)
+                .padding(.leading, 8)
+
+            Spacer()
+
+            if isAudioMode {
+                Button(action: { showCharacterList.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: showCharacterList ? "person.2.fill" : "person.2")
+                            .font(.title3)
+                        if !store.characters.isEmpty {
+                            Text("\(store.characters.count)")
+                                .font(.caption2)
+                        }
+                    }
+                    .foregroundColor(showCharacterList ? .blue : textColor.opacity(0.7))
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(bgColor.opacity(0.9))
+        .overlay(Divider(), alignment: .bottom)
+    }
+
+    // MARK: - Playback Status Summary
+
+    private var playbackStatusSummary: some View {
+        Group {
+            if !store.statusMessage.isEmpty && store.statusMessage != "已停止播放。" {
+                HStack(spacing: 4) {
+                    if store.isBusy { ProgressView().scaleEffect(0.6) }
+                    Text(store.statusMessage)
+                        .font(.caption2)
+                        .foregroundColor(textColor.opacity(0.6))
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    // MARK: - Silent Bottom Bar
+
+    private var silentBottomBar: some View {
+        VStack(spacing: 0) {
+            if showBookmarks { bookmarkPanel }
+
+            HStack(spacing: 8) {
+                Button(action: {
+                    guard currentChapterIndex > 0 else { return }
+                    navigateToChapter(currentChapterIndex - 1)
+                }) {
+                    Text("上一章")
+                        .font(.subheadline)
+                        .frame(minWidth: 50, minHeight: 36)
+                }
+                .disabled(currentChapterIndex <= 0)
+
+                Slider(value: Binding(
+                    get: { sliderProgress },
+                    set: { newValue in
+                        let total = totalParasInCurrentChapter
+                        let idx = min(max(0, Int(newValue * Double(total))), total - 1)
+                        onScrollToID("ch_\(currentChapterIndex)_p_\(idx)")
+                    }
+                ))
+                    .tint(.blue)
+                    .highPriorityGesture(TapGesture().onEnded {})
+
+                Button(action: {
+                    guard currentChapterIndex < chaptersList.count - 1 else { return }
+                    navigateToChapter(currentChapterIndex + 1)
+                }) {
+                    Text("下一章")
+                        .font(.subheadline)
+                        .frame(minWidth: 50, minHeight: 36)
+                }
+                .disabled(currentChapterIndex >= chaptersList.count - 1)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 6)
+            .foregroundColor(textColor)
+
+            Divider()
+
+            HStack(spacing: 0) {
+                barButton("list.bullet", label: "目录", action: { showTOC = true })
+                Divider().frame(height: 20)
+                barButton(themeIcon(store.readerTheme), label: "主题", action: {
+                    store.readerTheme = nextTheme(store.readerTheme)
+                })
+                Divider().frame(height: 20)
+                barButton("gearshape.fill", label: "设置", action: { showSettings = true })
+                Divider().frame(height: 20)
+                barButton(chapterBookmarks.isEmpty ? "bookmark" : "bookmark.fill", label: "书签", action: { showBookmarks.toggle() })
+                Divider().frame(height: 20)
+                barButton("textformat.alt", label: "字体", action: { showFontPicker = true })
+            }
+            .padding(.vertical, 6)
+            .foregroundColor(textColor)
+        }
+        .background(.ultraThinMaterial)
+        .animation(.easeInOut(duration: 0.2), value: showBookmarks)
+    }
+
+    private func barButton(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: systemName)
+                    .font(.system(size: 16))
+                Text(label)
+                    .font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 40)
+        }
+        .buttonStyle(.borderless)
+    }
+
+    // MARK: - Immersive Audio Bottom Bar
+
+    private var immersiveAudioBottomBar: some View {
+        VStack(spacing: 0) {
+            if !currentPlaybackInfoText.isEmpty {
+                Text(currentPlaybackInfoText)
+                    .font(.caption2)
+                    .foregroundColor(textColor.opacity(0.8))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+            }
+            Divider()
+            if scrolledAway {
+                HStack(spacing: 32) {
+                    Button(action: {
+                        if let id = startPlaybackID {
+                            onScrollToID(id)
+                        }
+                        scrolledAway = false
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.backward.circle")
+                                .font(.system(size: 16))
+                            Text("原进度")
+                                .font(.caption)
+                        }
+                    }
+                    Button(action: {
+                        scrolledAway = false
+                        store.stopPlayback()
+                        let paraIndex = currentParaIndex
+                        Task { await startPlayback(paraIndex) }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "headphones.circle")
+                                .font(.system(size: 16))
+                            Text("从本页听")
+                                .font(.caption)
+                        }
+                    }
+                }
+                .foregroundColor(textColor)
+                .padding(.vertical, 4)
+            } else {
+                Button(action: {
+                    if store.ttsIsPlaying {
+                        store.audioController.pause()
+                    } else {
+                        store.audioController.resume()
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 20))
+                        Text(store.ttsIsPlaying ? "暂停播放" : "继续播放")
+                            .font(.caption)
+                    }
+                    .foregroundColor(textColor)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .background(bgColor.opacity(0.9))
+    }
+
+    // MARK: - Audio Bottom Bar
+
+    private var audioBottomBar: some View {
+        VStack(spacing: 0) {
+            // Chapter slider row
+            HStack(spacing: 8) {
+                Button(action: {
+                    guard currentChapterIndex > 0 else { return }
+                    navigateToChapter(currentChapterIndex - 1)
+                }) {
+                    Text("上一章")
+                        .font(.subheadline)
+                        .frame(minWidth: 50, minHeight: 36)
+                }
+                .disabled(currentChapterIndex <= 0)
+
+                Slider(value: Binding(
+                    get: { sliderProgress },
+                    set: { newValue in
+                        let total = totalParasInCurrentChapter
+                        let idx = min(max(0, Int(newValue * Double(total))), total - 1)
+                        onScrollToID("ch_\(currentChapterIndex)_p_\(idx)")
+                    }
+                ))
+                    .tint(.blue)
+                    .highPriorityGesture(TapGesture().onEnded {})
+
+                Button(action: {
+                    guard currentChapterIndex < chaptersList.count - 1 else { return }
+                    navigateToChapter(currentChapterIndex + 1)
+                }) {
+                    Text("下一章")
+                        .font(.subheadline)
+                        .frame(minWidth: 50, minHeight: 36)
+                }
+                .disabled(currentChapterIndex >= chaptersList.count - 1)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 6)
+            .foregroundColor(textColor)
+
+            Divider()
+
+            // Core controls row
+            HStack(spacing: 12) {
+                Button(action: {
+                    store.audioController.skipToPrevious()
+                }) {
+                    Image(systemName: "backward.end.circle.fill")
+                        .font(.system(size: 24))
+                }
+                .disabled(store.audioController.queueCount == 0)
+
+                Button(action: {
+                    store.audioController.skipBackward(seconds: 15)
+                }) {
+                    Image(systemName: "gobackward.15")
+                        .font(.system(size: 22))
+                }
+                .disabled(store.audioController.queueCount == 0)
+
+                Button(action: {
+                    if store.ttsIsPlaying {
+                        store.audioController.pause()
+                    } else if store.audioController.queueCount > 0 {
+                        store.audioController.resume()
+                    }
+                }) {
+                    Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 32))
+                }
+
+                Button(action: {
+                    store.audioController.skipForward(seconds: 15)
+                }) {
+                    Image(systemName: "goforward.15")
+                        .font(.system(size: 22))
+                }
+                .disabled(store.audioController.queueCount == 0)
+
+                Button(action: {
+                    store.audioController.skipToNext()
+                }) {
+                    Image(systemName: "forward.end.circle.fill")
+                        .font(.system(size: 24))
+                }
+                .disabled(store.audioController.queueCount == 0)
+
+                Spacer()
+
+                // Advanced controls popover
+                Button(action: { showAdvancedControls.toggle() }) {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(textColor.opacity(0.8))
+                }
+                .popover(isPresented: $showAdvancedControls, arrowEdge: .bottom) {
+                    advancedControlsPopover
+                        .presentationCompactAdaptation(.popover)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            HStack(spacing: 0) {
+                barButton("list.bullet", label: "目录", action: { showTOC = true })
+                Divider().frame(height: 20)
+                barButton(themeIcon(store.readerTheme), label: "主题", action: {
+                    store.readerTheme = nextTheme(store.readerTheme)
+                })
+                Divider().frame(height: 20)
+                barButton("gearshape.fill", label: "设置", action: { showSettings = true })
+                Divider().frame(height: 20)
+                barButton("textformat.alt", label: "字体", action: { showFontPicker = true })
+            }
+            .padding(.vertical, 6)
+            .foregroundColor(textColor)
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    private var advancedControlsPopover: some View {
+        VStack(spacing: 16) {
+            // Speed
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "speedometer")
+                    Text("语速")
+                    Spacer()
+                    Text("\(Int(UserDefaults.standard.double(forKey: "globalRate")))")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { UserDefaults.standard.double(forKey: "globalRate") },
+                    set: { UserDefaults.standard.set($0, forKey: "globalRate") }
+                ), in: -10...10, step: 1)
+            }
+
+            // Volume
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "speaker.wave.2.fill")
+                    Text("音量")
+                    Spacer()
+                    Text("\(Int(UserDefaults.standard.double(forKey: "globalVolume")))dB")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { UserDefaults.standard.double(forKey: "globalVolume") },
+                    set: { UserDefaults.standard.set($0, forKey: "globalVolume") }
+                ), in: -12...12, step: 1)
+            }
+
+            // Overlap
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "timer")
+                    Text("重叠时长")
+                    Spacer()
+                    Text("\(Int(UserDefaults.standard.double(forKey: "globalOverlap")))ms")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { UserDefaults.standard.double(forKey: "globalOverlap") },
+                    set: { UserDefaults.standard.set($0, forKey: "globalOverlap") }
+                ), in: 0...500, step: 50)
+            }
+
+            // Queue info
+            if store.audioController.queueCount > 0 {
+                HStack {
+                    Image(systemName: "list.bullet")
+                    Text("队列剩余")
+                    Spacer()
+                    Text("\(store.audioController.queueCount)")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 280)
+    }
+
+    // MARK: - Floating Audio Controls
+
+    private var floatingAudioControls: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Button(action: {
+                if store.ttsIsPlaying {
+                    store.audioController.pause()
+                } else if store.audioController.queueCount > 0 {
+                    store.audioController.resume()
+                }
+            }) {
+                Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 44))
+                    .foregroundColor(textColor)
+            }
+            .shadow(color: .black.opacity(0.2), radius: 4)
+            Spacer().frame(height: 80)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.trailing, 16)
+    }
+
+    private var floatingPlayButton: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button(action: {
+                    immersiveBeforeAudioMode = isImmersive
+                    isAudioMode = true
+                    isPlaying = true
+                    Task { await startPlayback(nil) }
+                }) {
+                    Image(systemName: "play.circle.fill")
