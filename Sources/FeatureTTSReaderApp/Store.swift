@@ -121,41 +121,14 @@ final class ReaderStore: NSObject, ObservableObject {
         text.stableHash
     }
 
-    private func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID, text: String) {
+    /// 供外部视图写入章节缓存（用于导入时初始化）
+    func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID, text: String = "") {
         if bookChaptersCache.count >= Self.maxCachedBooks {
             if let oldestKey = bookChaptersCache.keys.first {
                 bookChaptersCache.removeValue(forKey: oldestKey)
                 bookChaptersCacheHash.removeValue(forKey: oldestKey)
             }
         }
-        bookChaptersCache[bookID] = chapters
-        bookChaptersCacheHash[bookID] = cacheHash(for: text)
-    }
-
-    func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
-        let hash = cacheHash(for: text)
-        if let cached = bookChaptersCache[bookID], bookChaptersCacheHash[bookID] == hash {
-            return cached
-        }
-        guard !text.isEmpty else { return [] }
-        let parsed = Self.extractChapters(from: text)
-        if !parsed.isEmpty {
-            setCachedChapters(parsed, for: bookID, text: text)
-        }
-        return parsed
-    }
-
-    func chaptersForBookCached(_ bookID: UUID) -> [BookChapter]? {
-        bookChaptersCache[bookID]
-    }
-
-    /// 供外部视图读取章节缓存（用于进度计算等）
-    func cachedChapters(for bookID: UUID) -> [BookChapter]? {
-        bookChaptersCache[bookID]
-    }
-
-    /// 供外部视图写入章节缓存（用于导入时初始化）
-    func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID, text: String = "") {
         bookChaptersCache[bookID] = chapters
         if !text.isEmpty {
             bookChaptersCacheHash[bookID] = cacheHash(for: text)
