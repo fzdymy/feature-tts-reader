@@ -155,10 +155,13 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     /// 供外部视图写入章节缓存（用于导入时初始化）
-    func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID) {
+    func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID, text: String = "") {
         bookChaptersCache[bookID] = chapters
-        // No hash available, use legacy marker
-        bookChaptersCacheHash[bookID] = "legacy"
+        if !text.isEmpty {
+            bookChaptersCacheHash[bookID] = cacheHash(for: text)
+        } else {
+            bookChaptersCacheHash[bookID] = "legacy"
+        }
     }
 
     /// 清除指定书籍的章节缓存

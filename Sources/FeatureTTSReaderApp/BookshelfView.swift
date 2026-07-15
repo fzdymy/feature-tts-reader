@@ -263,22 +263,22 @@ func loadChapterCount(for book: Book, store: ReaderStore, chapterCount: Binding<
         // For async extraction, we'll use a detached task
     }
     // If no cache, extract chapters in background
-    let text: String
+    var textToParse = ""
     await MainActor.run {
         if !book.text.isEmpty {
-            text = book.text
+            textToParse = book.text
         } else if store.currentBookID == book.id.uuidString && !store.bookText.isEmpty {
-            text = store.bookText
+            textToParse = store.bookText
         } else {
-            text = store.loadBookTextFromFile(bookID: book.id) ?? ""
+            textToParse = store.loadBookTextFromFile(bookID: book.id) ?? ""
         }
     }
-    guard !text.isEmpty else { return }
-    let parsed = await Task.detached(priority: .background) { [text] in
-        ReaderStore.extractChapters(from: text)
+    guard !textToParse.isEmpty else { return }
+    let parsed = await Task.detached(priority: .background) { [textToParse] in
+        ReaderStore.extractChapters(from: textToParse)
     }.value
     await MainActor.run {
-        store.setCachedChapters(parsed, for: book.id, text: text)
+        store.setCachedChapters(parsed, for: book.id, text: textToParse)
         chapterCount.wrappedValue = parsed.count
     }
 }
