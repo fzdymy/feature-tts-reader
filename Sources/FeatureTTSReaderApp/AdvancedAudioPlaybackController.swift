@@ -141,6 +141,14 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
+    func skipToNext() {
+        // Skip current item and play next
+        if let current = currentItem {
+            playbackHistory.append(current)
+        }
+        playNextSeamlessly()
+    }
+
     func skipBackward(seconds: Double) {
         guard let player = player, player.currentTime > 0 else { return }
         let newTime = max(0, player.currentTime - seconds)
