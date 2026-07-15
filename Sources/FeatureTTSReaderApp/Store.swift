@@ -143,6 +143,30 @@ final class ReaderStore: NSObject, ObservableObject {
         bookChaptersCacheHash.removeValue(forKey: bookID)
     }
 
+    /// 获取缓存的章节（无文本验证，用于进度显示等）
+    func cachedChapters(for bookID: UUID) -> [BookChapter]? {
+        bookChaptersCache[bookID]
+    }
+
+    /// 获取章节（带文本验证，用于实际阅读）
+    func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
+        let hash = cacheHash(for: text)
+        if let cached = bookChaptersCache[bookID], bookChaptersCacheHash[bookID] == hash {
+            return cached
+        }
+        guard !text.isEmpty else { return [] }
+        let parsed = Self.extractChapters(from: text)
+        if !parsed.isEmpty {
+            setCachedChapters(parsed, for: bookID, text: text)
+        }
+        return parsed
+    }
+
+    /// 获取缓存的章节（无文本验证）
+    func chaptersForBookCached(_ bookID: UUID) -> [BookChapter]? {
+        bookChaptersCache[bookID]
+    }
+
 // TTS Synthesis Cache with size limit
     private var ttsCache: [String: URL] = [:]
     private let ttsCacheMaxSize = 200
