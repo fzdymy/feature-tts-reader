@@ -60,6 +60,7 @@ struct ReaderView: View {
     @State private var startPlaybackID: String?
     @State private var cachedParagraphs: [UUID: [String]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
+    @State private var aiCacheAvailable = false
 
     private func navigateToChapter(_ target: Int) {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
@@ -118,6 +119,87 @@ struct ReaderView: View {
     // MARK: - Body
 
     var body: some View {
+        rootStack
+            .gesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        handleZoneTap(at: value.location)
+                    }
+            )
+            .sheet(isPresented: $showCharacterPanel) {
+                characterPanelSheet
+                    .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showCharacterList) {
+                CharacterListView(
+                    bookID: book.id,
+                    characters: $store.characters,
+                    availableVoices: store.voices.map { v in
+                        EdgeVoiceInfo(
+                            id: v.id,
+                            name: v.name,
+                            gender: v.gender.rawValue,
+                            locale: v.locale,
+                            styles: v.styleList
+                        )
+                    },
+                    onDismiss: { showCharacterList = false },
+                    resynthesizingSpeaker: $store.resynthesizingSpeaker,
+                    aiCacheAvailable: $aiCacheAvailable
+                )
+                .environmentObject(store)
+                .presentationDetents([.medium, .large])
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(true)
+            .statusBarHidden(isImmersive || (isAudioMode && store.ttsIsPlaying))
+            .onReceive(timer) { _ in
+                currentTime = Date()
+                if UIDevice.current.isBatteryMonitoringEnabled {
+                    batteryLevel = UIDevice.current.batteryLevel >= 0
+                        ? Int(UIDevice.current.batteryLevel * 100) : -1
+                } else {
+                    UIDevice.current.isBatteryMonitoringEnabled = true
+                }
+            }
+            .onAppear(perform: onAppearSetup)
+            .onDisappear(perform: onDisappearCleanup)
+            .onChange(of: store.externalChapterNavigate) { _, newValue in
+                handleExternalNavigate(nav: newValue)
+            }
+            .modifier(ReaderSheets(
+                showSettings: $showSettings,
+                showFontPicker: $showFontPicker,
+                showTOC: $showTOC,
+                editingCharacter: $editingCharacter,
+                showAddCharacter: $showAddCharacter,
+                showAllRecommendations: $showAllRecommendations,
+                showCharacterFromText: $showCharacterFromText,
+                showCharacterList: $showCharacterList,
+                selectedTextForCharacter: selectedTextForCharacter,
+                bookID: book.id,
+                currentChapterID: currentChapter.id,
+                currentChapterIndex: currentChapterIndex,
+                chaptersList: chaptersList,
+                onTOCSelect: { index in
+                    if !chaptersList.isEmpty {
+                        store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
+                    }
+                    navigateToChapter(index)
+                },
+                onCharacterEdit: { updated in
+                    if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
+                        store.characters[idx] = updated
+                        store.updateRecommendations()
+                        store.saveState()
+                    }
+                },
+                store: store
+            ))
+    }
+
+    @ViewBuilder private var rootStack: some View {
         ZStack {
             backgroundContent.ignoresSafeArea()
 
@@ -156,9 +238,7 @@ struct ReaderView: View {
                     scrollPositionID = "ch_\(currentChapterIndex)"
                 }
             }
-            .onChange(of: chaptersList.count) { _, _ in
-                // chapter list changed
-            }
+            .onChange(of: chaptersList.count) { _, _ in }
             .onChange(of: store.currentParagraphIndex) { _, _ in
                 scheduleAutoScrollUpdate()
             }
@@ -207,86 +287,12 @@ struct ReaderView: View {
                 }
             )
         }
-        .gesture(
-            SpatialTapGesture()
-                .onEnded { value in
-                    handleZoneTap(at: value.location)
-                }
-        )
-        .sheet(isPresented: $showCharacterPanel) {
-            characterPanelSheet
-                .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showCharacterList) {
-            CharacterListView(
-                bookID: book.id,
-                characters: $store.characters,
-                availableVoices: store.voices.map { v in
-                    EdgeVoiceInfo(
-                        id: v.id,
-                        name: v.name,
-                        gender: v.gender.rawValue,
-                        locale: v.locale,
-                        styles: v.styleList
-                    )
-                },
-                onDismiss: { showCharacterList = false },
-                resynthesizingSpeaker: $store.resynthesizingSpeaker,
-                aiCacheAvailable: Binding(
-                    get: { await store.aiParseCache.hasCachedSegments(for: store.chapters.first(where: { $0.id == store.selectedChapterID }) ?? BookChapter(id: UUID(), title: "", text: "")) },
-                    set: { _ in }
-                )
-            )
-            .environmentObject(store)
-            .presentationDetents([.medium, .large])
-        }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(true)
-        .statusBarHidden(isImmersive || (isAudioMode && store.ttsIsPlaying))
-        .onReceive(timer) { _ in
-            currentTime = Date()
-            if UIDevice.current.isBatteryMonitoringEnabled {
-                batteryLevel = UIDevice.current.batteryLevel >= 0
-                    ? Int(UIDevice.current.batteryLevel * 100) : -1
-            } else {
-                UIDevice.current.isBatteryMonitoringEnabled = true
+        .task {
+            if let chID = store.selectedChapterID,
+               let ch = store.chapters.first(where: { $0.id == chID }) {
+                aiCacheAvailable = await store.aiParseCache.hasCachedSegments(for: ch)
             }
         }
-        .onAppear(perform: onAppearSetup)
-        .onDisappear(perform: onDisappearCleanup)
-        .onChange(of: store.externalChapterNavigate) { _, newValue in
-            handleExternalNavigate(nav: newValue)
-        }
-        .modifier(ReaderSheets(
-            showSettings: $showSettings,
-            showFontPicker: $showFontPicker,
-            showTOC: $showTOC,
-            editingCharacter: $editingCharacter,
-            showAddCharacter: $showAddCharacter,
-            showAllRecommendations: $showAllRecommendations,
-            showCharacterFromText: $showCharacterFromText,
-            showCharacterList: $showCharacterList,
-            selectedTextForCharacter: selectedTextForCharacter,
-            bookID: book.id,
-            currentChapterID: currentChapter.id,
-            currentChapterIndex: currentChapterIndex,
-            chaptersList: chaptersList,
-            onTOCSelect: { index in
-                if !chaptersList.isEmpty {
-                    store.setChapterProgress(chaptersList[min(currentChapterIndex, chaptersList.count - 1)].id, percent: 1.0)
-                }
-                navigateToChapter(index)
-            },
-            onCharacterEdit: { updated in
-                if let idx = store.characters.firstIndex(where: { $0.id == updated.id }) {
-                    store.characters[idx] = updated
-                    store.updateRecommendations()
-                    store.saveState()
-                }
-            },
-            store: store
-        ))
     }
 
 
@@ -838,7 +844,13 @@ struct ReaderView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contextMenu {
                 ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
+        }
+        .task {
+            if let chID = store.selectedChapterID,
+               let ch = store.chapters.first(where: { $0.id == chID }) {
+                aiCacheAvailable = await store.aiParseCache.hasCachedSegments(for: ch)
             }
+        }
     }
 }
 
