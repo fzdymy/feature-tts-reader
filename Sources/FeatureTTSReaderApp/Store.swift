@@ -2147,17 +2147,14 @@ final class ReaderStore: NSObject, ObservableObject {
                 let merged = mergeConsecutiveAISegments(segments)
                 guard !merged.isEmpty else { continue }
 
-                // Speculative-aware: skip first segment if speculative item is already playing it
+                // Speculative-aware: synthesize all segments; speculative item will be removed
+                // if still active, so we need merged[0] synthesized with the correct voice
                 let isFirstSlice = (sliceIdx == 0)
                 let segmentsToSynthesize: [AISegment]
                 let segmentOffset: Int
-                if isFirstSlice, await speculativePlayer.isSpeculative, merged.count > 1 {
-                    segmentsToSynthesize = Array(merged.dropFirst())
-                    segmentOffset = 1
-                } else {
-                    segmentsToSynthesize = merged
-                    segmentOffset = 0
-                }
+                let hasSpeculative = isFirstSlice && await speculativePlayer.isSpeculative
+                segmentsToSynthesize = merged
+                segmentOffset = hasSpeculative ? 0 : 0
 
                 // Get fastest TTS server for this slice
                 let sliceServerID = await EdgeTTSService.shared.fastestServer()?.id
@@ -2169,9 +2166,8 @@ final class ReaderStore: NSObject, ObservableObject {
                 let audioRef = AudioControllerRef(audioController)
                 // Use OSAllocatedUnfairLock for Sendable-safe mutable flag
                 let firstFlagLock = OSAllocatedUnfairLock(initialState: true)
-                if isFirstSlice, await speculativePlayer.isSpeculative {
-                    firstFlagLock.withLock { $0 = false }
-                }
+                // When speculative is active, firstFlag stays true so real segments
+                // play via playQueue (speculative item will be removed before that)
                 let buffer = SynthesisBuffer { @Sendable readyItems in
                     let isFirst = firstFlagLock.withLock {
                         if $0 { $0 = false; return true }
@@ -2255,11 +2251,11 @@ final class ReaderStore: NSObject, ObservableObject {
                 // Speculative → Real replacement after first slice arrives
                 if isFirstSlice, await speculativePlayer.isSpeculative {
                     let (_, wasPlaying) = await speculativePlayer.realSegmentsArrived()
-                    // If speculative item is still in queue (not yet playing), remove it
-                    if !wasPlaying {
+                    // If speculative item is still in queue, remove it and replace with real segments
+                    if wasPlaying {
                         await audioController.removeFirstQueueItemIfMatches(paragraphIndex: 0)
                     }
-                    // If already playing, it will finish naturally and real segments are already queued
+                    // If already played, real segments are already queued after it
                 }
             }
 
