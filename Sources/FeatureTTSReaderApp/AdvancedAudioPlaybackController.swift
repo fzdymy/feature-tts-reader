@@ -142,13 +142,13 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
     }
 
     func skipBackward(seconds: Double) {
-        guard let player = currentPlayer, player.currentTime > 0 else { return }
+        guard let player = player, player.currentTime > 0 else { return }
         let newTime = max(0, player.currentTime - seconds)
         player.currentTime = newTime
     }
 
     func skipForward(seconds: Double) {
-        guard let player = currentPlayer, player.duration > 0 else { return }
+        guard let player = player, player.duration > 0 else { return }
         let newTime = min(player.duration, player.currentTime + seconds)
         player.currentTime = newTime
     }
