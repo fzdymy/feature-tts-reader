@@ -203,7 +203,7 @@ final class ReaderStore: NSObject, ObservableObject {
         $aiWorkerConfigs
             .receive(on: DispatchQueue.main)
             .sink { [weak self] configs in
-                self?.workerRotator.configure(with: configs)
+                Task { await self?.workerRotator.configure(with: configs) }
             }
             .store(in: &cancellables)
         
@@ -226,7 +226,7 @@ final class ReaderStore: NSObject, ObservableObject {
         }
         
         // Configure worker rotator with loaded configs
-        workerRotator.configure(with: aiWorkerConfigs)
+        Task { await workerRotator.configure(with: aiWorkerConfigs) }
     }
 
     /// Write a crash marker to a file in Documents directory + UserDefaults.
