@@ -19,6 +19,7 @@ struct ReaderSheets: ViewModifier {
     let onTOCSelect: (Int) -> Void
     let onCharacterEdit: (CharacterProfile) -> Void
     let store: ReaderStore
+    @Binding var aiCacheAvailable: Bool
 
     func body(content: Content) -> some View {
         content
@@ -91,7 +92,7 @@ struct ReaderSheets: ViewModifier {
                         get: { store.resynthesizingSpeaker },
                         set: { store.resynthesizingSpeaker = $0 }
                     ),
-                    aiCacheAvailable: .constant(false)
+                    aiCacheAvailable: $aiCacheAvailable
                 ).environmentObject(store)
             }
     }

@@ -21,6 +21,7 @@ struct FeatureTTSReaderApp: App {
             .environmentObject(store)
             .task { DebugLogger.startSession() }
             .task {
+                await EdgeTTSService.shared.autoConfigureIfNeeded()
                 await EdgeTTSService.shared.probeServerLatencies()
             }
             .onChange(of: scenePhase) { _, newPhase in

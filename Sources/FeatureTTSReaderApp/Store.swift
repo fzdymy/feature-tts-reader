@@ -1795,7 +1795,7 @@ final class ReaderStore: NSObject, ObservableObject {
             guard let firstPara = paras.first, !firstPara.isEmpty else { return nil }
 
             let narratorVoice: String = await MainActor.run {
-                UserDefaults.standard.string(forKey: "readerNarratorVoice") ?? "zh-CN-XiaoxiaoNeural"
+                UserDefaults.standard.string(forKey: "narratorVoice") ?? "zh-CN-XiaoxiaoNeural"
             }
 
             // Use fastest TTS server for speculative synthesis

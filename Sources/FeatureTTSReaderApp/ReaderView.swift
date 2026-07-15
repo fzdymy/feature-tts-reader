@@ -195,7 +195,8 @@ struct ReaderView: View {
                         store.saveState()
                     }
                 },
-                store: store
+                store: store,
+                aiCacheAvailable: $aiCacheAvailable
             ))
     }
 
