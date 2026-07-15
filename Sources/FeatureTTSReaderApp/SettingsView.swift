@@ -306,6 +306,11 @@ struct SettingsView: View {
                     .onChange(of: maxCacheSize) { _, newValue in
                         UserDefaults.standard.set(newValue, forKey: "maxCacheSize")
                     }
+
+                    Toggle("调试日志", isOn: Binding(
+                        get: { UserDefaults.standard.bool(forKey: DebugLogger.enabledKey) },
+                        set: { UserDefaults.standard.set($0, forKey: DebugLogger.enabledKey) }
+                    ))
                 }
 
                 // MARK: - 关于

@@ -4,6 +4,13 @@ import os
 /// 调试日志：每次 app 启动生成一个 .jsonl 文件追加写入 Documents/debug/
 /// 每行一个 JSON 对象，方便一次性发送整个文件排查问题
 enum DebugLogger {
+    /// UserDefaults key：是否启用调试日志
+    static let enabledKey = "debugLoggerEnabled"
+
+    /// 是否启用调试日志
+    static var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: enabledKey)
+    }
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd_HHmmss"
@@ -49,6 +56,7 @@ enum DebugLogger {
         file: String = #fileID,
         line: Int = #line
     ) {
+        guard isEnabled else { return }
         let timestamp = isoFormatter.string(from: Date())
         var entry: [String: Any] = [
             "timestamp": timestamp,

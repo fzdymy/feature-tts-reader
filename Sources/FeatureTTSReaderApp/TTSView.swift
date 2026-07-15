@@ -1294,75 +1294,26 @@ private actor StatusTracker {
 
     /// 综合 AI gender 与名字关键词判定性别（AI 优先，unknown 时回退关键词）
     static nonisolated func resolveGender(speaker: String, aiGender: CharacterGender?) -> CharacterGender {
-        if let g = aiGender, g != .unknown { return g }
-        let isFemale = speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") || speaker.contains("姐") || speaker.contains("娘") || speaker.contains("妈") || speaker.contains("婆") || speaker.contains("奶") || speaker.contains("妹") || speaker.contains("嫂") || speaker.contains("婶") || speaker.contains("女士") || speaker.contains("太太") || speaker.contains("夫人")
-        let isMale = speaker.contains("公") || speaker.contains("哥") || speaker.contains("爷") || speaker.contains("兄") || speaker.contains("他") || speaker.contains("叔") || speaker.contains("爸") || speaker.contains("父") || speaker.contains("先生") || speaker.contains("少爷") || speaker.contains("公子") || speaker.contains("郎") || speaker.contains("伯") || speaker.contains("舅")
-        if isFemale { return .female }
-        if isMale { return .male }
-        return .unknown
-    }
-
-    /// 根据情绪和角色名计算语速偏移
-    static nonisolated func rateOffset(for segment: AISegment, preferredRate: Double? = nil) -> Int {
-        var offset = 0
-        switch segment.emotion {
-        case .angry, .shouting, .excited: offset += 4
-        case .happy, .cheerful, .surprised: offset += 2
-        case .sad, .fearful, .whispering, .calm, .gentle: offset -= 2
-        default: break
-        }
-        if let pr = preferredRate { offset += Int(pr.rounded()) }
-        return offset
-    }
-
-    /// 根据 tone 关键词推导基准音量(dB)，叠加全局滑块偏移，输出 SSML 兼容 dB 值
-    static nonisolated func resolvedVolume(tone: String, globalOffset: Double) -> String {
-        let t = tone
-        let baseDb: Double
-        if t.contains("大喊") || t.contains("怒吼") || t.contains("咆哮") || t.contains("吼叫") || t.contains("大喝") || t.contains("厉喝") || t.contains("怒喝") || t.contains("厉声") || t.contains("怒声") || t.contains("高喝") {
-            baseDb = 8
-        } else if t.contains("喊") || t.contains("叫") || t.contains("嚷") || t.contains("喝令") {
-            baseDb = 4
-        } else if t.contains("低语") || t.contains("轻声") || t.contains("悄悄") || t.contains("小声") || t.contains("窃窃") || t.contains("低喃") || t.contains("低声道") || t.contains("低声") || t.contains("沉吟") {
-            baseDb = -4
-        } else if t.contains("耳语") || t.contains("气声") || t.contains("呢喃") || t.contains("默念") || t.contains("无声") {
-            baseDb = -8
-        } else {
-            baseDb = 0
-        }
-        // 全局滑块每步 0.5dB，叠加到基准音量上
-        let total = baseDb + globalOffset * 0.5
-        return String(format: "%+.1fdB", total)
-    }
-
-    /// 根据情绪和角色名计算音调偏移
-    static nonisolated func pitchOffset(for segment: AISegment, speakerName: String, preferredPitch: Double? = nil) -> Int {
-        let gender = resolveGender(speaker: speakerName, aiGender: Optional(segment.gender).map { g in
+        let gender: Gender? = aiGender.map { g in
             switch g {
-            case .male: return CharacterGender.male
-            case .female: return CharacterGender.female
-            case .unknown: return CharacterGender.unknown
+            case .male: return .male
+            case .female: return .female
+            case .unknown: return .unknown
             }
-        })
-        let genderOffset: Int = {
-            switch gender {
-            case .female: return 4
-            case .male: return -2
-            case .unknown: return speakerName == "旁白" ? 0 : -2
-            }
-        }()
-        let emotionOffset: Int = {
-            switch segment.emotion {
-            case .excited, .happy, .cheerful: return 3
-            case .surprised: return 5
-            case .sad, .fearful, .whispering, .calm: return -2
-            case .angry, .shouting: return 2
-            default: return 0
-            }
-        }()
-        var offset = genderOffset + emotionOffset
-        if let pp = preferredPitch { offset += Int(pp.rounded()) }
-        return offset
+        }
+        return TTSUtility.resolveGender(speaker: speaker, aiGender: gender)
+    }
+
+    static nonisolated func rateOffset(for segment: AISegment, preferredRate: Double? = nil) -> Int {
+        TTSUtility.rateOffset(for: segment, preferredRate: preferredRate)
+    }
+
+    static nonisolated func resolvedVolume(tone: String, globalOffset: Double) -> String {
+        TTSUtility.resolvedVolume(tone: tone, globalOffset: globalOffset)
+    }
+
+    static nonisolated func pitchOffset(for segment: AISegment, speakerName: String, preferredPitch: Double? = nil) -> Int {
+        TTSUtility.pitchOffset(for: segment, speakerName: speakerName, preferredPitch: preferredPitch)
     }
 
     private func synthesizeAndPlayCustom() {

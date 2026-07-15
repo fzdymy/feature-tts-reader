@@ -11,11 +11,6 @@ private final class AudioControllerRef: @unchecked Sendable {
     init(_ c: AdvancedAudioPlaybackController?) { self.controller = c }
 }
 
-private final class FirstPlayFlag: @unchecked Sendable {
-    var value = true
-    init() {}
-}
-
 @MainActor
 struct ChapterNavigate: Equatable {
     let bookID: UUID
@@ -1861,27 +1856,47 @@ final class ReaderStore: NSObject, ObservableObject {
                     statusMessage = "正在解析第 \(sliceIdx + 1)/\(totalSlices) 片..."
                 }
 
-                let request = AIWorkerRequest(
-                    text: slice,
-                    sliceIndex: sliceIdx,
-                    totalSlices: totalSlices,
-                    context: context,
-                    focusFromParagraph: sliceIdx == 0 ? fromParagraphIndex : nil
-                )
-                let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
-                let rawSegments = response.segments
-                let segments = rawSegments.map { seg -> AISegment in
-                    AISegment(
-                        speaker: CharacterAliasManager.normalizeSpeakerName(seg.speaker),
-                        emotion: seg.emotion, tone: seg.tone, text: seg.text, gender: seg.gender
+                var retryCount = 0
+                let maxRetries = 2
+                var rawSegments: [AISegment] = []
+                var parseText = slice
+
+                while retryCount <= maxRetries {
+                    let request = AIWorkerRequest(
+                        text: parseText,
+                        sliceIndex: sliceIdx,
+                        totalSlices: totalSlices,
+                        context: context,
+                        focusFromParagraph: sliceIdx == 0 ? fromParagraphIndex : nil
                     )
+                    let response = try await AIWorkerService.shared.sendRequest(request, config: workerConfig)
+                    rawSegments = response.segments.map { seg in
+                        AISegment(
+                            speaker: CharacterAliasManager.normalizeSpeakerName(seg.speaker),
+                            emotion: seg.emotion, tone: seg.tone, text: seg.text, gender: seg.gender
+                        )
+                    }
+                    context = response.nextContext
+
+                    let isComplete = TTSUtility.isResultComplete(rawSegments, originalText: parseText)
+                    if isComplete || retryCount == maxRetries { break }
+
+                    if let lastSeg = rawSegments.last,
+                       let range = parseText.range(of: lastSeg.text) {
+                        let consumed = parseText[..<range.upperBound]
+                        parseText = String(parseText[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        context = "已解析：\(consumed.prefix(200))"
+                    }
+                    retryCount += 1
                 }
-                context = response.nextContext
+
+                let segments = rawSegments
 
                 DebugLogger.log(flow: "ai_worker", step: "playChapterWithAI_slice", details: [
                     "slice_index": sliceIdx,
                     "total_slices": totalSlices,
                     "segments_in_slice": segments.count,
+                    "retries": retryCount,
                 ])
 
                 allSegments.append(contentsOf: segments)
@@ -1933,14 +1948,17 @@ final class ReaderStore: NSObject, ObservableObject {
                 let sliceTotal = merged.count
 
                 let audioRef = AudioControllerRef(audioController)
-                let firstFlag = FirstPlayFlag()
-                // If speculative is playing, skip playQueue and go straight to appendToQueue
+                // Use OSAllocatedUnfairLock for Sendable-safe mutable flag
+                let firstFlagLock = OSAllocatedUnfairLock(initialState: true)
                 if isFirstSlice, await speculativePlayer.isSpeculative {
-                    firstFlag.value = false
+                    firstFlagLock.withLock { $0 = false }
                 }
                 let buffer = SynthesisBuffer { @Sendable readyItems in
-                    if firstFlag.value {
-                        firstFlag.value = false
+                    let isFirst = firstFlagLock.withLock {
+                        if $0 { $0 = false; return true }
+                        return false
+                    }
+                    if isFirst {
                         await audioRef.controller?.playQueue(readyItems)
                     } else {
                         await audioRef.controller?.appendToQueue(readyItems)
@@ -1952,13 +1970,14 @@ final class ReaderStore: NSObject, ObservableObject {
                         guard !Task.isCancelled else { break }
                         let speaker = seg.speaker
                         let voice = voiceMap[speaker] ?? ""
+
                         // Look up character profile for preferred rate/pitch
                         let profile = characters.first { $0.name == speaker || $0.aliases.contains(speaker) }
                         let prefRate = profile?.preferredRate
                         let prefPitch = profile?.preferredPitch
-                        let rate = TTSView.rateOffset(for: seg, preferredRate: prefRate)
-                        let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker, preferredPitch: prefPitch)
-                        let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
+                        let rate = TTSUtility.rateOffset(for: seg, preferredRate: prefRate)
+                        let pitch = TTSUtility.pitchOffset(for: seg, speakerName: speaker, preferredPitch: prefPitch)
+                        let volume = TTSUtility.resolvedVolume(tone: seg.tone, globalOffset: 0)
                         let style = seg.emotion.ssmlStyle
                         let paragraphIndex = baseIndex + segmentOffset + segIdx
                         group.addTask {
@@ -2143,10 +2162,13 @@ final class ReaderStore: NSObject, ObservableObject {
         let cacheServerID = await EdgeTTSService.shared.fastestServer()?.id
 
         let audioRef = AudioControllerRef(audioController)
-        let firstFlag = FirstPlayFlag()
+        let firstFlagLock = OSAllocatedUnfairLock(initialState: true)
         let buffer = SynthesisBuffer { @Sendable readyItems in
-            if firstFlag.value {
-                firstFlag.value = false
+            let isFirst = firstFlagLock.withLock {
+                if $0 { $0 = false; return true }
+                return false
+            }
+            if isFirst {
                 await audioRef.controller?.playQueue(readyItems)
             } else {
                 await audioRef.controller?.appendToQueue(readyItems)
@@ -2161,9 +2183,9 @@ final class ReaderStore: NSObject, ObservableObject {
                 let profile = characters.first { $0.name == speaker || $0.aliases.contains(speaker) }
                 let prefRate = profile?.preferredRate
                 let prefPitch = profile?.preferredPitch
-                let rate = TTSView.rateOffset(for: seg, preferredRate: prefRate)
-                let pitch = TTSView.pitchOffset(for: seg, speakerName: speaker, preferredPitch: prefPitch)
-                let volume = TTSView.resolvedVolume(tone: seg.tone, globalOffset: 0)
+                let rate = TTSUtility.rateOffset(for: seg, preferredRate: prefRate)
+                let pitch = TTSUtility.pitchOffset(for: seg, speakerName: speaker, preferredPitch: prefPitch)
+                let volume = TTSUtility.resolvedVolume(tone: seg.tone, globalOffset: 0)
                 let style = seg.emotion.ssmlStyle
 group.addTask {
                         let audioData = try await EdgeTTSService.shared.synthesize(
@@ -2355,12 +2377,11 @@ group.addTask {
         var current = segments[0]
         for seg in segments.dropFirst() {
             if seg.speaker == current.speaker && seg.emotion == current.emotion && seg.tone == current.tone {
-                let sep = current.text.hasSuffix("。") || current.text.hasSuffix("？") || current.text.hasSuffix("！") ? "" : "。"
                 current = AISegment(
                     speaker: current.speaker,
                     emotion: current.emotion,
                     tone: current.tone,
-                    text: current.text + sep + seg.text,
+                    text: current.text + seg.text,
                     gender: current.gender
                 )
             } else {

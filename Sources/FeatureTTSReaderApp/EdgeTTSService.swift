@@ -296,19 +296,7 @@ actor EdgeTTSService {
                 lastError = EdgeTTSError.invalidServerURL
                 continue
             }
-            let normalizedURL: URL = {
-                let urlStr = baseURL.absoluteString
-                if urlStr.hasSuffix("/") {
-                    return URL(string: String(urlStr.dropLast())) ?? baseURL
-                }
-                return baseURL
-            }()
-            let endpoint: URL
-            if normalizedURL.lastPathComponent == "tts" {
-                endpoint = normalizedURL.deletingLastPathComponent().appendingPathComponent("tts")
-            } else {
-                endpoint = normalizedURL.appendingPathComponent("tts")
-            }
+            let endpoint = Self.ttsAPIEndpoint(from: baseURL)
             do {
                 let request = try buildGetRequest(to: endpoint, text: trimmed, voice: voice, rate: Int(rate), pitch: Int(pitch), style: style, volume: volume, apiKey: server.apiKey)
                 DebugLogger.log(flow: "edge_tts", step: "synthesize_request", details: [
@@ -378,19 +366,7 @@ actor EdgeTTSService {
                 lastError = EdgeTTSError.invalidServerURL
                 continue
             }
-            let normalizedURL: URL = {
-                let urlStr = baseURL.absoluteString
-                if urlStr.hasSuffix("/") {
-                    return URL(string: String(urlStr.dropLast())) ?? baseURL
-                }
-                return baseURL
-            }()
-            let endpoint: URL
-            if normalizedURL.lastPathComponent == "tts" {
-                endpoint = normalizedURL.deletingLastPathComponent().appendingPathComponent("tts")
-            } else {
-                endpoint = normalizedURL.appendingPathComponent("tts")
-            }
+            let endpoint = Self.ttsAPIEndpoint(from: baseURL)
             do {
                 var request = try buildPostRequest(to: endpoint, ssml: trimmed, apiKey: server.apiKey)
                 let bodyPreview = (request.httpBody).flatMap { String(data: $0, encoding: .utf8) } ?? "(binary)"
@@ -444,6 +420,21 @@ actor EdgeTTSService {
         }
         request.httpBody = ssml.data(using: .utf8)
         return request
+    }
+
+    /// 从服务器 base URL 解析 TTS API 端点 (/api/v1/tts)
+    private static func ttsAPIEndpoint(from baseURL: URL) -> URL {
+        let urlStr = baseURL.absoluteString
+        let normalized: URL
+        if urlStr.hasSuffix("/") {
+            normalized = URL(string: String(urlStr.dropLast())) ?? baseURL
+        } else {
+            normalized = baseURL
+        }
+        if normalized.lastPathComponent == "tts" {
+            return normalized.deletingLastPathComponent().appendingPathComponent("api/v1/tts")
+        }
+        return normalized.appendingPathComponent("api/v1/tts")
     }
 
     /// 直接发送 SSML（用于情绪表达）

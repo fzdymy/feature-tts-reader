@@ -832,19 +832,43 @@ struct ReaderView: View {
         let indentStr = readerFirstLineIndent > 0 && !paraText.isEmpty
             ? String(repeating: "\u{3000}", count: Int(readerFirstLineIndent))
             : ""
-        Text(indentStr + paraText)
-            .font(Font.custom(readerFontName, size: readerFontSize))
-            .foregroundColor(textColor)
-            .lineSpacing(readerLineSpacing + 2)
+        if isReading {
+            let sentences = ReaderStore.splitBlockIntoSentences(paraText)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(sentences.indices, id: \.self) { si in
+                    let isActiveSentence = playbackSentenceIndex == si
+                    let prefix = si == 0 ? indentStr : ""
+                    Text(prefix + sentences[si])
+                        .font(Font.custom(readerFontName, size: readerFontSize))
+                        .foregroundColor(textColor)
+                        .lineSpacing(readerLineSpacing + 2)
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, 4)
+                        .background(isActiveSentence ? Color.accentColor.opacity(0.30) : Color.clear)
+                        .cornerRadius(4)
+                }
+            }
             .textSelection(.enabled)
-            .padding(.vertical, 4)
-            .padding(.horizontal, 4)
-            .background(isReading ? Color.accentColor.opacity(0.18) : Color.clear)
-            .cornerRadius(6)
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity, alignment: .leading)
             .contextMenu {
                 ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
+            }
+        } else {
+            Text(indentStr + paraText)
+                .font(Font.custom(readerFontName, size: readerFontSize))
+                .foregroundColor(textColor)
+                .lineSpacing(readerLineSpacing + 2)
+                .textSelection(.enabled)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 4)
+                .background(isReading ? Color.accentColor.opacity(0.18) : Color.clear)
+                .cornerRadius(6)
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contextMenu {
+                    ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
+            }
         }
     }
 }
