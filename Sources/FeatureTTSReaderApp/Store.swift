@@ -199,6 +199,14 @@ final class ReaderStore: NSObject, ObservableObject {
         // Load AI Worker configs
         loadWorkerConfigs()
         
+        // Observe AI Worker config changes to reconfigure rotator
+        $aiWorkerConfigs
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] configs in
+                self?.workerRotator.configure(with: configs)
+            }
+            .store(in: &cancellables)
+        
         // Probe TTS servers on launch (background)
         Task { await EdgeTTSService.shared.probeServerLatencies() }
         Task { await EdgeTTSService.shared.autoConfigureIfNeeded() }
@@ -216,6 +224,9 @@ final class ReaderStore: NSObject, ObservableObject {
                 selectedWorkerID = aiWorkerConfigs.first?.id
             }
         }
+        
+        // Configure worker rotator with loaded configs
+        workerRotator.configure(with: aiWorkerConfigs)
     }
 
     /// Write a crash marker to a file in Documents directory + UserDefaults.
