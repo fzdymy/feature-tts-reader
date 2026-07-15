@@ -141,6 +141,18 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         }
     }
 
+    func skipBackward(seconds: Double) {
+        guard let player = currentPlayer, player.currentTime > 0 else { return }
+        let newTime = max(0, player.currentTime - seconds)
+        player.currentTime = newTime
+    }
+
+    func skipForward(seconds: Double) {
+        guard let player = currentPlayer, player.duration > 0 else { return }
+        let newTime = min(player.duration, player.currentTime + seconds)
+        player.currentTime = newTime
+    }
+
     /// 在指定位置插入项
     func insertIntoQueue(_ items: [TTSQueueItem], at index: Int) {
         let clamped = min(max(index, 0), queue.count)
