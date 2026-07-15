@@ -1362,14 +1362,6 @@ private struct ReaderOverlayView: View {
                 .disabled(store.audioController.queueCount == 0)
 
                 Spacer()
-
-                // Advanced controls popover
-                    Image(systemName: "ellipsis.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(textColor.opacity(0.8))
-                }
-                        .presentationCompactAdaptation(.popover)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
