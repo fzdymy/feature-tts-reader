@@ -2593,13 +2593,14 @@ group.addTask {
         var merged: [AISegment] = []
         var current = segments[0]
         for seg in segments.dropFirst() {
-            if seg.speaker == current.speaker && seg.emotion == current.emotion && seg.tone == current.tone {
+            if seg.speaker == current.speaker && seg.emotion == current.emotion && seg.tone == current.tone && seg.gender == current.gender {
+                let resolved = current.gender == .unknown ? seg.gender : current.gender
                 current = AISegment(
                     speaker: current.speaker,
                     emotion: current.emotion,
                     tone: current.tone,
                     text: current.text + seg.text,
-                    gender: current.gender
+                    gender: resolved
                 )
             } else {
                 merged.append(current)

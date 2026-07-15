@@ -32,8 +32,11 @@ actor WorkerRotator {
             }
         }
 
-        let enabled = configs.filter { $0.isEnabled && !failedWorkerIDs.contains($0.id) }
-        guard !enabled.isEmpty else { return configs.first(where: { $0.isDefault }) ?? configs.first }
+        let enabled = sortByPriority(configs.filter { $0.isEnabled && !failedWorkerIDs.contains($0.id) })
+        guard !enabled.isEmpty else {
+            let all = sortByPriority(configs)
+            return all.first(where: { $0.isDefault }) ?? all.first
+        }
 
         if chapterCounter >= rotationInterval || sliceCount > maxSlicesPerWorker {
             currentIndex = (currentIndex + 1) % enabled.count
@@ -53,6 +56,10 @@ actor WorkerRotator {
     func markSuccess(_ id: UUID) {
         failedWorkerIDs.remove(id)
         failureCooldown.removeValue(forKey: id)
+    }
+
+    private func sortByPriority(_ cs: [AIWorkerConfig]) -> [AIWorkerConfig] {
+        cs.sorted { $0.priority > $1.priority }
     }
 
     /// 重置状态（切换书籍时调用）
