@@ -832,7 +832,14 @@ private actor StatusTracker {
                     let sCount = segments.count
                     let voiceIDs: [String] = segments.map { seg in
                         let raw = voiceForSpeaker(seg.speaker)
-                        return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: seg.gender, availableVoices: voices) : raw
+                        let cg: CharacterGender = {
+                            switch seg.gender {
+                            case .male: return .male
+                            case .female: return .female
+                            case .unknown: return .unknown
+                            }
+                        }()
+                        return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
                     }
                     let audioRef = SendableStoreRef(store.audioController)
 
@@ -1489,7 +1496,14 @@ private actor StatusTracker {
         characterResynthesisStates[speaker] = true
         // 先自动匹配音色（如果当前为空或为"自动"），再合成
         let currentVoice = voiceForSpeaker(speaker)
-        let autoVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: segments.first?.gender ?? .unknown, availableVoices: availableVoices)
+        let autoVoice = VoiceMatchUtility.autoMatchVoice(for: speaker, gender: {
+                let g = segments.first?.gender
+                switch g {
+                case .male: return CharacterGender.male
+                case .female: return CharacterGender.female
+                case .unknown, nil: return CharacterGender.unknown
+                }
+            }(), availableVoices: availableVoices)
         let resolvedVoice = currentVoice.isEmpty ? autoVoice : currentVoice
         if resolvedVoice != currentVoice {
             customCharacterVoices[speaker] = resolvedVoice
