@@ -845,12 +845,6 @@ struct ReaderView: View {
             .contextMenu {
                 ContextMenuContent(paraText: paraText, onAddCharacter: onAddCharacter)
         }
-        .task {
-            if let chID = store.selectedChapterID,
-               let ch = store.chapters.first(where: { $0.id == chID }) {
-                aiCacheAvailable = await store.aiParseCache.hasCachedSegments(for: ch)
-            }
-        }
     }
 }
 
