@@ -112,26 +112,31 @@ final class ReaderStore: NSObject, ObservableObject {
         isTestingServer = false
     }
 
-    // Chapter parse cache keyed by book ID + content hash
-    private var bookChaptersCache: [String: [BookChapter]] = [:]
+    // Chapter parse cache keyed by book ID (backward compatible) with content hash validation
+    private var bookChaptersCache: [UUID: [BookChapter]] = [:]
+    private var bookChaptersCacheHash: [UUID: String] = [:]  // content hash for validation
     private static let maxCachedBooks = 20
 
-    private func cacheKey(for bookID: UUID, text: String) -> String {
-        let hash = text.stableHash
-        return "\(bookID.uuidString)_\(hash)"
+    private func cacheHash(for text: String) -> String {
+        text.stableHash
     }
 
     private func setCachedChapters(_ chapters: [BookChapter], for bookID: UUID, text: String) {
-        let key = cacheKey(for: bookID, text: text)
         if bookChaptersCache.count >= Self.maxCachedBooks {
-            bookChaptersCache.removeValue(forKey: bookChaptersCache.keys.first!)
+            if let oldestKey = bookChaptersCache.keys.first {
+                bookChaptersCache.removeValue(forKey: oldestKey)
+                bookChaptersCacheHash.removeValue(forKey: oldestKey)
+            }
         }
-        bookChaptersCache[key] = chapters
+        bookChaptersCache[bookID] = chapters
+        bookChaptersCacheHash[bookID] = cacheHash(for: text)
     }
 
     func chaptersForBook(_ bookID: UUID, text: String) -> [BookChapter] {
-        let key = cacheKey(for: bookID, text: text)
-        if let cached = bookChaptersCache[key] { return cached }
+        let hash = cacheHash(for: text)
+        if let cached = bookChaptersCache[bookID], bookChaptersCacheHash[bookID] == hash {
+            return cached
+        }
         guard !text.isEmpty else { return [] }
         let parsed = Self.extractChapters(from: text)
         if !parsed.isEmpty {
@@ -141,9 +146,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func chaptersForBookCached(_ bookID: UUID) -> [BookChapter]? {
-        // Return most recent cached chapters for this book
-        let prefix = bookID.uuidString + "_"
-        return bookChaptersCache.first(where: { $0.key.hasPrefix(prefix) })?.value
+        bookChaptersCache[bookID]
     }
 
 // TTS Synthesis Cache with size limit
@@ -384,7 +387,10 @@ final class ReaderStore: NSObject, ObservableObject {
             }
             chapters = state.chapters
             if let bid = UUID(uuidString: state.currentBookID) {
-                bookChaptersCache[bid] = state.chapters
+                // Restore chapters cache with proper key (we don't have text here, so use UUID as fallback)
+                let key = "\(bid.uuidString)_legacy"
+                bookChaptersCache[key] = state.chapters
+                bookChaptersCacheHash[bid] = cacheHash(for: state.chapters.joined(separator: "\n"))
             }
             bookIDForChapters = UUID(uuidString: state.currentBookID)
             selectedChapterID = state.selectedChapterID
@@ -485,7 +491,9 @@ final class ReaderStore: NSObject, ObservableObject {
         saveAllTextsToFiles()
         chapters = state.chapters
         if let bid = UUID(uuidString: state.currentBookID) {
-            setCachedChapters(state.chapters, for: bid)
+            // Restore cache with full book text for validation
+            let fullText = state.books.first(where: { $0.id == bid })?.text ?? state.chapters.joined(separator: "\n")
+            setCachedChapters(state.chapters, for: bid, text: fullText)
         }
         characters = state.characters
         scriptSegments = state.scriptSegments
@@ -883,7 +891,7 @@ final class ReaderStore: NSObject, ObservableObject {
         await MainActor.run {
             chapters = extracted
             if let currentBookID = UUID(uuidString: currentBookID) {
-                setCachedChapters(extracted, for: currentBookID)
+                setCachedChapters(extracted, for: currentBookID, text: text)
             }
             bookIDForChapters = UUID(uuidString: currentBookID)
             selectedChapterID = chapters.first?.id
@@ -1041,7 +1049,7 @@ final class ReaderStore: NSObject, ObservableObject {
             let bookID = UUID()
             currentBookID = bookID.uuidString
             chapters = extracted
-            setCachedChapters(extracted, for: bookID)
+            setCachedChapters(extracted, for: bookID, text: trimmedText)
             bookIDForChapters = bookID
             selectedChapterID = chapters.first?.id
             characters = []
@@ -1070,7 +1078,7 @@ final class ReaderStore: NSObject, ObservableObject {
             scriptSegments = []
             recommendations = []
         }
-        bookChaptersCache.removeValue(forKey: bookID)
+        bookChaptersCache = bookChaptersCache.filter { !$0.key.hasPrefix(bookID.uuidString + "_") }
         let oldLen = text.count.formatted()
         let newLen = normalized.count.formatted()
         saveState()
@@ -1092,7 +1100,7 @@ final class ReaderStore: NSObject, ObservableObject {
         await MainActor.run {
             chapters = extracted
             if let currentBookID = UUID(uuidString: currentBookID) {
-                setCachedChapters(extracted, for: currentBookID)
+                setCachedChapters(extracted, for: currentBookID, text: text)
             }
             bookIDForChapters = UUID(uuidString: currentBookID)
             selectedChapterID = chapters.first?.id
@@ -1223,9 +1231,12 @@ final class ReaderStore: NSObject, ObservableObject {
         let targetText: String
         if wholeBook {
             targetText = bookText
-        } else if let bookID = UUID(uuidString: currentBookID),
-                  let chapter = (bookChaptersCache[bookID] ?? chapters).first(where: { $0.id == selectedChapterID }) {
-            targetText = chapter.text
+        } else if let bookID = UUID(uuidString: currentBookID) {
+            // Find cached chapters for this book (any cache key with this book's UUID prefix)
+            let cachedChapters = bookChaptersCache.first(where: { $0.key.hasPrefix(bookID.uuidString + "_") })?.value
+            let chapter = (cachedChapters ?? chapters).first(where: { $0.id == selectedChapterID }) {
+                targetText = chapter.text
+            }
         } else {
             targetText = bookText
         }

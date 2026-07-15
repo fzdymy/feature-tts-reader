@@ -842,7 +842,7 @@ private actor StatusTracker {
                         }()
                         return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
                     }
-let audioRef = SendableStoreRef(store.wrappedValue.audioController)
+let audioRef = SendableStoreRef(store.audioController)
 
                     let buf = SynthesisBuffer { [audioRef] items in
                         await MainActor.run {
@@ -1361,7 +1361,7 @@ let audioRef = SendableStoreRef(store.wrappedValue.audioController)
                 }()
                 return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
             }
-            let audioRef = SendableStoreRef(store.wrappedValue.audioController)
+let audioRef = SendableStoreRef(store.audioController)
 
             let synthBuf = SynthesisBuffer { [audioRef] items in
                 await MainActor.run {
@@ -1527,7 +1527,7 @@ let audioRef = SendableStoreRef(store.wrappedValue.audioController)
             }
 
             await MainActor.run {
-                store.wrappedValue.audioController.appendToQueue(items)
+                store.audioController.appendToQueue(items)
                 customSynthesisResult = "「\(speaker)」\(items.count) 段已入队"
                 characterResynthesisStates[speaker] = false
             }
@@ -2041,7 +2041,7 @@ let audioRef = SendableStoreRef(store.wrappedValue.audioController)
                 isTestingSynthesis = false
                 if result.contains("成功"), let url = store.ttsTestAudioURL {
                     Task {
-                        await store.wrappedValue.audioController.playFilesAndWait([url])
+                        await store.audioController.playFilesAndWait([url])
                     }
                 }
             }

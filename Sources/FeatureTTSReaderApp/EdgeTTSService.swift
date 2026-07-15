@@ -764,31 +764,4 @@ actor EdgeTTSService {
         if data.starts(with: id3Header) { return true }
         return data[0] == 0xFF && (data[1] & 0xE0) == 0xE0
     }
-
-    // MARK: - TTS Cache (LRU with max size and max age)
-    private func cacheKey(text: String, voice: String?, rate: Double, pitch: Double, style: String, volume: String) -> String {
-        let params = "\(text)|\(voice ?? "")|\(rate)|\(pitch)|\(style)|\(volume)"
-        return params.stableHash
-    }
-
-    private func getCachedData(for key: String) -> Data? {
-        guard let entry = ttsCache[key] else { return nil }
-        // Check age
-        if Date().timeIntervalSince(entry.timestamp) > ttsCacheMaxAge {
-            ttsCache.removeValue(forKey: key)
-            return nil
-        }
-        // Update timestamp (LRU)
-        ttsCache[key] = (entry.data, Date())
-        return entry.data
-    }
-
-    private func setCachedData(_ data: Data, for key: String) {
-        // Evict oldest if at capacity
-        if ttsCache.count >= ttsCacheMaxSize {
-            let oldestKey = ttsCache.min(by: { $0.value.timestamp < $1.value.timestamp })?.key
-            if let key = oldestKey { ttsCache.removeValue(forKey: key) }
-        }
-        ttsCache[key] = (data, Date())
-    }
 }
