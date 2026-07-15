@@ -16,6 +16,7 @@ struct CharacterAssignmentPanel: View {
     @State private var showImporter = false
     @State private var exportData = Data()
     @State private var showAllCharacters = false
+    @State private var scanTask: Task<Void, Never>?
 
     private let maxDisplayed = 100
 
@@ -136,7 +137,7 @@ struct CharacterAssignmentPanel: View {
                     Text(scanPhase).font(.caption2).foregroundColor(.accentColor)
                 }
                 Button("取消") {
-                    isScanning = false
+                    scanTask?.cancel()
                 }
                 .font(.caption2)
                 .foregroundColor(.red)
@@ -238,17 +239,17 @@ struct CharacterAssignmentPanel: View {
     // MARK: - Scan Pipeline
 
     private func startScan() {
-        isScanning = true
-        scanProgress = 0
-        scanPhase = ""
-        elapsedText = ""
-        etaText = ""
-        let startTime = Date()
-        let text = book.text
-        let defaultSensitivity = store.defaultSensitivity
-        let analyzer = CharacterAnalyzer()
-
-        Task { @MainActor in
+        scanTask?.cancel()
+        scanTask = Task { @MainActor in
+            isScanning = true
+            scanProgress = 0
+            scanPhase = ""
+            elapsedText = ""
+            etaText = ""
+            let startTime = Date()
+            let text = book.text
+            let defaultSensitivity = store.defaultSensitivity
+            let analyzer = CharacterAnalyzer()
             scanPhase = "正在扫描角色..."
             scanProgress = 0.0
 

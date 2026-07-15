@@ -61,6 +61,7 @@ struct ReaderView: View {
     @State private var cachedParagraphs: [UUID: [String]] = [:]
     @StateObject private var scrollCoordinator = ScrollCoordinator()
     @State private var aiCacheAvailable = false
+    @State private var showAdvancedControls = false
 
     private func navigateToChapter(_ target: Int) {
         let safeTarget = min(max(0, target), chaptersList.count - 1)
@@ -1316,8 +1317,24 @@ private struct ReaderOverlayView: View {
 
             Divider()
 
-            // Simplified control row
+            // Core controls row
             HStack(spacing: 12) {
+                Button(action: {
+                    store.audioController.skipToPrevious()
+                }) {
+                    Image(systemName: "backward.end.circle.fill")
+                        .font(.system(size: 24))
+                }
+                .disabled(store.audioController.queueCount == 0)
+
+                Button(action: {
+                    store.audioController.skipBackward(seconds: 15)
+                }) {
+                    Image(systemName: "gobackward.15")
+                        .font(.system(size: 22))
+                }
+                .disabled(store.audioController.queueCount == 0)
+
                 Button(action: {
                     if store.ttsIsPlaying {
                         store.audioController.pause()
@@ -1326,47 +1343,36 @@ private struct ReaderOverlayView: View {
                     }
                 }) {
                     Image(systemName: store.ttsIsPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 28))
+                        .font(.system(size: 32))
                 }
 
-                if store.audioController.queueCount > 0 {
-                    Text("队列:\(store.audioController.queueCount)")
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
+                Button(action: {
+                    store.audioController.skipForward(seconds: 15)
+                }) {
+                    Image(systemName: "goforward.15")
+                        .font(.system(size: 22))
                 }
+                .disabled(store.audioController.queueCount == 0)
+
+                Button(action: {
+                    store.audioController.skipToNext()
+                }) {
+                    Image(systemName: "forward.end.circle.fill")
+                        .font(.system(size: 24))
+                }
+                .disabled(store.audioController.queueCount == 0)
 
                 Spacer()
 
-                // Speed popover
-                Menu {
-                    Slider(value: Binding(
-                        get: { UserDefaults.standard.double(forKey: "globalRate") },
-                        set: { UserDefaults.standard.set($0, forKey: "globalRate") }
-                    ), in: -10...10, step: 1)
-                    Text("语速: \(Int(UserDefaults.standard.double(forKey: "globalRate")))")
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "speedometer")
-                        Text("\(Int(UserDefaults.standard.double(forKey: "globalRate")))")
-                            .font(.caption.monospaced())
-                    }
-                    .foregroundColor(textColor.opacity(0.8))
+                // Advanced controls popover
+                Button(action: { showAdvancedControls.toggle() }) {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(textColor.opacity(0.8))
                 }
-
-                // Volume popover
-                Menu {
-                    Slider(value: Binding(
-                        get: { UserDefaults.standard.double(forKey: "globalVolume") },
-                        set: { UserDefaults.standard.set($0, forKey: "globalVolume") }
-                    ), in: -10...10, step: 1)
-                    Text("音量: \(Int(UserDefaults.standard.double(forKey: "globalVolume")))dB")
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "speaker.wave.2")
-                        Text("\(Int(UserDefaults.standard.double(forKey: "globalVolume")))")
-                            .font(.caption.monospaced())
-                    }
-                    .foregroundColor(textColor.opacity(0.8))
+                .popover(isPresented: $showAdvancedControls, arrowEdge: .bottom) {
+                    advancedControlsPopover
+                        .presentationCompactAdaptation(.popover)
                 }
             }
             .padding(.horizontal, 16)
@@ -1389,6 +1395,72 @@ private struct ReaderOverlayView: View {
             .foregroundColor(textColor)
         }
         .background(.ultraThinMaterial)
+    }
+
+    private var advancedControlsPopover: some View {
+        VStack(spacing: 16) {
+            // Speed
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "speedometer")
+                    Text("语速")
+                    Spacer()
+                    Text("\(Int(UserDefaults.standard.double(forKey: "globalRate")))")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { UserDefaults.standard.double(forKey: "globalRate") },
+                    set: { UserDefaults.standard.set($0, forKey: "globalRate") }
+                ), in: -10...10, step: 1)
+            }
+
+            // Volume
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "speaker.wave.2.fill")
+                    Text("音量")
+                    Spacer()
+                    Text("\(Int(UserDefaults.standard.double(forKey: "globalVolume")))dB")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { UserDefaults.standard.double(forKey: "globalVolume") },
+                    set: { UserDefaults.standard.set($0, forKey: "globalVolume") }
+                ), in: -12...12, step: 1)
+            }
+
+            // Overlap
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "timer")
+                    Text("重叠时长")
+                    Spacer()
+                    Text("\(Int(UserDefaults.standard.double(forKey: "globalOverlap")))ms")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { UserDefaults.standard.double(forKey: "globalOverlap") },
+                    set: { UserDefaults.standard.set($0, forKey: "globalOverlap") }
+                ), in: 0...500, step: 50)
+            }
+
+            // Queue info
+            if store.audioController.queueCount > 0 {
+                HStack {
+                    Image(systemName: "list.bullet")
+                    Text("队列剩余")
+                    Spacer()
+                    Text("\(store.audioController.queueCount)")
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 280)
     }
 
     // MARK: - Floating Audio Controls

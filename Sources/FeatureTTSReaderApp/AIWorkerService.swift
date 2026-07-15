@@ -27,6 +27,10 @@ final class AIWorkerService {
         ])
 
         for (idx, slice) in slices.enumerated() {
+            // Check for cancellation
+            if Task.isCancelled {
+                throw CancellationError()
+            }
             await progress?(Double(idx) / Double(slices.count), "正在解析第 \(idx + 1)/\(slices.count) 片...")
 
             let request = AIWorkerRequest(

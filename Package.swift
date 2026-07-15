@@ -17,6 +17,11 @@ let package = Package(
             name: "FeatureTTSReaderApp",
             path: "Sources/FeatureTTSReaderApp",
             resources: [.copy("Models")]
+        ),
+        .testTarget(
+            name: "FeatureTTSReaderTests",
+            dependencies: ["FeatureTTSReaderApp"],
+            path: "Tests/FeatureTTSReaderTests"
         )
     ]
 )

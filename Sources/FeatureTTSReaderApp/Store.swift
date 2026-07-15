@@ -100,6 +100,7 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     private var playbackTask: Task<Void, Never>?
+    private var scanTask: Task<Void, Never>?
     @Published private(set) var isStateLoaded = false
 
     /// 测试 Edge TTS relay 服务是否可用
@@ -1132,82 +1133,96 @@ final class ReaderStore: NSObject, ObservableObject {
     }
 
     func scanCharacters(chapterText: String? = nil) async {
-        ensureVoiceOptionsLoaded()
-        let targetText = chapterText ?? bookText
+        // Cancel any existing scan
+        scanTask?.cancel()
+        scanTask = Task {
+            ensureVoiceOptionsLoaded()
+            let targetText = chapterText ?? bookText
 
-        // Use AI Worker instead of local scanner
-        guard let workerConfig = getDefaultWorkerConfig() else {
-            await MainActor.run {
-                statusMessage = "请先在设置中配置 AI Worker"
-            }
-            return
-        }
-
-        await MainActor.run { statusMessage = "正在通过 AI Worker 识别角色..." }
-
-        do {
-            let segments = try await AIWorkerService.shared.processChapter(
-                text: targetText,
-                config: workerConfig,
-                progress: { progress, message in
-                    await MainActor.run { self.statusMessage = message }
+            // Use AI Worker instead of local scanner
+            guard let workerConfig = getDefaultWorkerConfig() else {
+                await MainActor.run {
+                    statusMessage = "请先在设置中配置 AI Worker"
                 }
-            )
-
-            // Convert AISegment to CharacterProfile
-            let speakers = Array(Set(segments.map { $0.speaker })).sorted()
-            var profiles: [CharacterProfile] = []
-            for speaker in speakers {
-                let speakerSegments = segments.filter { $0.speaker == speaker }
-                let isNarrator = speaker == "旁白"
-                let gender: CharacterGender = isNarrator ? .unknown : (speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") ? .female : .male)
-                let tone = isNarrator ? "平稳" : speakerSegments.first?.emotion.rawValue ?? "平稳"
-                let voiceID = "" // Will be auto-assigned
-
-                let profile = CharacterProfile(
-                    id: UUID(),
-                    name: speaker,
-                    aliases: [],
-                    gender: gender,
-                    age: isNarrator ? "未知" : "青年",
-                    tone: tone,
-                    voiceID: voiceID,
-                    rate: 0,
-                    pitch: 0,
-                    style: "neutral",
-                    sensitivity: defaultSensitivity,
-                    isNarrator: isNarrator,
-                    role: isNarrator ? .narrator : .character,
-                    bookID: UUID(uuidString: currentBookID)
-                )
-                profiles.append(profile)
+                return
             }
 
-            await MainActor.run {
-                // Assign voices
-                var final = profiles.map { profile in
-                    var p = profile
-                    if p.voiceID.isEmpty {
-                        p.voiceID = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
+            await MainActor.run { statusMessage = "正在通过 AI Worker 识别角色..." }
+
+            do {
+                let segments = try await AIWorkerService.shared.processChapter(
+                    text: targetText,
+                    config: workerConfig,
+                    progress: { progress, message in
+                        await MainActor.run { self.statusMessage = message }
                     }
-                    return p
+                )
+
+                // Check if task was cancelled
+                if Task.isCancelled { return }
+
+                // Convert AISegment to CharacterProfile
+                let speakers = Array(Set(segments.map { $0.speaker })).sorted()
+                var profiles: [CharacterProfile] = []
+                for speaker in speakers {
+                    let speakerSegments = segments.filter { $0.speaker == speaker }
+                    let isNarrator = speaker == "旁白"
+                    let gender: CharacterGender = isNarrator ? .unknown : (speaker.contains("女") || speaker.contains("小姐") || speaker.contains("姑娘") || speaker.contains("她") ? .female : .male)
+                    let tone = isNarrator ? "平稳" : speakerSegments.first?.emotion.rawValue ?? "平稳"
+                    let voiceID = "" // Will be auto-assigned
+
+                    let profile = CharacterProfile(
+                        id: UUID(),
+                        name: speaker,
+                        aliases: [],
+                        gender: gender,
+                        age: isNarrator ? "未知" : "青年",
+                        tone: tone,
+                        voiceID: voiceID,
+                        rate: 0,
+                        pitch: 0,
+                        style: "neutral",
+                        sensitivity: defaultSensitivity,
+                        isNarrator: isNarrator,
+                        role: isNarrator ? .narrator : .character,
+                        bookID: UUID(uuidString: currentBookID)
+                    )
+                    profiles.append(profile)
                 }
 
-                if final.isEmpty {
-                    final = [CharacterProfile(id: UUID(), name: "叙述者", gender: .unknown, age: "未知", tone: "中性", voiceID: defaultVoice(for: .unknown, tone: "平稳", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
-                    statusMessage = "未识别到明确人物，已创建默认叙述者。"
-                } else {
-                    statusMessage = "已识别 \(final.count) 个角色。"
+                await MainActor.run {
+                    // Assign voices
+                    var final = profiles.map { profile in
+                        var p = profile
+                        if p.voiceID.isEmpty {
+                            p.voiceID = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
+                        }
+                        return p
+                    }
+
+                    if final.isEmpty {
+                        final = [CharacterProfile(id: UUID(), name: "叙述者", gender: .unknown, age: "未知", tone: "中性", voiceID: defaultVoice(for: .unknown, tone: "平稳", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                        statusMessage = "未识别到明确人物，已创建默认叙述者。"
+                    } else {
+                        statusMessage = "已识别 \(final.count) 个角色。"
+                    }
+                    characters.removeAll { $0.bookID == UUID(uuidString: currentBookID) || $0.bookID == nil }
+                    characters.append(contentsOf: final)
+                    lastScannedBookText = targetText
+                    updateRecommendations(from: targetText)
+                    saveState()
                 }
-                characters.removeAll { $0.bookID == UUID(uuidString: currentBookID) || $0.bookID == nil }
-                characters.append(contentsOf: final)
-                lastScannedBookText = targetText
-                updateRecommendations(from: targetText)
-                saveState()
-            }
-        } catch {
-            await MainActor.run {
-                statusMessage = "识别失败: \(error.localizedDescription)"
+            } catch {
+                // Check if it's a cancellation - don't show error
+                if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                    await MainActor.run { statusMessage = "扫描已取消" }
+                    return
+                }
+
+                // AI Worker failed - fallback to local scanner
+                await MainActor.run { statusMessage = "AI Worker 失败，正在回退本地扫描..." }
+
+                await scanCharactersLocal(chapterText: chapterText)
             }
         }
     }
