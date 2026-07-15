@@ -89,4 +89,23 @@ enum TTSUtility {
         let afterText = originalText[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
         return afterText.isEmpty
     }
+
+    /// 按中文/英文句号、问号、感叹号分割句子（与 Store.splitBlockIntoSentences 一致）
+    static nonisolated func splitBlockIntoSentences(_ text: String) -> [String] {
+        let terminators = "。！？.!?"
+        let nonIndentWs = CharacterSet.whitespacesAndNewlines.subtracting(CharacterSet(charactersIn: "\u{3000}"))
+        var sentences: [String] = []
+        var current = ""
+        for ch in text {
+            current.append(ch)
+            if terminators.contains(ch) {
+                let trimmed = current.trimmingCharacters(in: nonIndentWs)
+                if !trimmed.isEmpty { sentences.append(trimmed) }
+                current = ""
+            }
+        }
+        let trimmed = current.trimmingCharacters(in: nonIndentWs)
+        if !trimmed.isEmpty { sentences.append(trimmed) }
+        return sentences.isEmpty ? [text] : sentences
+    }
 }

@@ -671,10 +671,11 @@ let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
                     }
 
                     // 播放控制（队列有内容时稳定显示，不闪烁）
-                    if store.audioController.queueCount > 0 || store.audioController.isPlaying {
+                    let audioController = store.audioController
+                    if audioController.queueCount > 0 || audioController.isPlaying {
                         HStack {
                             Button {
-                                store.audioController.pause()
+                                audioController.pause()
                             } label: {
                                 HStack(spacing: 6) {
                                     Label("暂停", systemImage: "pause.circle.fill")
@@ -685,7 +686,7 @@ let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
                             .buttonStyle(.bordered)
 
                             Button {
-                                store.audioController.resume()
+                                audioController.resume()
                             } label: {
                                 HStack(spacing: 6) {
                                     Label("继续", systemImage: "play.circle.fill")
@@ -696,7 +697,7 @@ let aiGender = speakerSegments.first(where: { $0.gender != .unknown })?.gender
                             .buttonStyle(.bordered)
 
                             Button {
-                                store.audioController.stop()
+                                audioController.stop()
                             } label: {
                                 HStack(spacing: 6) {
                                     Label("停止", systemImage: "stop.circle.fill")
@@ -841,7 +842,7 @@ private actor StatusTracker {
                         }()
                         return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
                     }
-                    let audioRef = SendableStoreRef(store.audioController)
+let audioRef = SendableStoreRef(store.wrappedValue.audioController)
 
                     let buf = SynthesisBuffer { [audioRef] items in
                         await MainActor.run {
@@ -1360,7 +1361,7 @@ private actor StatusTracker {
                 }()
                 return raw.isEmpty ? VoiceMatchUtility.autoMatchVoice(for: seg.speaker, gender: cg, availableVoices: voices) : raw
             }
-            let audioRef = SendableStoreRef(store.audioController)
+            let audioRef = SendableStoreRef(store.wrappedValue.audioController)
 
             let synthBuf = SynthesisBuffer { [audioRef] items in
                 await MainActor.run {
@@ -1526,7 +1527,7 @@ private actor StatusTracker {
             }
 
             await MainActor.run {
-                store.audioController.appendToQueue(items)
+                store.wrappedValue.audioController.appendToQueue(items)
                 customSynthesisResult = "「\(speaker)」\(items.count) 段已入队"
                 characterResynthesisStates[speaker] = false
             }
@@ -2040,7 +2041,7 @@ private actor StatusTracker {
                 isTestingSynthesis = false
                 if result.contains("成功"), let url = store.ttsTestAudioURL {
                     Task {
-                        await store.audioController.playFilesAndWait([url])
+                        await store.wrappedValue.audioController.playFilesAndWait([url])
                     }
                 }
             }

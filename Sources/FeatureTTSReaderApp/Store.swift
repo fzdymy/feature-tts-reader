@@ -89,22 +89,6 @@ final class ReaderStore: NSObject, ObservableObject {
             }
         }
     }
-            // Persist authKeys to Keychain
-            for config in aiWorkerConfigs {
-                try? KeychainUtility.saveString(key: KeychainUtility.accountKey(for: config.id, suffix: "authKey"), value: config.authKey)
-            }
-            // Clean up orphaned keys
-            let validIDs = Set(aiWorkerConfigs.map { $0.id })
-            if let allKeys = try? KeychainUtility.allKeys(for: KeychainUtility.service) {
-                for key in allKeys where key.hasSuffix("-authKey") {
-                    let idString = key.replacingOccurrences(of: "-authKey", with: "")
-                    if let uuid = UUID(uuidString: idString), !validIDs.contains(uuid) {
-                        try? KeychainUtility.delete(key: key)
-                    }
-                }
-            }
-        }
-    }
     @Published var selectedWorkerID: UUID? {
         didSet {
             if let id = selectedWorkerID {
@@ -1575,7 +1559,7 @@ final class ReaderStore: NSObject, ObservableObject {
                 guard block.globalStart + block.texts.count > startParaIndex else { continue }
                 for (offset, paraText) in block.texts.enumerated() {
                     let pIdx = block.globalStart + offset
-                    let sentences = Self.splitBlockIntoSentences(paraText)
+                    let sentences = TTSUtility.splitBlockIntoSentences(paraText)
                     for (sIdx, sentence) in sentences.enumerated() {
                         if pIdx == startParaIndex && sIdx < startSentenceIndex { continue }
                         let parts = Self.parseDialogueSegments(in: sentence, characters: characters, lastSpeaker: lastSpeaker)
