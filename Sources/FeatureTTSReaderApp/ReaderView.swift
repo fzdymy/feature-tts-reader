@@ -1385,70 +1385,9 @@ private struct ReaderOverlayView: View {
         .background(.ultraThinMaterial)
     }
 
-        VStack(spacing: 16) {
-            // Speed
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: "speedometer")
-                    Text("语速")
-                    Spacer()
-                    Text("\(Int(UserDefaults.standard.double(forKey: "globalRate")))")
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                }
-                Slider(value: Binding(
-                    get: { UserDefaults.standard.double(forKey: "globalRate") },
-                    set: { UserDefaults.standard.set($0, forKey: "globalRate") }
-                ), in: -10...10, step: 1)
-            }
-
-            // Volume
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: "speaker.wave.2.fill")
-                    Text("音量")
-                    Spacer()
-                    Text("\(Int(UserDefaults.standard.double(forKey: "globalVolume")))dB")
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                }
-                Slider(value: Binding(
-                    get: { UserDefaults.standard.double(forKey: "globalVolume") },
-                    set: { UserDefaults.standard.set($0, forKey: "globalVolume") }
-                ), in: -12...12, step: 1)
-            }
-
-            // Overlap
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: "timer")
-                    Text("重叠时长")
-                    Spacer()
-                    Text("\(Int(UserDefaults.standard.double(forKey: "globalOverlap")))ms")
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                }
-                Slider(value: Binding(
-                    get: { UserDefaults.standard.double(forKey: "globalOverlap") },
-                    set: { UserDefaults.standard.set($0, forKey: "globalOverlap") }
-                ), in: 0...500, step: 50)
-            }
-
-            // Queue info
-            if store.audioController.queueCount > 0 {
-                HStack {
-                    Image(systemName: "list.bullet")
-                    Text("队列剩余")
-                    Spacer()
-                    Text("\(store.audioController.queueCount)")
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding(16)
-        .frame(width: 280)
-    }
+    // MARK: - Advanced Controls Popover (for SettingsView integration)
+    // Advanced controls (speed/volume/overlap) are accessed via SettingsView popover.
+    // This marker preserves the section for future ReaderSettingsView expansion.
 
     // MARK: - Floating Audio Controls
 

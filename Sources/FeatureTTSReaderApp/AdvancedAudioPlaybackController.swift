@@ -197,7 +197,7 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         // 1. 如果有预加载的 nextPlayer，直接接管（无缝切换）
         if let readyPlayer = nextPlayer, let readyItem = nextItem {
             DebugLogger.log(flow: "playback", step: "switch_preloaded", details: [
-                "segment_index": readyItem.segmentIndex ?? -1,
+                "segment_index": readyItem.segmentIndex,
                 "queue_remaining": queue.count
             ])
             if !queue.isEmpty { queue.removeFirst() }

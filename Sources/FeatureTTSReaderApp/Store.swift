@@ -1277,7 +1277,7 @@ final class ReaderStore: NSObject, ObservableObject {
         var inferred = [CharacterProfile]()
         let uniqueNames = dedupNames.sorted()
 
-        for (idx, name) in uniqueNames.enumerated() {
+        for (_, name) in uniqueNames.enumerated() {
             if Task.isCancelled { return }
             let attrs = await Task.detached(priority: .userInitiated) { [analyzer] in
                 analyzer.estimateAttributes(for: name, in: text)
