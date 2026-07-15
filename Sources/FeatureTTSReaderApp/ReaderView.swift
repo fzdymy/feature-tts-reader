@@ -32,6 +32,7 @@ struct ReaderView: View {
     @State private var showFontPicker = false
     @State private var showTOC = false
     @State private var isImmersive = false
+    @State private var showAdvancedControls = false
 
     @State private var isAudioMode = false
     @State private var isPlaying = false

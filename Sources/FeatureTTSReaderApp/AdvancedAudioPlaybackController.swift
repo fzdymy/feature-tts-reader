@@ -129,6 +129,18 @@ final class AdvancedAudioPlaybackController: NSObject, ObservableObject {
         return false
     }
 
+    func skipToPrevious() {
+        // If currently playing, restart current item; otherwise play previous in history
+        if let current = currentItem {
+            // Restart current
+            playQueue(playbackHistory + [current])
+        } else if !playbackHistory.isEmpty {
+            // Play last item in history
+            let prev = playbackHistory.removeLast()
+            playQueue([prev])
+        }
+    }
+
     /// 在指定位置插入项
     func insertIntoQueue(_ items: [TTSQueueItem], at index: Int) {
         let clamped = min(max(index, 0), queue.count)

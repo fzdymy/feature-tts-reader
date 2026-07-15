@@ -1227,6 +1227,150 @@ final class ReaderStore: NSObject, ObservableObject {
         }
     }
 
+    private func scanCharactersLocal(chapterText: String? = nil) async {
+        let targetText = chapterText ?? bookText
+        guard !targetText.isEmpty else {
+            await MainActor.run { statusMessage = "没有文本可扫描" }
+            return
+        }
+
+        await MainActor.run { statusMessage = "正在进行本地角色扫描..." }
+
+        // Use the same logic as CharacterAssignmentView.startScan()
+        let analyzer = CharacterAnalyzer()
+        let text = targetText
+
+        // Phase 1: extractCandidates
+        await MainActor.run { statusMessage = "正在提取候选角色..." }
+        var allNames = await Task.detached(priority: .userInitiated) {
+            analyzer.extractCandidates(from: text)
+        }.value
+
+        // Phase 2: AC automaton frequency
+        await MainActor.run { statusMessage = "正在统计分析..." }
+        let capturedNames = allNames
+        let freqResult = await Task.detached(priority: .userInitiated) {
+            analyzer.countCharacterFrequencies(text: text, candidates: capturedNames)
+        }.value
+        let minFreq: Int
+        if allNames.isEmpty { minFreq = 0 }
+        else if allNames.count <= 10 { minFreq = 1 }
+        else { minFreq = max(2, text.count / 200_000) }
+        let filtered = Set(freqResult.filter { $0.value >= minFreq }.map(\.key))
+
+        // Dedup
+        let rankedNames = freqResult.sorted { $0.value > $1.value }
+        var dedupNames = Set<String>()
+        for (name, _) in rankedNames {
+            if !filtered.contains(name) { continue }
+            let isPrefix = dedupNames.contains { $0.count >= 2 && name.hasPrefix($0) && $0 != name }
+            if !isPrefix { dedupNames.insert(name) }
+        }
+
+        // Cap at top 100
+        let freqMap = Dictionary(uniqueKeysWithValues: rankedNames.filter { allNames.contains($0.key) })
+        let sortedByFreq = allNames.sorted { (freqMap[$0] ?? 0) > (freqMap[$1] ?? 0) }
+        allNames = Set(sortedByFreq.prefix(100))
+
+        // Phase 3: multi-paragraph voting for attributes
+        await MainActor.run { statusMessage = "正在提取属性..." }
+        var inferred = [CharacterProfile]()
+        let uniqueNames = dedupNames.sorted()
+
+        for (idx, name) in uniqueNames.enumerated() {
+            if Task.isCancelled { return }
+            let attrs = await Task.detached(priority: .userInitiated) { [analyzer] in
+                analyzer.estimateAttributes(for: name, in: text)
+            }.value
+            let gender: CharacterGender = attrs.gender == "Male" ? .male : (attrs.gender == "Female" ? .female : .unknown)
+            let age = attrs.age
+            let acFreq = freqResult[name] ?? 0
+            inferred.append(CharacterProfile(
+                id: UUID(), name: name, aliases: [],
+                gender: gender, age: age, tone: attrs.baseTone,
+                voiceID: "", rate: attrs.baseRate, pitch: attrs.basePitch, style: attrs.baseStyle,
+                sensitivity: defaultSensitivity, appearanceCount: acFreq,
+                bookID: bookIDForChapters
+            ))
+            await Task.yield()
+        }
+
+        if inferred.isEmpty {
+            inferred = [CharacterProfile(id: UUID(), name: "叙述者", aliases: [], gender: .unknown,
+                age: "未知", tone: "平稳", voiceID: "", rate: 0, pitch: 0, style: "neutral",
+                sensitivity: defaultSensitivity, appearanceCount: 1, bookID: bookIDForChapters)]
+        } else if !inferred.contains(where: { $0.isNarrator }) {
+            inferred.insert(CharacterProfile(
+                id: UUID(), name: "旁白", aliases: [], gender: .unknown, age: "未知", tone: "平稳",
+                voiceID: "", rate: 0, pitch: 0, style: "neutral",
+                sensitivity: defaultSensitivity, isNarrator: true, role: .narrator,
+                appearanceCount: 1, bookID: bookIDForChapters
+            ), at: 0)
+        }
+
+        // Phase 4: merge title-suffixed aliases
+        let titleSuffixes: Set<String> = ["书记", "市长", "局长", "经理", "医生",
+                                          "老师", "公主", "殿下", "仙子", "同学",
+                                          "同志", "总裁", "主管", "主任", "姑娘"]
+        var mergedMap: [UUID: CharacterProfile] = [:]
+        var toRemove = Set<UUID>()
+        for profile in inferred where profile.name.count >= (titleSuffixes.first?.count ?? 2) {
+            guard let suffix = titleSuffixes.first(where: { profile.name.hasSuffix($0) }),
+                  profile.name.count > suffix.count else { continue }
+            let base = String(profile.name.dropLast(suffix.count))
+            let candidates = inferred.filter {
+                $0.id != profile.id && !$0.isNarrator && $0.name.hasPrefix(base)
+            }
+            if let best = candidates.max(by: { $0.appearanceCount < $1.appearanceCount }) {
+                toRemove.insert(profile.id)
+                var merged = mergedMap[best.id] ?? best
+                if !merged.aliases.contains(profile.name) {
+                    merged.aliases = (merged.aliases + [profile.name]).sorted()
+                }
+                mergedMap[best.id] = merged
+            }
+        }
+        if !toRemove.isEmpty {
+            inferred.removeAll { toRemove.contains($0.id) || mergedMap.keys.contains($0.id) }
+            inferred.append(contentsOf: mergedMap.values)
+        }
+
+        // Phase 5: resolve aliases
+        if inferred.count >= 2 {
+            let names = inferred.map(\.name)
+            let resolved = CharacterAnalyzer.resolveAliases(names)
+            for (canonical, aliases) in resolved where !aliases.isEmpty {
+                if let idx = inferred.firstIndex(where: { $0.name == canonical }) {
+                    let existing = Set(inferred[idx].aliases)
+                    inferred[idx].aliases = (inferred[idx].aliases + aliases.filter { !existing.contains($0) }).sorted()
+                }
+            }
+        }
+
+        // Assign voices
+        var final = inferred.map { profile in
+            var p = profile
+            if p.voiceID.isEmpty {
+                p.voiceID = defaultVoice(for: p.gender, tone: p.tone, name: p.name, voices: voices)
+            }
+            return p
+        }
+
+        await MainActor.run {
+            if final.isEmpty {
+                final = [CharacterProfile(id: UUID(), name: "叙述者", gender: .unknown, age: "未知", tone: "中性", voiceID: defaultVoice(for: .unknown, tone: "平稳", voices: voices), rate: 0, pitch: 0, style: "neutral", sensitivity: defaultSensitivity)]
+                statusMessage = "本地扫描未识别到明确人物，已创建默认叙述者。"
+            } else {
+                statusMessage = "本地扫描完成，已识别 \(final.count) 个角色。"
+            }
+            characters.removeAll { $0.bookID == UUID(uuidString: currentBookID) || $0.bookID == nil }
+            characters.append(contentsOf: final)
+            lastScannedBookText = targetText
+            updateRecommendations(from: targetText)
+            saveState()
+        }
+    }
+
     private func getDefaultWorkerConfig() -> AIWorkerConfig? {
         if let data = UserDefaults.standard.data(forKey: "aiWorkerConfigs"),
            let decoded = try? JSONDecoder().decode([AIWorkerConfig].self, from: data) {
